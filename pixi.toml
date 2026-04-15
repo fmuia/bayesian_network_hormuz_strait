@@ -1,0 +1,24 @@
+[workspace]
+name = "strait-of-hormuz-demo"
+version = "0.1.0"
+description = "Adaptive scenario probability framework for a Strait of Hormuz crisis (BN demo)."
+authors = ["Francesco Muia <francesco.muia@ai-and-analytics-solutions.com>"]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+python = "3.11.*"
+pip = "*"
+
+[pypi-dependencies]
+pgmpy = ">=0.1.26"
+streamlit = ">=1.45,<2"
+networkx = ">=3.3,<4"
+matplotlib = ">=3.9,<4"
+pandas = ">=2.2,<3"
+numpy = ">=1.26,<3"
+pytest = ">=8.3,<9"
+
+[tasks]
+test = "pytest -q"
+app = "streamlit run app/dashboard.py"
