@@ -159,11 +159,16 @@ st.markdown(
       }}
       .card-sub {{ font-size: 0.82rem; color: {MUTED}; margin-bottom: 0.7rem; }}
 
-      /* Scenario cards */
+      /* Scenario cards — CSS-grid row, no Streamlit columns needed */
+      .scenario-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+      }}
       .scenario-card {{
         background: white; border: 1px solid {RULE};
         border-left: 5px solid {NAVY};
-        padding: 1rem 1.1rem; border-radius: 6px; height: 100%;
+        padding: 1rem 1.1rem; border-radius: 6px;
       }}
       .scenario-name {{
         font-size: 0.74rem; font-weight: 700;
@@ -377,6 +382,7 @@ def _delete_named_session(name: str) -> bool:
 def _append_observation(
     headline: str,
     assignments: Dict[str, str],
+    soft_assignments: Optional[Dict[str, Dict[str, float]]] = None,
     rationale: str = "",
     per_assignment_reasons: Optional[Dict[str, str]] = None,
     source: str = "translator",
@@ -385,6 +391,7 @@ def _append_observation(
         day=st.session_state.current_day,
         headline=headline,
         assignments=dict(assignments),
+        soft_assignments=dict(soft_assignments or {}),
         rationale=rationale,
         per_assignment_reasons=per_assignment_reasons or {},
         source=source,
@@ -392,12 +399,18 @@ def _append_observation(
     st.session_state.observations.append({"id": uuid.uuid4().hex, **asdict(obs)})
 
 
-def _merged_evidence() -> Dict[str, str]:
+def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     """Latest observation wins on conflict, in insertion order."""
-    merged: Dict[str, str] = {}
+    hard_merged: Dict[str, str] = {}
+    soft_merged: Dict[str, Dict[str, float]] = {}
     for obs in st.session_state.observations:
-        merged.update(obs["assignments"])
-    return merged
+        for node, state in obs.get("assignments", {}).items():
+            hard_merged[node] = state
+            soft_merged.pop(node, None)
+        for node, dist in obs.get("soft_assignments", {}).items():
+            soft_merged[node] = {k: float(v) for k, v in dist.items()}
+            hard_merged.pop(node, None)
+    return hard_merged, soft_merged
 
 
 def _render_model_overview() -> None:
@@ -414,10 +427,10 @@ def _render_model_overview() -> None:
         "scenarios.</p>"
         "<h4>Two layers</h4>"
         "<p>A free-text headline is passed through an LLM translator "
-        "that extracts only the BN-relevant assignments (e.g. "
-        "<i>\"Fourth tanker incident in two weeks\"</i> → "
-        "<code>Tanker_Incidents = frequent</code>). Those "
-        "assignments become BN evidence; variable-elimination "
+        "that extracts BN-relevant probabilistic assignments (e.g. "
+        "<i>\"Fourth tanker incident in two weeks\"</i> gives a high "
+        "probability to <code>Tanker_Incidents = frequent</code>). "
+        "Those soft assignments become BN evidence; variable-elimination "
         "propagates them and yields the posterior distribution at "
         "every node.</p>"
         "<h4>Scenario definitions</h4>"
@@ -449,12 +462,12 @@ def _render_model_appendix() -> None:
 
         **Inference rule**
 
-        \[
+        $$
         P(S \mid E=e) =
         \frac{\sum_{z} P(S, z, e)}{\sum_{s}\sum_{z} P(s, z, e)}
-        \]
+        $$
 
-        where \(S\) is the scenario node and \(z\) are latent/unobserved nodes.
+        where $S$ is the scenario node and $z$ are latent/unobserved nodes.
 
         **Translator-to-evidence pipeline**
 
@@ -467,11 +480,11 @@ def _render_model_appendix() -> None:
 
         Credible intervals are estimated by resampling CPT columns from Dirichlet distributions and rerunning inference:
 
-        \[
+        $$
         \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot})
-        \]
+        $$
 
-        with concentration set to 20 and \(m=200\) draws in the dashboard.
+        with concentration set to 20 and $m=200$ draws in the dashboard.
         """
     )
 
@@ -535,9 +548,13 @@ def _run_translator(headline: str, stream_slot) -> None:
         "provider": result.provider,
     }
     if result.assignments:
+        soft_assignments = {
+            a.node: dict(a.state_probs) for a in result.assignments
+        }
         _append_observation(
             headline=result.headline,
-            assignments=result.as_evidence_dict(),
+            assignments={},
+            soft_assignments=soft_assignments,
             rationale=result.rationale,
             per_assignment_reasons={a.node: a.reason for a in result.assignments},
             source="translator",
@@ -702,20 +719,27 @@ with st.sidebar:
 
 engine = get_engine()
 engine.clear_evidence()
-evidence = _merged_evidence()
+evidence, soft_evidence = _merged_evidence()
 if evidence:
     engine.update_evidence(evidence)
+if soft_evidence:
+    engine.update_soft_evidence(soft_evidence)
 
 scenario_probs = engine.get_scenario_probabilities()
+ci_evidence = dict(evidence)
+for node, dist in soft_evidence.items():
+    ci_evidence[node] = max(dist, key=dist.get)
 with st.spinner("Quantifying parameter uncertainty…"):
-    ci_table = cached_credible_intervals(tuple(sorted(evidence.items())))
+    ci_table = cached_credible_intervals(tuple(sorted(ci_evidence.items())))
 
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
 # Map each observed node to the latest day it was set.
 observed_day_map: Dict[str, int] = {}
 for obs in st.session_state.observations:
-    for node in obs["assignments"]:
+    for node in obs.get("assignments", {}):
+        observed_day_map[node] = obs["day"]
+    for node in obs.get("soft_assignments", {}):
         observed_day_map[node] = obs["day"]
 
 
@@ -739,26 +763,22 @@ with st.container(border=True):
     st.markdown("<div class='card-title'>Scenario outlook</div>",
                 unsafe_allow_html=True)
 
-    card_cols = st.columns(3, gap="medium")
-    for col, scenario in zip(
-        card_cols, ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]
-    ):
+    cards_html = "<div class='scenario-grid'>"
+    for scenario in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
         mean, lo, hi = ci_table[scenario]
         color = SCENARIO_COLOR[scenario]
         label = SCENARIO_LABEL[scenario]
         narrative = SCENARIO_NARRATIVES[scenario]
-        with col:
-            st.markdown(
-                f"""
-                <div class='scenario-card' style='border-left-color:{color};'>
-                  <div class='scenario-name' style='color:{color};'>{label}</div>
-                  <div class='scenario-prob' style='color:{color};'>{mean*100:0.1f}%</div>
-                  <div class='scenario-ci'>80% CI: {lo*100:0.1f}% – {hi*100:0.1f}%</div>
-                  <div class='scenario-narrative'>{narrative}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        cards_html += (
+            f"<div class='scenario-card' style='border-left-color:{color};'>"
+            f"  <div class='scenario-name' style='color:{color};'>{label}</div>"
+            f"  <div class='scenario-prob' style='color:{color};'>{mean*100:0.1f}%</div>"
+            f"  <div class='scenario-ci'>80% CI: {lo*100:0.1f}% – {hi*100:0.1f}%</div>"
+            f"  <div class='scenario-narrative'>{narrative}</div>"
+            f"</div>"
+        )
+    cards_html += "</div>"
+    st.markdown(cards_html, unsafe_allow_html=True)
 
     with st.expander("Uncertainty detail — 80% credible intervals", expanded=False):
         ci_df = pd.DataFrame([
@@ -846,13 +866,22 @@ with st.container(border=True):
         for obs in st.session_state.observations:
             grouped.setdefault(obs["day"], []).append(obs)
 
-        cumulative: Dict[str, str] = {}
+        cum_hard: Dict[str, str] = {}
+        cum_soft: Dict[str, Dict[str, float]] = {}
         for day in sorted(grouped):
             day_obs = grouped[day]
             for obs in day_obs:
-                cumulative.update(obs["assignments"])
+                for node, state in obs.get("assignments", {}).items():
+                    cum_hard[node] = state
+                    cum_soft.pop(node, None)
+                for node, dist in obs.get("soft_assignments", {}).items():
+                    cum_soft[node] = {k: float(v) for k, v in dist.items()}
+                    cum_hard.pop(node, None)
             engine_h.clear_evidence()
-            engine_h.update_evidence(cumulative)
+            if cum_hard:
+                engine_h.update_evidence(cum_hard)
+            if cum_soft:
+                engine_h.update_soft_evidence(cum_soft)
             headlines = " · ".join(o["headline"] for o in day_obs)
             if len(headlines) > 180:
                 headlines = headlines[:177] + "…"
@@ -951,7 +980,8 @@ with tab_net:
                 "<div class='card-title'>Interactive DAG — click a node</div>"
                 "<div class='card-sub'>Fixed layout for at-a-glance reading. "
                 "Hover nodes to see full percentages. Root drivers use dedicated "
-                "color families for clearer separation.</div>"
+                "color families for clearer separation. Node labels show posterior "
+                "output after propagating all injected evidence.</div>"
                 f"<div>{root_chip_html}</div>",
                 unsafe_allow_html=True,
             )
@@ -988,10 +1018,19 @@ with tab_net:
                         "</div>",
                         unsafe_allow_html=True,
                     )
+                elif sel in soft_evidence:
+                    dist = soft_evidence[sel]
+                    top_state = max(dist, key=dist.get)
+                    st.markdown(
+                        f"<div class='card-sub'>Soft evidence from headlines: "
+                        f"<b>{top_state}</b> ({dist[top_state]*100:0.1f}%, "
+                        f"day {observed_day_map.get(sel, '?')})</div>",
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.markdown(
-                        "<div class='card-sub'>Posterior marginal given current "
-                        "evidence:</div>",
+                        "<div class='card-sub'>Posterior marginal after propagating "
+                        "all injected evidence:</div>",
                         unsafe_allow_html=True,
                     )
                 for state, prob in marginal.items():
@@ -1059,6 +1098,11 @@ with tab_obs:
     with trans_col:
         st.markdown("<div class='card-title'>Latest translation</div>",
                     unsafe_allow_html=True)
+        st.markdown(
+            "<div class='card-sub'>Translator percentages are evidence inputs "
+            "(soft evidence), not posterior outputs.</div>",
+            unsafe_allow_html=True,
+        )
         if st.session_state.translator_error:
             st.error(st.session_state.translator_error)
         elif st.session_state.last_translation is None:
@@ -1085,18 +1129,25 @@ with tab_obs:
                 unsafe_allow_html=True,
             )
             if t["assignments"]:
-                with st.expander("Per-assignment reasoning"):
+                with st.expander("Per-assignment evidence input (translator soft evidence)"):
                     for a in t["assignments"]:
+                        probs = a.get("state_probs", {})
+                        probs_text = " · ".join(
+                            f"{k.replace('_',' ')}: {float(v)*100:0.1f}%"
+                            for k, v in probs.items()
+                        )
+                        probs_suffix = f"  \n  {probs_text}" if probs_text else ""
                         st.markdown(
                             f"- **{a['node'].replace('_',' ')} = "
                             f"`{a['state']}`** — {a['reason']}"
+                            f"{probs_suffix}"
                         )
         if st.session_state.translator_raw:
             with st.expander("Raw model response (debug)"):
                 st.code(st.session_state.translator_raw, language="json")
 
     with log_col:
-        st.markdown("<div class='card-title'>Observation log</div>",
+        st.markdown("<div class='card-title'>Observation log (injected evidence inputs)</div>",
                     unsafe_allow_html=True)
         if not st.session_state.observations:
             st.markdown(
@@ -1112,9 +1163,19 @@ with tab_obs:
                 day_obs = grouped[day]
                 rows_html = ""
                 for obs in day_obs:
-                    assign_str = " · ".join(
+                    hard_assign_str = " · ".join(
                         f"{n.replace('_',' ')} = {s}"
-                        for n, s in obs["assignments"].items()
+                        for n, s in obs.get("assignments", {}).items()
+                    )
+                    soft_assign_str = " · ".join(
+                        (
+                            f"{node.replace('_',' ')} ≈ {max(dist, key=dist.get)} "
+                            f"({max(dist.values())*100:0.1f}%, soft)"
+                        )
+                        for node, dist in obs.get("soft_assignments", {}).items()
+                    )
+                    assign_str = " · ".join(
+                        part for part in [hard_assign_str, soft_assign_str] if part
                     )
                     rows_html += (
                         f"<div class='obs-row'>"
@@ -1152,19 +1213,30 @@ with tab_obs:
 # ---------------------------------------------------------------------------
 
 with tab_audit:
-    st.markdown("<div class='card-title'>Updates by day</div>",
+    st.markdown("<div class='card-title'>Updates by day (injected evidence inputs)</div>",
                 unsafe_allow_html=True)
     if not st.session_state.observations:
         st.caption("No observations yet.")
     else:
         update_rows = []
         for obs in sorted(st.session_state.observations, key=lambda o: o["day"]):
-            for node, state in obs["assignments"].items():
+            for node, state in obs.get("assignments", {}).items():
                 reason = obs.get("per_assignment_reasons", {}).get(node, "")
                 update_rows.append({
                     "Day": obs["day"],
                     "Node": node.replace("_", " "),
-                    "State": state,
+                    "Injected evidence": state,
+                    "Headline / note": obs["headline"],
+                    "Rationale": reason,
+                    "Source": obs["source"],
+                })
+            for node, dist in obs.get("soft_assignments", {}).items():
+                reason = obs.get("per_assignment_reasons", {}).get(node, "")
+                top_state = max(dist, key=dist.get)
+                update_rows.append({
+                    "Day": obs["day"],
+                    "Node": node.replace("_", " "),
+                    "Injected evidence": f"{top_state} ({dist[top_state]*100:0.1f}%, soft)",
                     "Headline / note": obs["headline"],
                     "Rationale": reason,
                     "Source": obs["source"],
@@ -1176,7 +1248,9 @@ with tab_audit:
             column_config={
                 "Day": st.column_config.NumberColumn("Day", width="small"),
                 "Node": st.column_config.TextColumn("Node", width="medium"),
-                "State": st.column_config.TextColumn("State", width="small"),
+                "Injected evidence": st.column_config.TextColumn(
+                    "Injected evidence", width="medium"
+                ),
                 "Headline / note": st.column_config.TextColumn(
                     "Headline / note", width="large"),
                 "Rationale": st.column_config.TextColumn(
@@ -1206,21 +1280,28 @@ with tab_audit:
         rows = []
         for node in group_nodes:
             marginal = engine.get_node_marginal(node)
+            observed_label = evidence.get(node, "")
+            if not observed_label and node in soft_evidence:
+                dist = soft_evidence[node]
+                top_state = max(dist, key=dist.get)
+                observed_label = f"{top_state} ({dist[top_state]*100:0.0f}%, soft)"
             row = {
                 "Node": node.replace("_", " "),
-                "Observed": evidence.get(node, ""),
+                "Injected evidence": observed_label,
             }
             for state in state_set:
-                row[state] = float(marginal.get(state, 0.0))
+                row[state] = float(marginal.get(state, 0.0)) * 100
             rows.append(row)
-        df = pd.DataFrame(rows, columns=["Node", "Observed", *state_set])
+        df = pd.DataFrame(rows, columns=["Node", "Injected evidence", *state_set])
         col_cfg = {
             "Node": st.column_config.TextColumn("Node", width="medium"),
-            "Observed": st.column_config.TextColumn("Observed", width="small"),
+            "Injected evidence": st.column_config.TextColumn(
+                "Injected evidence", width="medium"
+            ),
         }
         for s in state_set:
             col_cfg[s] = st.column_config.ProgressColumn(
-                s, format="%.1f%%", min_value=0.0, max_value=1.0,
+                s, format="%.1f%%", min_value=0.0, max_value=100.0,
             )
         st.dataframe(
             df, hide_index=True, use_container_width=True,

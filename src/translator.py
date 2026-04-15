@@ -45,6 +45,7 @@ class TranslatorAssignment:
     node: str
     state: str
     reason: str
+    state_probs: Dict[str, float]
 
 
 @dataclass
@@ -94,13 +95,30 @@ def _node_state_enum_schema() -> Dict:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["node", "state", "reason"],
+                    "required": ["node", "state", "reason", "state_probs"],
                     "properties": {
                         "node": {"type": "string", "enum": node_names},
                         "state": {"type": "string"},
                         "reason": {
                             "type": "string",
                             "description": "One short sentence explaining this assignment.",
+                        },
+                        "state_probs": {
+                            "type": "array",
+                            "description": (
+                                "Probability distribution over states for this node. "
+                                "Must sum to 1.0."
+                            ),
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["state", "prob"],
+                                "properties": {
+                                    "state": {"type": "string"},
+                                    "prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                                },
+                            },
+                            "minItems": 2,
                         },
                     },
                 },
@@ -136,9 +154,11 @@ def _system_prompt() -> str:
     lines += [
         "",
         "Given one news headline, output a JSON object with:",
-        "  - assignments: list of {node, state, reason}. Include only nodes "
+        "  - assignments: list of {node, state, reason, state_probs}. Include only nodes "
         "the headline directly speaks to or strongly implies. Typical "
         "headlines map to 1-3 assignments. Do NOT invent assignments.",
+        "    For each assignment, state_probs must include ALL allowed states for that node",
+        "    and probabilities must sum to 1.0. Use decimals (e.g., 0.70).",
         "  - overall_rationale: one or two sentences summarising your read.",
         "",
         "Do not set the 'Scenario' node; it is the terminal node to be "
@@ -201,6 +221,7 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
         node = item.get("node")
         state = item.get("state")
         reason = item.get("reason", "")
+        probs_raw = item.get("state_probs", [])
         if node not in STATES:
             raise TranslatorError(f"Translator returned unknown node: {node!r}")
         if node == "Scenario":
@@ -210,7 +231,66 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
                 f"Translator returned invalid state {state!r} for node "
                 f"{node!r}; valid: {STATES[node]}"
             )
-        assignments.append(TranslatorAssignment(node=node, state=state, reason=reason))
+        probs: Dict[str, float]
+        if probs_raw:
+            probs = {}
+            parsed_items = []
+            if isinstance(probs_raw, dict):
+                parsed_items = [
+                    {"state": k, "prob": v} for k, v in probs_raw.items()
+                ]
+            elif isinstance(probs_raw, list):
+                parsed_items = probs_raw
+            elif isinstance(probs_raw, str):
+                try:
+                    loaded = json.loads(probs_raw)
+                except json.JSONDecodeError as exc:
+                    raise TranslatorError(
+                        f"Translator returned non-JSON state_probs string for node {node!r}"
+                    ) from exc
+                if isinstance(loaded, dict):
+                    parsed_items = [{"state": k, "prob": v} for k, v in loaded.items()]
+                elif isinstance(loaded, list):
+                    parsed_items = loaded
+                else:
+                    raise TranslatorError(
+                        f"Translator returned unsupported state_probs shape for node {node!r}"
+                    )
+            else:
+                raise TranslatorError(
+                    f"Translator returned unsupported state_probs type "
+                    f"{type(probs_raw).__name__} for node {node!r}"
+                )
+
+            for p in parsed_items:
+                if not isinstance(p, dict):
+                    raise TranslatorError(
+                        f"Translator returned malformed state_probs item for node {node!r}"
+                    )
+                s = p.get("state")
+                if s not in STATES[node]:
+                    raise TranslatorError(
+                        f"Translator returned invalid state_probs state {s!r} for node {node!r}"
+                    )
+                try:
+                    probs[s] = float(p.get("prob", 0.0))
+                except (TypeError, ValueError) as exc:
+                    raise TranslatorError(
+                        f"Translator returned non-numeric probability for {node}.{s}"
+                    ) from exc
+            for s in STATES[node]:
+                probs.setdefault(s, 0.0)
+            total = sum(probs.values())
+            if total <= 0:
+                raise TranslatorError(f"Translator returned zero-sum probabilities for {node}")
+        else:
+            probs = {s: (1.0 if s == state else 0.0) for s in STATES[node]}
+            total = 1.0
+        probs = {k: v / total for k, v in probs.items()}
+        top_state = max(probs, key=probs.get)
+        assignments.append(
+            TranslatorAssignment(node=node, state=top_state, reason=reason, state_probs=probs)
+        )
     return assignments, payload.get("overall_rationale", "")
 
 

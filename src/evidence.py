@@ -22,6 +22,7 @@ class Observation:
     day: int
     headline: str
     assignments: Dict[str, str]            # {node: state}
+    soft_assignments: Dict[str, Dict[str, float]] = field(default_factory=dict)
     rationale: str = ""                    # translator's overall_rationale, if any
     per_assignment_reasons: Dict[str, str] = field(default_factory=dict)
     source: Literal["translator", "manual"] = "translator"

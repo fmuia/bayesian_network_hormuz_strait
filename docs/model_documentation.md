@@ -292,17 +292,19 @@ The order in which hidden variables are eliminated affects computational cost bu
 
 `BNInferenceEngine` (`src/inference.py`) wraps pgmpy's inference in a stateful API:
 
-- **`__init__`**: takes an optional pre-built network (defaults to `build_network()`), creates a `VariableElimination` engine, initializes an empty evidence dict.
+- **`__init__`**: takes an optional pre-built network (defaults to `build_network()`), creates a `VariableElimination` engine, initializes an empty hard-evidence dict and soft-evidence dict.
 
-- **`update_evidence(evidence)`**: merges new `{node: state}` pairs into the stored evidence dict. Validates every node name against `STATES` and every state value against `STATES[node]`. If the same node is set again, the new value overwrites the old one.
+- **`update_evidence(evidence)`**: merges new hard `{node: state}` pairs into the stored evidence dict. Validates every node name against `STATES` and every state value against `STATES[node]`. If the same node is set again, the new value overwrites the old one.
 
-- **`clear_evidence()`**: resets evidence to empty — returns the model to the prior.
+- **`update_soft_evidence(soft_evidence)`**: merges new soft evidence `{node: {state: prob}}`, normalizes each node distribution, and converts it to pgmpy virtual evidence at query time.
 
-- **`get_scenario_probabilities()`**: queries $P(\text{Scenario} \mid E)$ under current accumulated evidence. Calls pgmpy's `query(["Scenario"], evidence=self._evidence)`.
+- **`clear_evidence()`**: resets hard and soft evidence to empty — returns the model to the prior.
+
+- **`get_scenario_probabilities()`**: queries $P(\text{Scenario} \mid E,\lambda)$ under current accumulated hard evidence $E$ and soft evidence $\lambda$. Calls pgmpy's `query(..., evidence=self._evidence, virtual_evidence=[...])`.
 
 - **`get_prior_probabilities()`**: queries $P(\text{Scenario})$ with no evidence (regardless of stored evidence), for comparison purposes.
 
-- **`get_node_marginal(node)`**: queries $P(\text{node} \mid E)$. If the node is itself in evidence, returns a delta distribution (1.0 on the observed state, 0.0 elsewhere) directly, without calling pgmpy.
+- **`get_node_marginal(node)`**: queries $P(\text{node} \mid E,\lambda)$. If the node is hard-observed, returns a delta distribution (1.0 on the observed state, 0.0 elsewhere) directly, without calling pgmpy.
 
 - **`_distribution(factor, node)`**: static helper that converts a pgmpy `DiscreteFactor` to a `{state: probability}` Python dict.
 
@@ -314,7 +316,7 @@ The engine does **not** rebuild the network when evidence changes. pgmpy's VE ha
 
 ### 4.1 The problem
 
-A raw headline like *"Fourth tanker incident in two weeks; insurers raise war-risk premia"* is unstructured text. The model needs structured evidence: `{Tanker_Incidents: "frequent"}`.
+A raw headline like *"Fourth tanker incident in two weeks; insurers raise war-risk premia"* is unstructured text. The model needs structured evidence over BN states, ideally probabilistic rather than deterministic.
 
 ### 4.2 How `src/translator.py` solves it
 
@@ -322,7 +324,7 @@ The translator sends the headline to an LLM (Claude or OpenAI) with a **system p
 
 - the three scenarios and their narratives
 - every node name and its allowed states (read from `STATES`)
-- instructions to output a JSON object with `assignments` (list of `{node, state, reason}`) and an `overall_rationale`
+- instructions to output a JSON object with `assignments` (list of `{node, state, reason, state_probs}`) and an `overall_rationale`
 - constraints: only assign nodes the headline directly speaks to; do not set the `Scenario` node (it is terminal, inferred not observed)
 
 The LLM response is validated in two stages:
@@ -330,7 +332,14 @@ The LLM response is validated in two stages:
 1. **Schema validation**: OpenAI uses `strict` JSON mode; Claude output is parsed with `_extract_json_block`.
 2. **Domain validation** (`_validate_payload`): each `node` must be in `STATES`; each `state` must be in `STATES[node]`; any `Scenario` assignments are silently dropped.
 
-The result is a `TranslatorResult` containing validated `TranslatorAssignment` objects, each with a node, state, and reason string. The `.as_evidence_dict()` method flattens these to a `{node: state}` dict suitable for `update_evidence`.
+The result is a `TranslatorResult` containing validated `TranslatorAssignment` objects, each with:
+
+- `node`
+- `state` (top state)
+- `reason`
+- `state_probs` (full probability vector over allowed states)
+
+If a provider omits probabilities, validation falls back to one-hot (`100/0/...`) for compatibility.
 
 
 ### 4.3 How evidence flows in the dashboard
@@ -339,10 +348,16 @@ In `app/dashboard.py`:
 
 1. User enters a headline (or clicks an example).
 2. Dashboard calls `translate_headline(...)`, streaming progress to a status widget.
-3. On success, `_append_observation(...)` creates an `Observation` record (day, headline, assignments, rationale, source) and appends it to `st.session_state.observations`.
-4. `_merged_evidence()` iterates over all observations in order; for each observation it calls `.update()` on a merged dict. **Latest assignment wins** per node.
-5. `engine.update_evidence(merged)` is called, and `engine.get_scenario_probabilities()` produces the new posterior.
+3. On success, `_append_observation(...)` creates an `Observation` record (day, headline, hard assignments, soft assignments, rationale, source) and appends it to `st.session_state.observations`.
+4. `_merged_evidence()` iterates over all observations in order and merges hard and soft evidence separately. **Latest evidence wins** per node.
+5. `engine.update_evidence(hard)` and `engine.update_soft_evidence(soft)` are called, and `engine.get_scenario_probabilities()` produces the new posterior.
 6. For the day-by-day probability evolution chart, the dashboard replays this process cumulatively for each day.
+
+Important UI interpretation:
+
+- Translator percentages are **injected evidence inputs**.
+- Network node percentages are **posterior outputs after BN propagation**.
+- Audit/log tables report **injected evidence**, not final node posteriors.
 
 ---
 
@@ -546,11 +561,12 @@ where $\Theta$ are model parameters (CPT entries or continuous parameters) and $
 
 ### 8.3 Hard evidence vs soft evidence
 
-**Hard evidence** (current behavior): a node is clamped to one state with probability 1. Inference conditions on that state exactly.
+Both are now implemented and used differently in the dashboard:
 
-Example: headline says "US conducts strikes against IRGC naval assets" → translator assigns `US_Military_Response = major`. The posterior treats this as certain.
+- **Headline translation**: soft evidence (via `state_probs` and pgmpy virtual evidence).
+- **Manual override**: hard evidence (state clamped to probability 1).
 
-**Soft evidence** (recommended extension): instead of clamping, provide a **likelihood vector** over all states:
+Soft evidence uses a likelihood vector over all states:
 
 $$
 \lambda(\text{node}) = [\lambda_1, \lambda_2, \ldots, \lambda_K]
@@ -562,13 +578,13 @@ $$
 \lambda(\text{US\_Military\_Response}) = [0.1, 0.4, 0.5]
 $$
 
-This multiplicatively reweights the node's marginal without collapsing it to a point. Soft evidence is particularly useful when:
+This multiplicatively reweights the node's marginal without collapsing it to a point. Soft evidence is useful when:
 
 - the headline is ambiguous
 - multiple conflicting sources exist on the same day
 - the translator's confidence is moderate
 
-pgmpy supports soft evidence through virtual evidence nodes, though the current codebase does not use this feature.
+In this codebase, soft evidence is passed through pgmpy's `virtual_evidence` argument in `VariableElimination.query`.
 
 ### 8.4 Incorporating market data as evidence
 
@@ -613,7 +629,7 @@ Options for handling this:
 | LLM headline → node assignments | Implemented | `src/translator.py` |
 | Cumulative evidence, day tracking | Implemented | `app/dashboard.py` |
 | Dirichlet-resampled uncertainty bands | Implemented | `src/sensitivity.py` |
-| Soft/likelihood evidence | Proposed | Section 8.3 |
+| Soft/likelihood evidence (headline-driven) | Implemented | `src/translator.py`, `src/inference.py`, `app/dashboard.py` |
 | Bayesian learning of CPT parameters | Proposed | Section 7.2 |
 | Continuous market observation nodes | Proposed | Section 6 |
 | Daily sequential pipeline | Proposed | Section 8.5 |
