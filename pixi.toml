@@ -9,6 +9,7 @@ platforms = ["osx-arm64", "osx-64", "linux-64"]
 [dependencies]
 python = "3.11.*"
 pip = "*"
+graphviz = ">=9"  # system binary used by the python graphviz wrapper
 
 [pypi-dependencies]
 pgmpy = ">=0.1.26"
@@ -20,6 +21,7 @@ numpy = ">=1.26,<3"
 pytest = ">=8.3,<9"
 openai = ">=1.54,<2"
 claude-agent-sdk = ">=0.1.0"
+graphviz = ">=0.20,<1"
 
 [tasks]
 test = "pytest -q"

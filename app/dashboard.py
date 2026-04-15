@@ -42,7 +42,7 @@ from src.translator import (
     is_available as translator_available,
     translate_headline,
 )
-from src.viz import render_network
+from src.viz import render_network_png
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -594,9 +594,58 @@ st.dataframe(
 # Full-width network diagram
 # ---------------------------------------------------------------------------
 
-st.markdown("<div class='section-title'>Network structure</div>", unsafe_allow_html=True)
-fig = render_network(observed_nodes=list(evidence.keys()))
-st.pyplot(fig, clear_figure=True)
+st.markdown("<div class='section-title'>Network structure &mdash; posterior marginals</div>",
+            unsafe_allow_html=True)
+
+# Full marginals for every node (engine already has current evidence applied).
+all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
+
+# Map each observed node to the latest day it was set, for the per-node badge.
+observed_day_map: Dict[str, int] = {}
+for obs in st.session_state.observations:
+    for node in obs["assignments"]:
+        observed_day_map[node] = obs["day"]
+
+png_bytes = render_network_png(
+    marginals=all_marginals,
+    observed=evidence,
+    observed_day=observed_day_map,
+)
+st.image(png_bytes, width="stretch")
+
+st.caption(
+    "Each card shows a node's posterior distribution given current evidence. "
+    "Teal cards are observed — the badge shows the day that observation "
+    "was recorded. The terminal SCENARIO card replicates the cards at the "
+    "top in network context."
+)
+
+# ---------------------------------------------------------------------------
+# Updates-by-day table (what each observation changed)
+# ---------------------------------------------------------------------------
+
+st.markdown("<div class='section-title'>Updates by day</div>", unsafe_allow_html=True)
+
+if not st.session_state.observations:
+    st.caption("No observations yet.")
+else:
+    update_rows = []
+    for obs in st.session_state.observations:
+        for node, state in obs["assignments"].items():
+            reason = obs.get("per_assignment_reasons", {}).get(node, "")
+            update_rows.append({
+                "Day": obs["day"],
+                "Node": node.replace("_", " "),
+                "State set": state,
+                "Headline / note": obs["headline"],
+                "Rationale": reason,
+                "Source": obs["source"],
+            })
+    st.dataframe(
+        pd.DataFrame(update_rows),
+        hide_index=True,
+        width="stretch",
+    )
 
 st.caption(
     "Probabilities are illustrative — CPTs are expert-elicited, not "
