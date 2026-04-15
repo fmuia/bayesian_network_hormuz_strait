@@ -1,0 +1,12 @@
+# Pin the demo to a light theme with the project palette so the UI
+# renders identically regardless of the user's Streamlit preferences.
+[theme]
+base = "light"
+primaryColor = "#1A7A6D"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F5F5"
+textColor = "#1B2A3D"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"

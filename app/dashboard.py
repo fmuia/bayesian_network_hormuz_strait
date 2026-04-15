@@ -69,11 +69,13 @@ st.markdown(
         font-size: 0.95rem; color: #4B5563; margin-bottom: 1.2rem;
       }}
       .scenario-card {{
-        background: {PANEL};
-        border-left: 4px solid {NAVY};
+        background: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-left: 5px solid {NAVY};
         padding: 1rem 1.1rem;
         border-radius: 4px;
         height: 100%;
+        box-shadow: 0 1px 2px rgba(27,42,61,0.04);
       }}
       .scenario-name {{
         font-size: 0.85rem; font-weight: 600;
@@ -98,9 +100,32 @@ st.markdown(
         background: {TEAL}; color: white; padding: 0.15rem 0.5rem;
         border-radius: 10px; font-size: 0.75rem; font-weight: 600;
       }}
-      [data-testid="stSidebar"] {{ background: white; }}
-      div[data-testid="stExpander"] details {{
-        border: 1px solid #E5E7EB; border-radius: 4px;
+      .how-to {{
+        background: #EAF4F2; border-left: 3px solid {TEAL};
+        padding: 0.55rem 0.85rem; border-radius: 4px;
+        font-size: 0.85rem; color: {NAVY}; margin-bottom: 1.1rem;
+      }}
+      .how-to b {{ color: {TEAL}; }}
+      .sidebar-header {{
+        font-size: 1.05rem; font-weight: 700; color: {NAVY};
+        margin: 0.2rem 0 0.1rem 0;
+      }}
+      .sidebar-hint {{
+        font-size: 0.78rem; color: #6B7280; margin-bottom: 0.6rem;
+      }}
+      [data-testid="stSidebar"] {{ background: {PANEL}; }}
+      [data-testid="stSidebar"] .stCheckbox label p {{
+        font-size: 0.82rem !important; color: {NAVY} !important;
+        line-height: 1.3 !important;
+      }}
+      div[data-testid="stExpander"] {{
+        border: 1px solid #E5E7EB !important;
+        border-radius: 4px !important;
+        background: white !important;
+        margin-bottom: 0.5rem;
+      }}
+      div[data-testid="stExpander"] summary p {{
+        font-weight: 600; color: {NAVY};
       }}
     </style>
     """,
@@ -151,7 +176,12 @@ def _evidence_from_active(active_ids: List[str]) -> Dict[str, str]:
 # Sidebar — evidence controls
 # ---------------------------------------------------------------------------
 
-st.sidebar.markdown("### Evidence")
+st.sidebar.markdown(
+    "<div class='sidebar-header'>Evidence feed</div>"
+    "<div class='sidebar-hint'>Tick news events to feed them to the "
+    "Bayesian network. Scenario probabilities on the right update live.</div>",
+    unsafe_allow_html=True,
+)
 col_a, col_b = st.sidebar.columns([1, 1])
 with col_a:
     if st.button("Clear all", width="stretch"):
@@ -177,7 +207,7 @@ category_label = {
     "escalation": "Escalation",
 }
 for cat in category_order:
-    with st.sidebar.expander(category_label[cat], expanded=(cat == "mixed")):
+    with st.sidebar.expander(category_label[cat], expanded=True):
         for ev in grouped[cat]:
             checked = st.checkbox(
                 f"**{ev.date}** — {ev.headline}",
@@ -236,6 +266,15 @@ st.markdown(
     "<div class='demo-subtitle'>Scenario probabilities update as new "
     "evidence is added on the left. Bands show 80% credible intervals "
     "from second-order parameter uncertainty.</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<div class='how-to'>"
+    "<b>How to use:</b> tick news events in the <b>Evidence feed</b> on the "
+    "left sidebar. Each event you toggle is fed into the Bayesian network as "
+    "observed evidence; the three scenario cards below update in real time "
+    "and the line chart tracks how your beliefs have shifted across the session."
+    "</div>",
     unsafe_allow_html=True,
 )
 
