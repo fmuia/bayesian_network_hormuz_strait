@@ -26,7 +26,12 @@ from .network import SCENARIO_NARRATIVES, STATES
 Provider = Literal["claude-code", "openai"]
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
-CLAUDE_DEFAULT_MODEL = "claude-haiku-4-5"
+CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
+
+# Callback type: fn(stage, detail) where stage is a short machine tag and
+# detail is a human-readable sentence. Used by the UI to stream progress.
+from typing import Callable  # noqa: E402
+StepCallback = Callable[[str, str], None]
 
 
 class TranslatorError(RuntimeError):
@@ -51,6 +56,7 @@ class TranslatorResult:
     rationale: str
     model: str
     provider: Provider
+    raw_response: str = ""  # verbatim model output (for debug / audit)
 
     def as_evidence_dict(self) -> Dict[str, str]:
         """Flatten assignments to a {node: state} dict (later wins on conflict)."""
@@ -232,11 +238,19 @@ def _extract_json_block(text: str) -> Dict:
 
 
 def _translate_openai(
-    headline: str, *, model: str = OPENAI_DEFAULT_MODEL, client=None
+    headline: str,
+    *,
+    model: str = OPENAI_DEFAULT_MODEL,
+    client=None,
+    on_step: Optional[StepCallback] = None,
 ) -> TranslatorResult:
+    _emit = on_step or (lambda *_: None)
     if client is None:
+        _emit("init", f"Calling OpenAI ({model})…")
         from openai import OpenAI
         client = OpenAI()
+    else:
+        _emit("init", f"Calling OpenAI ({model})…")
     try:
         response = client.chat.completions.create(
             model=model,
@@ -257,18 +271,22 @@ def _translate_openai(
     except Exception as exc:
         raise TranslatorError(f"OpenAI call failed: {exc}") from exc
 
+    raw = response.choices[0].message.content or ""
+    _emit("response", f"Model returned {len(raw)} chars")
     try:
-        payload = json.loads(response.choices[0].message.content)
+        payload = json.loads(raw)
     except (json.JSONDecodeError, IndexError, AttributeError) as exc:
         raise TranslatorError(f"Malformed OpenAI response: {exc}") from exc
 
     assignments, rationale = _validate_payload(payload)
+    _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
         headline=headline,
         assignments=assignments,
         rationale=rationale,
         model=model,
         provider="openai",
+        raw_response=raw,
     )
 
 
@@ -277,14 +295,21 @@ def _translate_openai(
 # ---------------------------------------------------------------------------
 
 
-async def _claude_code_collect(prompt: str, *, model: str) -> str:
+async def _claude_code_collect(
+    prompt: str,
+    *,
+    model: str,
+    on_step: Optional[StepCallback] = None,
+) -> str:
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
         TextBlock,
+        ThinkingBlock,
         query,
     )
 
+    _emit = on_step or (lambda *_: None)
     options = ClaudeAgentOptions(
         system_prompt=_system_prompt(),
         model=model,
@@ -293,34 +318,59 @@ async def _claude_code_collect(prompt: str, *, model: str) -> str:
         permission_mode="bypassPermissions",
     )
     chunks: List[str] = []
+    _emit("init", f"Calling Claude Code ({model})…")
+    total_chars = 0
+    last_thinking_preview = ""
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, AssistantMessage):
             for block in msg.content:
                 if isinstance(block, TextBlock):
                     chunks.append(block.text)
+                    total_chars += len(block.text)
+                    _emit("response", f"Model returned {total_chars} chars")
+                elif isinstance(block, ThinkingBlock):
+                    # Surface a short preview of the model's reasoning if
+                    # extended thinking is enabled on the CLI side.
+                    preview = block.thinking.strip().splitlines()[0][:160]
+                    if preview and preview != last_thinking_preview:
+                        last_thinking_preview = preview
+                        _emit("thinking", preview)
     return "".join(chunks).strip()
 
 
 def _translate_claude_code(
-    headline: str, *, model: str = CLAUDE_DEFAULT_MODEL
+    headline: str,
+    *,
+    model: str = CLAUDE_DEFAULT_MODEL,
+    on_step: Optional[StepCallback] = None,
 ) -> TranslatorResult:
+    _emit = on_step or (lambda *_: None)
     prompt = (
         f"Headline: {headline}\n\n"
         "Respond with the JSON object described in the system prompt, and nothing else."
     )
     try:
-        text = asyncio.run(_claude_code_collect(prompt, model=model))
+        text = asyncio.run(_claude_code_collect(prompt, model=model, on_step=on_step))
     except Exception as exc:
         raise TranslatorError(f"Claude Code call failed: {exc}") from exc
 
-    payload = _extract_json_block(text)
+    _emit("parsing", "Parsing JSON response…")
+    try:
+        payload = _extract_json_block(text)
+    except TranslatorError as exc:
+        # Surface the raw text on the exception so the UI can show it.
+        exc.raw_response = text  # type: ignore[attr-defined]
+        raise
+
     assignments, rationale = _validate_payload(payload)
+    _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
         headline=headline,
         assignments=assignments,
         rationale=rationale,
         model=model,
         provider="claude-code",
+        raw_response=text,
     )
 
 
@@ -334,19 +384,20 @@ def translate_headline(
     *,
     provider: Optional[Provider] = None,
     client=None,
+    on_step: Optional[StepCallback] = None,
 ) -> TranslatorResult:
     """Translate a headline via the preferred (or requested) provider.
 
-    Passing ``client=<openai-like>`` forces the OpenAI path and is used
-    exclusively by the test suite; production callers should leave both
-    ``provider`` and ``client`` unset and let the dispatcher pick.
+    Pass ``on_step=callable(stage, detail)`` to receive progress updates
+    as the translator works (UI streaming). Passing ``client=<openai-like>``
+    forces the OpenAI path and is used by the test suite.
     """
     headline = headline.strip()
     if not headline:
         raise TranslatorError("Headline is empty.")
 
     if client is not None:
-        return _translate_openai(headline, client=client)
+        return _translate_openai(headline, client=client, on_step=on_step)
 
     chosen: Optional[Provider]
     if provider is not None:
@@ -356,9 +407,9 @@ def translate_headline(
         chosen = providers[0] if providers else None
 
     if chosen == "claude-code":
-        return _translate_claude_code(headline)
+        return _translate_claude_code(headline, on_step=on_step)
     if chosen == "openai":
-        return _translate_openai(headline)
+        return _translate_openai(headline, on_step=on_step)
     raise TranslatorError(
         "No translator provider is available. Install Claude Code and sign in, "
         "or export OPENAI_API_KEY."

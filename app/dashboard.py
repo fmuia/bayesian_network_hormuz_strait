@@ -182,6 +182,8 @@ if "last_translation" not in st.session_state:
     st.session_state.last_translation: Optional[Dict] = None
 if "translator_error" not in st.session_state:
     st.session_state.translator_error: Optional[str] = None
+if "translator_raw" not in st.session_state:
+    st.session_state.translator_raw: str = ""
 if "pending_headline" not in st.session_state:
     st.session_state.pending_headline: Optional[str] = None
 
@@ -213,13 +215,34 @@ def _merged_evidence() -> Dict[str, str]:
 
 
 def _run_translator(headline: str) -> None:
-    try:
-        result: TranslatorResult = translate_headline(headline)
-    except TranslatorError as exc:
-        st.session_state.translator_error = str(exc)
-        st.session_state.last_translation = None
-        return
+    with st.status(f"Translating: “{headline}”", expanded=True) as status:
+        stage_emojis = {
+            "init": "🔌",
+            "thinking": "💭",
+            "response": "📥",
+            "parsing": "🧩",
+            "validated": "✅",
+        }
+
+        def on_step(stage: str, detail: str) -> None:
+            emoji = stage_emojis.get(stage, "•")
+            status.write(f"{emoji} {detail}")
+
+        on_step("init", "Preparing prompt (BN schema + headline)…")
+        try:
+            result: TranslatorResult = translate_headline(headline, on_step=on_step)
+        except TranslatorError as exc:
+            raw = getattr(exc, "raw_response", "")
+            status.update(label="Translation failed", state="error", expanded=True)
+            st.session_state.translator_error = str(exc)
+            st.session_state.translator_raw = raw
+            st.session_state.last_translation = None
+            return
+        on_step("inference", "Running Bayesian network inference…")
+        status.update(label="Translation complete", state="complete", expanded=False)
+
     st.session_state.translator_error = None
+    st.session_state.translator_raw = result.raw_response
     st.session_state.last_translation = {
         "headline": result.headline,
         "assignments": [asdict(a) for a in result.assignments],
@@ -237,8 +260,10 @@ def _run_translator(headline: str) -> None:
         )
     else:
         st.session_state.translator_error = (
-            "Translator returned no assignments for this headline. Try a "
-            "more specific headline or use the manual picker."
+            "Translator returned no assignments — the headline does not "
+            "map to any node in this BN schema (e.g. US domestic politics, "
+            "unrelated regions). Try a Strait-of-Hormuz-specific headline "
+            "or use the manual picker."
         )
 
 
@@ -453,6 +478,9 @@ with trans_col:
                     st.markdown(
                         f"- **{a['node'].replace('_',' ')} = `{a['state']}`** — {a['reason']}"
                     )
+    if st.session_state.translator_raw:
+        with st.expander("Raw model response (debug)"):
+            st.code(st.session_state.translator_raw, language="json")
 
 with log_col:
     st.markdown(f"**Observation log** ({len(st.session_state.observations)} active)")
