@@ -15,6 +15,20 @@ also the one we have the least data on. The probabilities used here are
 illustrative — they are internally consistent with the scenario
 narratives, not calibrated against any data set.
 
+## Translator provider
+
+The news-to-node translator uses, in preference order:
+
+1. **Claude Code** via `claude-agent-sdk` — no API key required if you
+   have the Claude Code CLI installed and logged in; calls bill against
+   your Claude subscription.
+2. **OpenAI** — used if Claude Code is unavailable and `OPENAI_API_KEY`
+   is set.
+3. **Manual fallback** — if neither is available, a node/state picker in
+   the sidebar lets you enter observations directly.
+
+The active provider is shown in the sidebar banner.
+
 ## Run
 
 With [pixi](https://pixi.sh):

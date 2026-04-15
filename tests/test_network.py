@@ -202,3 +202,23 @@ def test_translator_skips_scenario_node_silently() -> None:
 def test_translator_empty_headline_errors() -> None:
     with pytest.raises(TranslatorError):
         translate_headline("   ", client=_mock_client({"assignments": [], "overall_rationale": ""}))
+
+
+def test_translator_client_override_uses_openai_path() -> None:
+    """Passing `client=` forces the OpenAI path regardless of Claude availability."""
+    payload = {
+        "assignments": [{"node": "Tanker_Incidents", "state": "frequent", "reason": "r"}],
+        "overall_rationale": "test",
+    }
+    result = translate_headline("h", client=_mock_client(payload))
+    assert result.provider == "openai"
+    assert result.assignments[0].node == "Tanker_Incidents"
+
+
+def test_translator_no_provider_available(monkeypatch) -> None:
+    """Dispatcher raises if no provider can be reached and no client is given."""
+    import src.translator as tr
+    monkeypatch.setattr(tr, "_claude_code_available", lambda: False)
+    monkeypatch.setattr(tr, "_openai_available", lambda: False)
+    with pytest.raises(TranslatorError):
+        tr.translate_headline("some headline")

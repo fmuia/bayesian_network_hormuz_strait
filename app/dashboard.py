@@ -38,6 +38,7 @@ from src.sensitivity import scenario_credible_intervals
 from src.translator import (
     TranslatorError,
     TranslatorResult,
+    available_providers,
     is_available as translator_available,
     translate_headline,
 )
@@ -224,6 +225,7 @@ def _run_translator(headline: str) -> None:
         "assignments": [asdict(a) for a in result.assignments],
         "rationale": result.rationale,
         "model": result.model,
+        "provider": result.provider,
     }
     if result.assignments:
         _append_observation(
@@ -261,12 +263,23 @@ st.sidebar.markdown(
 )
 
 translator_on = translator_available()
+providers = available_providers()
+provider_labels = {"claude-code": "Claude Code (subscription)", "openai": "OpenAI API"}
 if not translator_on:
     st.sidebar.warning(
-        "`OPENAI_API_KEY` not set — the translation layer is offline. "
-        "Use the **Manual observation** picker below, or export the key "
-        "and restart.",
+        "No translator backend available. Either sign in to Claude Code "
+        "on this machine **or** export `OPENAI_API_KEY`, then restart. "
+        "Use the **Manual observation** picker below to continue offline.",
         icon="⚠️",
+    )
+else:
+    active_label = provider_labels[providers[0]]
+    extra = ""
+    if len(providers) > 1:
+        extra = f" · fallback: {provider_labels[providers[1]]}"
+    st.sidebar.success(
+        f"Translator: **{active_label}**{extra}",
+        icon="✅",
     )
 
 with st.sidebar.form("headline_form", clear_on_submit=True):
@@ -428,7 +441,7 @@ with trans_col:
               <div class='translator-rationale'>{t['rationale']}</div>
               <div>{chips_html}</div>
               <div style='font-size:0.7rem; color:#9CA3AF; margin-top:0.45rem;'>
-                model: {t['model']}
+                provider: {t.get('provider','?')} · model: {t['model']}
               </div>
             </div>
             """,
