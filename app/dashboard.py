@@ -226,6 +226,11 @@ st.markdown(
       .stream-done {{ border-color: {GREEN}; background: #F0FAF5; color: {GREEN}; }}
       .stream-error {{ border-color: {RED}; background: #FEF2F2; color: {RED}; }}
 
+      /* Compact sliders for the override panel. Collapse inter-slider
+         gap only; leave each slider's internal bubble spacing alone. */
+      [data-testid="stSlider"] {{ margin-bottom: -1.1rem; }}
+      [data-testid="stSlider"] label p {{ font-size: 0.82rem; }}
+
       /* Translator output panel */
       .translator-headline {{
         font-size: 0.95rem; font-weight: 600; color: {NAVY};
@@ -268,9 +273,21 @@ st.markdown(
         font-size: 0.82rem; color: {NAVY};
         padding: 0.35rem 0; border-top: 1px solid {RULE};
       }}
-      .obs-row:first-of-type {{ border-top: none; padding-top: 0.1rem; }}
+      .obs-row:first-of-type, .obs-row-first {{
+        border-top: none; padding-top: 0.1rem;
+      }}
       .obs-headline {{ font-weight: 500; }}
       .obs-assign {{ color: {MUTED}; font-size: 0.78rem; margin-top: 0.1rem; }}
+      .obs-remove + div button {{
+        min-width: 1.6rem !important; width: 1.6rem !important;
+        height: 1.6rem !important; padding: 0 !important;
+        border-radius: 50% !important; line-height: 1 !important;
+        font-size: 0.75rem !important; color: {MUTED} !important;
+        border-color: {RULE} !important;
+      }}
+      .obs-remove + div button:hover {{
+        color: #B91C1C !important; border-color: #B91C1C !important;
+      }}
 
       /* Tabs a little tighter & more legible */
       div[data-baseweb="tab-list"] button {{ font-weight: 600; }}
@@ -1051,33 +1068,66 @@ with tab_net:
 
         with st.container(border=True):
             st.markdown(
-                "<div class='card-title'>Override</div>"
-                "<div class='card-sub'>Set this node directly to create a "
-                "manual observation on the current day.</div>",
+                "<div class='card-title' style='margin-bottom:0.2rem;'>"
+                "Override</div>",
                 unsafe_allow_html=True,
             )
             if sel and sel in STATES:
-                with st.form(f"override_{sel}", clear_on_submit=False):
-                    chosen = st.radio(
-                        "State",
-                        STATES[sel],
-                        horizontal=True,
-                        key=f"radio_{sel}",
+                states = list(STATES[sel])
+                n = len(states)
+                default_pct = 100 // n
+                remainder = 100 - default_pct * n
+                vals: Dict[str, int] = {}
+                for i, state in enumerate(states):
+                    key = f"soft_{sel}_{state}"
+                    init = default_pct + (remainder if i == 0 else 0)
+                    vals[state] = st.slider(
+                        state, 0, 100,
+                        value=st.session_state.get(key, init),
+                        step=1, key=key,
                     )
-                    note = st.text_input(
-                        "Note (optional)", key=f"note_{sel}",
-                        placeholder="What drove this override?",
+                total = sum(vals.values())
+                colour = GREEN if total == 100 else RED
+                st.markdown(
+                    f"<div style='font-size:0.85rem; margin-top:0.35rem;'>"
+                    f"Total: <b style='color:{colour}'>{total}%</b></div>",
+                    unsafe_allow_html=True,
+                )
+                note = st.text_input(
+                    "Note (optional)", key=f"note_{sel}",
+                    placeholder="What drove this override?",
+                )
+                if st.button(
+                    "Set observation",
+                    type="primary",
+                    disabled=(total != 100),
+                    key=f"set_{sel}",
+                ):
+                    pretty = ", ".join(
+                        f"{s} {v}%" for s, v in vals.items() if v > 0
                     )
-                    ok = st.form_submit_button("Set observation", type="primary")
-                    if ok:
+                    # Collapse to a hard assignment when a single state is 100%.
+                    if max(vals.values()) == 100:
+                        pinned = next(s for s, v in vals.items() if v == 100)
                         _append_observation(
-                            headline=note.strip() or f"Manual: {sel} = {chosen}",
-                            assignments={sel: chosen},
+                            headline=note.strip() or f"Manual: {sel} = {pinned}",
+                            assignments={sel: pinned},
                             rationale="Set directly by the analyst via the network.",
                             per_assignment_reasons={sel: "Manual override."},
                             source="manual",
                         )
-                        st.rerun()
+                    else:
+                        dist = {s: v / 100.0 for s, v in vals.items()}
+                        _append_observation(
+                            headline=note.strip()
+                                or f"Manual soft: {sel} ({pretty})",
+                            assignments={},
+                            soft_assignments={sel: dist},
+                            rationale="Soft override set directly by the analyst.",
+                            per_assignment_reasons={sel: f"Manual soft override: {pretty}."},
+                            source="manual",
+                        )
+                    st.rerun()
             else:
                 st.markdown(
                     "<div class='card-sub'>Select a node first to enable manual "
@@ -1311,8 +1361,12 @@ with tab_obs:
                 grouped.setdefault(obs["day"], []).append(obs)
             for day in sorted(grouped, reverse=True):
                 day_obs = grouped[day]
-                rows_html = ""
-                for obs in day_obs:
+                st.markdown(
+                    f"<div class='day-block-header'>Day {day} · "
+                    f"{len(day_obs)} observation(s)</div>",
+                    unsafe_allow_html=True,
+                )
+                for idx, obs in enumerate(day_obs):
                     hard_assign_str = " · ".join(
                         f"{n.replace('_',' ')} = {s}"
                         for n, s in obs.get("assignments", {}).items()
@@ -1327,35 +1381,31 @@ with tab_obs:
                     assign_str = " · ".join(
                         part for part in [hard_assign_str, soft_assign_str] if part
                     )
-                    rows_html += (
-                        f"<div class='obs-row'>"
-                        f"<div class='obs-headline'>{obs['headline']} "
-                        f"<span style='color:{MUTED}; font-size:0.72rem;'>"
-                        f"({obs['source']})</span></div>"
-                        f"<div class='obs-assign'>{assign_str}</div>"
-                        f"</div>"
-                    )
-                st.markdown(
-                    f"<div class='day-block'>"
-                    f"<div class='day-block-header'>Day {day} · "
-                    f"{len(day_obs)} observation(s)</div>"
-                    f"{rows_html}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                btn_cols = st.columns(min(len(day_obs), 4))
-                for i, obs in enumerate(day_obs):
-                    with btn_cols[i % len(btn_cols)]:
+                    first_cls = " obs-row-first" if idx == 0 else ""
+                    row_col, btn_col = st.columns([20, 1])
+                    with row_col:
+                        st.markdown(
+                            f"<div class='obs-row{first_cls}'>"
+                            f"<div class='obs-headline'>{obs['headline']} "
+                            f"<span style='color:{MUTED}; font-size:0.72rem;'>"
+                            f"({obs['source']})</span></div>"
+                            f"<div class='obs-assign'>{assign_str}</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with btn_col:
+                        st.markdown("<div class='obs-remove'>", unsafe_allow_html=True)
                         if st.button(
-                            f"× remove #{i+1}",
+                            "✕",
                             key=f"rm_{obs['id']}",
-                            width="stretch",
+                            help="Remove this observation",
                         ):
                             st.session_state.observations = [
                                 o for o in st.session_state.observations
                                 if o["id"] != obs["id"]
                             ]
                             st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------

@@ -272,17 +272,27 @@ def _format_label_text(
     observed_state: Optional[str],
     day: Optional[int],
 ) -> str:
-    """Build compact, readable node label to avoid overlap."""
-    title = _wrap_node_title(_display_name(node))
-    lines = [title]
+    """Build a monospace 'mini-table' label: title, rule, rows."""
+    if node == "Scenario":
+        title_lines = ["SCENARIO"]
+    else:
+        title_lines = _wrap_node_title(_display_name(node)).split("\n")
+
     if observed_state is not None:
         day_suffix = f" · day {day}" if day is not None else ""
-        lines.append(f"Observed: {_display_name(observed_state)}{day_suffix}")
+        body_lines = [f"● {_display_name(observed_state)}{day_suffix}"]
     else:
-        top_state = max(STATES[node], key=lambda s: marginal.get(s, 0.0))
-        top_prob = marginal.get(top_state, 0.0)
-        lines.append(f"{_display_name(top_state)}  {top_prob*100:0.1f}%")
-    return "\n".join(lines)
+        states = list(STATES[node])
+        display_states = [_display_name(s) for s in states]
+        name_w = max(len(s) for s in display_states)
+        body_lines = []
+        for raw, disp in zip(states, display_states):
+            pct = marginal.get(raw, 0.0) * 100
+            body_lines.append(f"{disp.ljust(name_w)}  {pct:5.1f}%")
+
+    width = max(len(s) for s in (*title_lines, *body_lines))
+    separator = "─" * width
+    return "\n".join([*title_lines, separator, *body_lines])
 
 
 def _format_tooltip_text(
@@ -366,8 +376,10 @@ def build_agraph_payload(
                 },
                 font={
                     "color": font_color,
-                    "size": 12,
-                    "face": "Inter, Helvetica, Arial",
+                    "size": 17,
+                    "face": "Menlo, Consolas, 'Courier New', monospace",
+                    "multi": False,
+                    "align": "left",
                 },
                 borderWidth=3 if is_root_driver else (2 if obs_state is not None else 1),
                 level=_NODE_LEVEL.get(node, 0),
@@ -394,7 +406,7 @@ def build_agraph_payload(
 
     config = Config(
         width="100%",
-        height=520,
+        height=560,
         directed=True,
         physics=False,
         hierarchical=True,
@@ -409,9 +421,9 @@ def build_agraph_payload(
                 "enabled": True,
                 "direction": "LR",
                 "sortMethod": "directed",
-                "levelSeparation": 180,
-                "nodeSpacing": 175,
-                "treeSpacing": 175,
+                "levelSeparation": 330,
+                "nodeSpacing": 240,
+                "treeSpacing": 260,
             }
         },
         interaction={"hover": True, "zoomView": False, "dragView": False},

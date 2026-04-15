@@ -276,6 +276,35 @@ where $Z$ denotes all unobserved (non-evidence, non-query) nodes. The numerator 
 The same formula applies for querying any node, not just `Scenario`.
 
 
+### 3.1.1 Worked example: the posterior on `Tanker_Incidents`
+
+To make the general formula concrete — and to show why root nodes also shift when *downstream* evidence arrives — take the marginal displayed on the `Tanker_Incidents` node. Let $T$ be `Tanker_Incidents`, $E$ the set of currently-observed nodes, and $U$ every other (unobserved) node. The number shown for state $t$ is:
+
+$$
+P(T = t \mid E) \;=\; \frac{\displaystyle\sum_{U \setminus \{T\}} P\!\big(T = t,\, U \setminus \{T\},\, E\big)}{\displaystyle\sum_{t',\, U \setminus \{T\}} P\!\big(T = t',\, U \setminus \{T\},\, E\big)}
+$$
+
+The joint in numerator and denominator factorizes along the DAG as the product of all 13 CPDs (section 1.3). For $T$ itself that factor is $P(T \mid \text{Militia}, \text{Negot})$ — the 9-column `CPD_TANKERS` table — but the posterior $P(T \mid E)$ is **not** just that one CPT: every other factor contributes once the sum over $U$ is carried out.
+
+**Two reductions worth remembering.**
+
+1. *No evidence anywhere* ($E = \varnothing$): the formula collapses to the prior marginal, summing over Militia ($m$), Negotiations ($n$), Regime ($r$), and Sanctions ($s$):
+
+$$
+P(T = t) \;=\; \sum_{m,\,n,\,r,\,s} P(T=t \mid m, n)\, P(m \mid r, s)\, P(r)\, P(s)\, P(n).
+$$
+
+2. *Markov blanket of $T$ fully observed* (both parents Militia and Negotiations, plus the child $\text{Mil\_Resp}$ and its other parent Sanctions): every sum collapses and the posterior is proportional, across $t$, to
+
+$$
+P(T = t \mid \text{Militia}, \text{Negot}) \cdot P(\text{Mil\_Resp} \mid T = t, \text{Sanctions}),
+$$
+
+renormalized to sum to 1. Everything else in the network becomes irrelevant by d-separation.
+
+**Why root nodes also update.** The formula above is symmetric in how it uses evidence: there is no distinction between "upstream" and "downstream" observations. An observation of the child `US_Military_Response` activates the path $\text{Militia} \to T \to \text{Mil\_Resp}$ and, further back, $\text{Sanctions} \to \text{Militia} \to T \to \text{Mil\_Resp}$. So even a root driver like `Sanctions_Trajectory`, when unobserved, has its displayed probabilities shift toward the state that best explains the downstream evidence — this is standard diagnostic (Bayes') reasoning, not a separate mode of inference. A root node's displayed value collapses to its hard-coded prior *only* when no evidence exists anywhere in the network.
+
+
 ### 3.2 Variable elimination (the algorithm)
 
 pgmpy's `VariableElimination` performs exact inference. Conceptually:
