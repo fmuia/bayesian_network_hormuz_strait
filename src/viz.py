@@ -211,6 +211,216 @@ def render_network_png(
     return dot.pipe(format="png")
 
 
+# ---------------------------------------------------------------------------
+# Interactive (streamlit-agraph) payload
+# ---------------------------------------------------------------------------
+
+# Hierarchical "levels" for the vis.js hierarchical layout — roots on the
+# left, scenario on the right. Chosen manually for a stable left-to-right
+# DAG layout that does not jitter between reruns.
+_ROOT_DRIVER_COLORS: Dict[str, tuple] = {
+    # (background, border, observed_fill) — distinct hues per root driver.
+    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8", "#1E40AF"),  # blue
+    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D", "#9D174D"),  # rose
+    "Third_Party_Mediation": ("#FEF3C7", "#B45309", "#92400E"),  # amber
+    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9", "#5B21B6"),  # violet
+}
+
+_NODE_LEVEL: Dict[str, int] = {
+    "US_Iran_Negotiations": 0,
+    "Iranian_Regime_Stability": 0,
+    "Third_Party_Mediation": 0,
+    "Sanctions_Trajectory": 0,
+    "Iranian_Proxy_Activity": 1,
+    "Tanker_Incidents": 1,
+    "US_Military_Response": 2,
+    "Strait_Operationally_Closed": 2,
+    "Energy_Infrastructure_Damage": 3,
+    "Conflict_Duration": 3,
+    "Diplomatic_Resolution_Path": 3,
+    "Oil_Price_Regime": 3,
+    "Scenario": 4,
+}
+
+
+def _display_name(raw: str) -> str:
+    return raw.replace("_", " ")
+
+
+def _wrap_node_title(name: str) -> str:
+    """Wrap long node titles across two lines for readability."""
+    replacements = {
+        "US Iran Negotiations": "US Iran\nNegotiations",
+        "Iranian Regime Stability": "Iranian Regime\nStability",
+        "Third Party Mediation": "Third Party\nMediation",
+        "Sanctions Trajectory": "Sanctions\nTrajectory",
+        "Iranian Proxy Activity": "Iranian Proxy\nActivity",
+        "Tanker Incidents": "Tanker\nIncidents",
+        "US Military Response": "US Military\nResponse",
+        "Strait Operationally Closed": "Strait Operationally\nClosed",
+        "Energy Infrastructure Damage": "Energy Infrastructure\nDamage",
+        "Conflict Duration": "Conflict\nDuration",
+        "Diplomatic Resolution Path": "Diplomatic Resolution\nPath",
+        "Oil Price Regime": "Oil Price\nRegime",
+    }
+    return replacements.get(name, name)
+
+
+def _format_label_text(
+    node: str,
+    marginal: Mapping[str, float],
+    observed_state: Optional[str],
+    day: Optional[int],
+) -> str:
+    """Build compact, readable node label to avoid overlap."""
+    title = _wrap_node_title(_display_name(node))
+    lines = [title]
+    if observed_state is not None:
+        day_suffix = f" · day {day}" if day is not None else ""
+        lines.append(f"Observed: {_display_name(observed_state)}{day_suffix}")
+    else:
+        top_state = max(STATES[node], key=lambda s: marginal.get(s, 0.0))
+        top_prob = marginal.get(top_state, 0.0)
+        lines.append(f"{_display_name(top_state)}  {top_prob*100:0.1f}%")
+    return "\n".join(lines)
+
+
+def _format_tooltip_text(
+    node: str,
+    marginal: Mapping[str, float],
+    observed_state: Optional[str],
+    day: Optional[int],
+) -> str:
+    """Build hover tooltip with full probabilities in plain text."""
+    rows = [_display_name(node)]
+    if observed_state is not None:
+        day_suffix = f" (day {day})" if day is not None else ""
+        rows.append(f"Observed: {_display_name(observed_state)}{day_suffix}")
+    for state in STATES[node]:
+        prob = marginal.get(state, 0.0)
+        rows.append(f"{_display_name(state)}: {prob*100:0.1f}%")
+    return "\n".join(rows)
+
+
+def build_agraph_payload(
+    marginals: Mapping[str, Mapping[str, float]],
+    *,
+    observed: Mapping[str, str] = {},
+    observed_day: Mapping[str, int] = {},
+):
+    """Return ``(nodes, edges, config)`` for ``streamlit_agraph.agraph``.
+
+    The dashboard uses this for the interactive network view: nodes are
+    clickable (returns the clicked node id), and vis.js provides pan /
+    zoom / hover natively.
+    """
+    # Lazy-import so the rest of the package keeps working without the dep.
+    from streamlit_agraph import Config, Edge, Node
+
+    nodes = []
+    for node in STATES.keys():
+        marginal = marginals[node]
+        obs_state = observed.get(node)
+        day = observed_day.get(node)
+        is_root_driver = node in _ROOT_DRIVER_COLORS
+
+        if node == "Scenario":
+            label = _format_label_text(node, marginal, obs_state, day)
+            color = _NAVY
+            font_color = "white"
+            border_color = _NAVY
+            size = 34
+        elif obs_state is not None:
+            label = _format_label_text(node, marginal, obs_state, day)
+            if is_root_driver:
+                _, border_color, observed_fill = _ROOT_DRIVER_COLORS[node]
+                color = observed_fill
+                font_color = "white"
+                size = 30
+            else:
+                color = _TEAL
+                font_color = "white"
+                border_color = _TEAL_DARK
+                size = 28
+        else:
+            label = _format_label_text(node, marginal, obs_state, day)
+            if is_root_driver:
+                color, border_color, _ = _ROOT_DRIVER_COLORS[node]
+            else:
+                color = "white"
+                border_color = _BORDER
+            font_color = _NAVY
+            size = 26 if is_root_driver else 24
+
+        nodes.append(
+            Node(
+                id=node,
+                label=label,
+                title=_format_tooltip_text(node, marginal, obs_state, day),
+                size=size,
+                shape="box",
+                color={
+                    "background": color,
+                    "border": border_color,
+                    "highlight": {"background": color, "border": _TEAL_DARK},
+                },
+                font={
+                    "color": font_color,
+                    "size": 12,
+                    "face": "Inter, Helvetica, Arial",
+                },
+                borderWidth=3 if is_root_driver else (2 if obs_state is not None else 1),
+                level=_NODE_LEVEL.get(node, 0),
+                margin=4,
+            )
+        )
+
+    edges = []
+    for src, dst in EDGES:
+        highlight = src in observed or dst in observed
+        src_root_style = _ROOT_DRIVER_COLORS.get(src)
+        edge_color = src_root_style[1] if src_root_style is not None else "#94A3B8"
+        edge_width = 1.8 if src_root_style is not None else 1
+        if highlight:
+            edge_width = max(edge_width, 2.2)
+        edges.append(
+            Edge(
+                source=src,
+                target=dst,
+                color=edge_color,
+                width=edge_width,
+            )
+        )
+
+    config = Config(
+        width="100%",
+        height=520,
+        directed=True,
+        physics=False,
+        hierarchical=True,
+        nodeHighlightBehavior=True,
+        highlightColor=_TEAL,
+        collapsible=False,
+        node={"labelProperty": "label", "renderLabel": True},
+        link={"renderLabel": False},
+        # vis.js nested hierarchical options
+        layout={
+            "hierarchical": {
+                "enabled": True,
+                "direction": "LR",
+                "sortMethod": "directed",
+                "levelSeparation": 180,
+                "nodeSpacing": 175,
+                "treeSpacing": 175,
+            }
+        },
+        interaction={"hover": True, "zoomView": False, "dragView": False},
+        manipulation=False,
+    )
+
+    return nodes, edges, config
+
+
 # Backwards-compat shim for any caller still using the old matplotlib
 # entry point. Returns a Figure-less None; the dashboard no longer uses it.
 def render_network(observed_nodes: Iterable[str] = ()):  # pragma: no cover
@@ -220,4 +430,4 @@ def render_network(observed_nodes: Iterable[str] = ()):  # pragma: no cover
     )
 
 
-__all__ = ["render_network_png"]
+__all__ = ["render_network_png", "build_agraph_payload"]
