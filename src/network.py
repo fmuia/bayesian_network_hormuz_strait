@@ -21,7 +21,7 @@ STATES: Dict[str, List[str]] = {
     "Iranian_Regime_Stability": ["stable", "pressured", "unstable"],
     "Third_Party_Mediation": ["active", "none"],
     "Sanctions_Trajectory": ["easing", "status_quo", "tightening"],
-    "Iranian_Proxy_Activity": ["low", "elevated", "high"],
+    "Iran_Aligned_Militia_Attacks": ["low", "elevated", "high"],
     "Tanker_Incidents": ["none", "isolated", "frequent"],
     "US_Military_Response": ["none", "limited", "major"],
     "Strait_Operationally_Closed": ["no", "partial", "full"],
@@ -33,9 +33,9 @@ STATES: Dict[str, List[str]] = {
 }
 
 EDGES: List[Tuple[str, str]] = [
-    ("Iranian_Regime_Stability", "Iranian_Proxy_Activity"),
-    ("Sanctions_Trajectory", "Iranian_Proxy_Activity"),
-    ("Iranian_Proxy_Activity", "Tanker_Incidents"),
+    ("Iranian_Regime_Stability", "Iran_Aligned_Militia_Attacks"),
+    ("Sanctions_Trajectory", "Iran_Aligned_Militia_Attacks"),
+    ("Iran_Aligned_Militia_Attacks", "Tanker_Incidents"),
     ("US_Iran_Negotiations", "Tanker_Incidents"),
     ("Tanker_Incidents", "US_Military_Response"),
     ("Sanctions_Trajectory", "US_Military_Response"),
@@ -121,12 +121,12 @@ CPD_SANCTIONS = _cpd(
 
 
 # ---------------------------------------------------------------------------
-# Iranian_Proxy_Activity | Regime_Stability, Sanctions_Trajectory
+# Iran_Aligned_Militia_Attacks | Regime_Stability, Sanctions_Trajectory
 # Reasoning: stable regime + easing sanctions → low activity; unstable
 # regime + tightening sanctions → high activity (incentive to lash out).
 # ---------------------------------------------------------------------------
-CPD_PROXY = _cpd(
-    "Iranian_Proxy_Activity",
+CPD_MILITIA = _cpd(
+    "Iran_Aligned_Militia_Attacks",
     ["Iranian_Regime_Stability", "Sanctions_Trajectory"],
     {
         ("stable",   "easing"):      [0.85, 0.13, 0.02],
@@ -143,13 +143,13 @@ CPD_PROXY = _cpd(
 
 
 # ---------------------------------------------------------------------------
-# Tanker_Incidents | Proxy_Activity, US_Iran_Negotiations
-# Reasoning: incidents track proxy activity but are dampened by successful
-# negotiations (back-channel restraint).
+# Tanker_Incidents | Iran_Aligned_Militia_Attacks, US_Iran_Negotiations
+# Reasoning: incidents track militia attack tempo but are dampened by
+# successful negotiations (back-channel restraint).
 # ---------------------------------------------------------------------------
 CPD_TANKERS = _cpd(
     "Tanker_Incidents",
-    ["Iranian_Proxy_Activity", "US_Iran_Negotiations"],
+    ["Iran_Aligned_Militia_Attacks", "US_Iran_Negotiations"],
     {
         ("low",      "success"):   [0.92, 0.07, 0.01],
         ("low",      "stalled"):   [0.85, 0.13, 0.02],
@@ -385,7 +385,7 @@ def build_network() -> DiscreteBayesianNetwork:
         CPD_REGIME,
         CPD_MEDIATION,
         CPD_SANCTIONS,
-        CPD_PROXY,
+        CPD_MILITIA,
         CPD_TANKERS,
         CPD_MILITARY,
         CPD_STRAIT,

@@ -231,7 +231,7 @@ _NODE_LEVEL: Dict[str, int] = {
     "Iranian_Regime_Stability": 0,
     "Third_Party_Mediation": 0,
     "Sanctions_Trajectory": 0,
-    "Iranian_Proxy_Activity": 1,
+    "Iran_Aligned_Militia_Attacks": 1,
     "Tanker_Incidents": 1,
     "US_Military_Response": 2,
     "Strait_Operationally_Closed": 2,
@@ -244,7 +244,7 @@ _NODE_LEVEL: Dict[str, int] = {
 
 
 def _display_name(raw: str) -> str:
-    return raw.replace("_", " ")
+    return raw.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
 
 
 def _wrap_node_title(name: str) -> str:
@@ -254,7 +254,7 @@ def _wrap_node_title(name: str) -> str:
         "Iranian Regime Stability": "Iranian Regime\nStability",
         "Third Party Mediation": "Third Party\nMediation",
         "Sanctions Trajectory": "Sanctions\nTrajectory",
-        "Iranian Proxy Activity": "Iranian Proxy\nActivity",
+        "Iran-Aligned Militia Attacks": "Iran-Aligned Militia\nAttacks",
         "Tanker Incidents": "Tanker\nIncidents",
         "US Military Response": "US Military\nResponse",
         "Strait Operationally Closed": "Strait Operationally\nClosed",

@@ -22,7 +22,7 @@ Each key is a node name; each value is the ordered list of states for that node:
 | `Iranian_Regime_Stability` | `stable`, `pressured`, `unstable` | Root driver |
 | `Third_Party_Mediation` | `active`, `none` | Root driver |
 | `Sanctions_Trajectory` | `easing`, `status_quo`, `tightening` | Root driver |
-| `Iranian_Proxy_Activity` | `low`, `elevated`, `high` | Intermediate |
+| `Iran_Aligned_Militia_Attacks` | `low`, `elevated`, `high` | Intermediate |
 | `Tanker_Incidents` | `none`, `isolated`, `frequent` | Intermediate |
 | `US_Military_Response` | `none`, `limited`, `major` | Intermediate |
 | `Strait_Operationally_Closed` | `no`, `partial`, `full` | Intermediate |
@@ -41,11 +41,11 @@ The four **root** nodes have no parents — they represent exogenous geopolitica
 
 The full edge set, grouped by the causal story they encode:
 
-**Escalation channel** (regime instability and sanctions drive proxy activity, which drives incidents):
+**Escalation channel** (regime instability and sanctions drive Iran-aligned militia attacks, which drive incidents):
 
-- `Iranian_Regime_Stability` $\rightarrow$ `Iranian_Proxy_Activity`
-- `Sanctions_Trajectory` $\rightarrow$ `Iranian_Proxy_Activity`
-- `Iranian_Proxy_Activity` $\rightarrow$ `Tanker_Incidents`
+- `Iranian_Regime_Stability` $\rightarrow$ `Iran_Aligned_Militia_Attacks`
+- `Sanctions_Trajectory` $\rightarrow$ `Iran_Aligned_Militia_Attacks`
+- `Iran_Aligned_Militia_Attacks` $\rightarrow$ `Tanker_Incidents`
 - `US_Iran_Negotiations` $\rightarrow$ `Tanker_Incidents`
 
 **Military response** (incidents and sanctions posture drive US response):
@@ -97,10 +97,10 @@ $$
 P(\text{Negot}) \cdot P(\text{Regime}) \cdot P(\text{Mediation}) \cdot P(\text{Sanctions})
 $$
 $$
-\cdot\; P(\text{Proxy} \mid \text{Regime}, \text{Sanctions})
+\cdot\; P(\text{Militia} \mid \text{Regime}, \text{Sanctions})
 $$
 $$
-\cdot\; P(\text{Tankers} \mid \text{Proxy}, \text{Negot})
+\cdot\; P(\text{Tankers} \mid \text{Militia}, \text{Negot})
 $$
 $$
 \cdot\; P(\text{Military} \mid \text{Tankers}, \text{Sanctions})
@@ -194,15 +194,15 @@ These four vectors are the starting point. When no evidence has been entered, th
 
 Each intermediate CPT encodes: *given a specific combination of parent states, what is the probability of each child state?*
 
-The number of columns in each CPT equals the product of parent cardinalities. For example, `Iranian_Proxy_Activity` has parents `Iranian_Regime_Stability` (3 states) and `Sanctions_Trajectory` (3 states), so its CPT has $3 \times 3 = 9$ columns.
+The number of columns in each CPT equals the product of parent cardinalities. For example, `Iran_Aligned_Militia_Attacks` has parents `Iranian_Regime_Stability` (3 states) and `Sanctions_Trajectory` (3 states), so its CPT has $3 \times 3 = 9$ columns.
 
 I'll walk through two CPTs in detail to show the pattern.
 
-#### CPT: `Iranian_Proxy_Activity` | `Regime`, `Sanctions`
+#### CPT: `Iran_Aligned_Militia_Attacks` | `Regime`, `Sanctions`
 
 This table has 9 columns (3 regime states $\times$ 3 sanctions states). Each column is a probability vector $[P(\text{low}), P(\text{elevated}), P(\text{high})]$.
 
-The domain logic: a stable regime under easing sanctions has little incentive for proxy aggression; an unstable regime under tightening sanctions has strong incentive to lash out externally.
+The domain logic: a stable regime under easing sanctions has little incentive to push its militia network into aggression; an unstable regime under tightening sanctions has strong incentive to lash out externally via those proxies.
 
 Selected columns to illustrate the gradient:
 
@@ -212,21 +212,21 @@ Selected columns to illustrate the gradient:
 | pressured | status_quo | 0.30 | 0.50 | 0.20 |
 | unstable | tightening | 0.05 | 0.25 | 0.70 |
 
-Read the first row as: "If the regime is stable and sanctions are easing, proxy activity is low with 85% probability." Read the last row as: "If the regime is unstable and sanctions are tightening, proxy activity is high with 70% probability."
+Read the first row as: "If the regime is stable and sanctions are easing, militia attack tempo is low with 85% probability." Read the last row as: "If the regime is unstable and sanctions are tightening, militia attack tempo is high with 70% probability."
 
-#### CPT: `Tanker_Incidents` | `Proxy_Activity`, `Negotiations`
+#### CPT: `Tanker_Incidents` | `Iran_Aligned_Militia_Attacks`, `Negotiations`
 
 This table has $3 \times 3 = 9$ columns. Each column is $[P(\text{none}), P(\text{isolated}), P(\text{frequent})]$.
 
-The domain logic: tanker incidents track proxy activity but are dampened by successful negotiations (back-channel restraint signals).
+The domain logic: tanker incidents track Iran-aligned militia attack tempo but are dampened by successful negotiations (back-channel restraint signals).
 
-| Proxy | Negotiations | $P(\text{none})$ | $P(\text{isolated})$ | $P(\text{frequent})$ |
-|-------|-------------|------:|------:|------:|
+| Militia | Negotiations | $P(\text{none})$ | $P(\text{isolated})$ | $P(\text{frequent})$ |
+|---------|-------------|------:|------:|------:|
 | low | success | 0.92 | 0.07 | 0.01 |
 | elevated | stalled | 0.30 | 0.55 | 0.15 |
 | high | breakdown | 0.02 | 0.23 | 0.75 |
 
-The extreme column — high proxy activity with breakdown — concentrates 75% probability on frequent incidents.
+The extreme column — high militia attack tempo with breakdown — concentrates 75% probability on frequent incidents.
 
 #### Remaining CPTs (summary of sizes and logic)
 
