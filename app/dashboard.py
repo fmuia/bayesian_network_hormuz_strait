@@ -215,31 +215,40 @@ def _merged_evidence() -> Dict[str, str]:
 
 
 def _run_translator(headline: str) -> None:
-    with st.status(f"Translating: “{headline}”", expanded=True) as status:
-        stage_emojis = {
-            "init": "🔌",
-            "thinking": "💭",
-            "response": "📥",
-            "parsing": "🧩",
-            "validated": "✅",
-        }
+    # Status panel renders in the sidebar so it never crowds the main view.
+    with st.sidebar:
+        with st.status(f"Translating: “{headline[:60]}…”"
+                       if len(headline) > 60 else f"Translating: “{headline}”",
+                       expanded=True) as status:
+            stage_emojis = {
+                "init": "🔌",
+                "thinking": "💭",
+                "validated": "✅",
+            }
 
-        def on_step(stage: str, detail: str) -> None:
-            emoji = stage_emojis.get(stage, "•")
-            status.write(f"{emoji} {detail}")
+            # Only stream stages that carry real signal: which model is being
+            # called, the model's reasoning preview, and the final assignment
+            # count. Char counts and "parsing JSON" are noise.
+            interesting_stages = {"init", "thinking", "validated"}
 
-        on_step("init", "Preparing prompt (BN schema + headline)…")
-        try:
-            result: TranslatorResult = translate_headline(headline, on_step=on_step)
-        except TranslatorError as exc:
-            raw = getattr(exc, "raw_response", "")
-            status.update(label="Translation failed", state="error", expanded=True)
-            st.session_state.translator_error = str(exc)
-            st.session_state.translator_raw = raw
-            st.session_state.last_translation = None
-            return
-        on_step("inference", "Running Bayesian network inference…")
-        status.update(label="Translation complete", state="complete", expanded=False)
+            def on_step(stage: str, detail: str) -> None:
+                if stage not in interesting_stages:
+                    return
+                emoji = stage_emojis.get(stage, "•")
+                status.write(f"{emoji} {detail}")
+
+            try:
+                result: TranslatorResult = translate_headline(headline, on_step=on_step)
+            except TranslatorError as exc:
+                raw = getattr(exc, "raw_response", "")
+                status.update(label="Translation failed",
+                              state="error", expanded=True)
+                st.session_state.translator_error = str(exc)
+                st.session_state.translator_raw = raw
+                st.session_state.last_translation = None
+                return
+            status.update(label=f"Done · {len(result.assignments)} assignment(s)",
+                          state="complete", expanded=False)
 
     st.session_state.translator_error = None
     st.session_state.translator_raw = result.raw_response
