@@ -158,7 +158,7 @@ def render_network_png(
     *,
     observed: Mapping[str, str] = {},
     observed_day: Mapping[str, int] = {},
-    dpi: int = 140,
+    dpi: int = 220,
 ) -> bytes:
     """Render the BN as PNG bytes for display in Streamlit.
 
