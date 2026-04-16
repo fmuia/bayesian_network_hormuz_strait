@@ -1,10 +1,12 @@
 # BN Dashboard: Next Steps for Stakeholder Utility
 
+## Executive Summary
+
+The Streamlit dashboard is a functional prototype. This document proposes 11 improvements across five categories — inference mechanics, narrative/reporting, exploration, workflow, and knowledge infrastructure — to move it toward production use. The most critical finding: **the current evidence merging is last-observation-wins**, meaning the model has no memory across observations to the same node. Fixing this (A1) is the foundational prerequisite. After that, sensitivity attribution (A3) and pre-built scenario sequences (B2) provide the highest immediate value for committee demos and governance. A reach goal (E1) outlines a news memory database for institutional knowledge persistence.
+
 ## Context
 
-The Streamlit dashboard (`app/dashboard.py`) is a functional prototype: it translates headlines into BN evidence, runs inference, displays scenario probabilities with credible intervals, and provides an interactive network visualisation with manual override. Named sessions can be saved and restored.
-
-This document proposes incremental improvements that move the app from a demonstration tool toward something stakeholders would use in structured deliberation. Improvements are grouped by category, and an execution-order table at the end provides a suggested sequencing.
+The dashboard (`app/dashboard.py`) translates headlines into BN evidence, runs inference, displays scenario probabilities with credible intervals, and provides interactive network visualisation with manual override. Named sessions can be saved and restored.
 
 ---
 
@@ -30,7 +32,9 @@ where $\lambda$ controls the decay rate. With $\lambda = 0$ this is uniform aver
 
 *Option 2: Sequential Bayesian updating.* Treat each headline's soft evidence as a likelihood and multiply sequentially into the node's distribution, starting from the prior. Each observation tightens or shifts the distribution rather than replacing it. This is the textbook Bayesian approach but requires care: the translator's output is a posterior-like distribution (sums to 1), not a pure likelihood ratio. The translator prompt or a post-processing step would need to convert the output into a form suitable for multiplicative combination.
 
-**Recommendation:** Start with Option 1 (weighted pooling). It is robust, interpretable, easy to explain to stakeholders ("recent evidence counts more"), and does not require changes to the translator. Option 2 is the theoretically correct extension for later.
+**A design choice within Option 1:** Weighted averaging of probability vectors is not the only pooling method. It produces spread-out distributions that can be diffuse when observations disagree. An alternative is *logarithmic pooling* (geometric mean, then renormalise), which produces sharper distributions peaked where observations agree — often more appropriate for combining independent evidence. The choice between arithmetic and logarithmic pooling should be treated as a design parameter, tested against representative headline sequences, and documented.
+
+**Recommendation:** Start with Option 1 (weighted pooling with arithmetic averaging). It is robust, interpretable, easy to explain to stakeholders ("recent evidence counts more"), and does not require changes to the translator. Option 2 is the theoretically correct extension for later. Within Option 1, the arithmetic-vs-logarithmic pooling choice can be evaluated empirically once the infrastructure is in place.
 
 **Supporting UI changes:** Visual staleness indicators on observed nodes (muted/hatched when old). Per-node evidence history panel showing the full stack of observations that contributed to the merged distribution.
 
@@ -49,6 +53,8 @@ where $\lambda$ controls the decay rate. With $\lambda = 0$ this is uniform aver
 **What to add.** After each new observation, compute and display a probability-change waterfall: for each node that was set or updated, show its marginal contribution to the shift in scenario probabilities (leave-one-out decomposition). Display as a horizontal bar chart: "Tanker\_Incidents → frequent contributed +12pp to Severe Closure; Diplomatic\_Resolution\_Path → narrowing contributed +8pp."
 
 **Why it matters.** This is the single most important feature for governance. When probabilities change, the committee needs to know *why*. Automated attribution makes the model's reasoning transparent and debatable. It also surfaces CPT sensitivities organically: if a single node causes a disproportionate swing, that's either a genuine high-leverage variable or a CPT that needs revisiting.
+
+**Computational cost note.** Leave-one-out decomposition requires N+1 inference calls (once with all evidence, once per observed node removed). On the base CPTs (without Dirichlet resampling) this is fast — Variable Elimination is sub-second. But if combined with the full Dirichlet resampling (m=200 draws per call), the cost multiplies to (N+1) × 200 inference runs, which may take several seconds with 8+ observed nodes. The recommended approach: compute the attribution waterfall on point-estimate CPTs for real-time display, and offer the full Dirichlet-resampled version as an optional deeper analysis accessible via an expander or button.
 
 ---
 
@@ -129,6 +135,8 @@ These improvements support interactive exploration of the model — what-if anal
 
 **Why it matters.** This is the elicitation support tool described in `bn_hmm_integration.md` (Section 4.3). The iterative elicitation workflow — elicit, run inference, show experts the implications, adjust — requires a UI that makes CPTs visible and editable without touching code. It also addresses the common objection "I don't know where these numbers came from."
 
+**Downstream relevance for HMM integration.** The CPT explorer is also the natural place to design and validate the BN-to-HMM mappings described in `bn_hmm_integration.md`: translating the BN's discrete node states (e.g., `Oil_Price_Regime` ∈ {`below_90`, `90_to_120`, `above_120`}) into continuous priors on HMM emission parameters (Section 3.1.5) or into regression coefficients for emission modification (Section 3.3). These mappings involve non-trivial design choices that benefit from interactive exploration.
+
 ### C3. Observation Undo/Redo and Evidence Pinning
 
 **What exists now.** Observations can be removed individually. There is no undo mechanism and no way to protect specific observations from being cleared.
@@ -162,25 +170,18 @@ These are longer-horizon improvements that build institutional memory and connec
 
 ### E1. News Memory Database and Ontology
 
-**What exists now.** Each headline is translated, observed, and forgotten (by inference) once a newer observation overwrites it. There is no persistent store of processed headlines, no deduplication, and no way to search past evidence or identify patterns across sessions.
+**What exists now.** No persistent store of processed headlines. Each is forgotten by inference once overwritten. No deduplication, cross-session search, or pattern analysis.
 
-**What to add.** A structured news memory layer — a knowledge graph or vector store that persists every headline alongside its translator output (node assignments, confidence distributions, rationale) and session metadata (day, session name, scenario probabilities at time of ingestion).
+**What to add.** A structured news memory layer (knowledge graph or vector store, e.g., **Cognee**) that persists every headline alongside its translator output and session metadata. Key capabilities:
 
-A tool like **Cognee** (or a lighter-weight combination of a vector database with structured metadata) would provide:
+- **Ontology-aligned storage:** Headlines indexed against the BN's node vocabulary (`STATES` dict), enabling queries like "all headlines touching `Tanker_Incidents` in the last 90 days."
+- **Deduplication and contradiction detection:** Flag semantically similar past headlines; detect when a new headline contradicts recent evidence.
+- **Pattern recognition:** Meta-analysis of which nodes are frequently/never observed, translator calibration biases.
+- **Retrieval-augmented translation:** Use similar past headlines as LLM context for consistency.
 
-1. **Ontology-aligned storage.** Each headline is stored with its mapping to the BN's node vocabulary. This creates a queryable corpus organised by the same causal structure as the model: "show me all headlines that touched `Tanker_Incidents` in the last 90 days" or "what evidence has ever been observed for `Iranian_Regime_Stability = unstable`?"
+The BN's node vocabulary is already a lightweight ontology; the memory should be indexed against it so queries operate in the same conceptual space as inference.
 
-2. **Deduplication and contradiction detection.** When a new headline arrives, the memory layer checks whether a semantically similar headline has already been processed. If so, it flags the overlap and optionally reuses the previous translation rather than making a fresh LLM call. It can also detect contradictions: "This headline implies `Negotiations = success`, but 2 days ago a headline implied `Negotiations = breakdown` — flag for analyst review."
-
-3. **Pattern recognition across sessions.** Over time, the memory accumulates a corpus of headline → BN mapping pairs. This enables meta-analysis: which nodes are most frequently observed? Which nodes are never touched by headlines (suggesting either a gap in news coverage or a node that the translator struggles to map to)? Are there systematic biases in the translator's confidence calibration?
-
-4. **Retrieval-augmented translation.** When translating a new headline, the system retrieves the most similar past headlines and their translations as context for the LLM. This improves consistency: if "tanker incident in Hormuz" was mapped to `Tanker_Incidents = isolated` last month, a very similar headline today should produce a similar mapping unless the context has materially changed.
-
-**Ontology considerations.** The BN's node vocabulary (`STATES` dict in `src/network.py`) is already a lightweight ontology — 13 nodes with named states covering the causal space. The news memory should be indexed against this ontology so that queries and retrieval operate in the same conceptual space as inference. Cognee's graph-based approach is a natural fit here: entities are BN nodes, relationships are BN edges, and observations are facts attached to entity-states with timestamps.
-
-**Why it matters.** As the system moves from demo toward production, institutional memory becomes essential. An analyst starting a new session should be able to ask "what did we observe last month?" and get a structured answer, not scroll through a JSON file. The knowledge graph also supports the monthly meta-narrative (B1): the LLM generating the monthly summary can query the memory for the full evidence history rather than relying only on the current session's observation log.
-
-**Implementation note.** This is the most architecturally ambitious step and depends on several earlier improvements (particularly A1 evidence accumulation and B1 narrative generation). It should be pursued only after the core inference and narrative layers are stable.
+**Implementation note.** This is the most architecturally ambitious step. It depends on A1 (evidence accumulation) and B1 (narrative generation) and should be pursued only after the core layers are stable.
 
 ---
 
@@ -193,7 +194,7 @@ The table below suggests a sequencing that balances foundational correctness, st
 | 1 | A1: Evidence accumulation | Inference | Foundational fix. The model currently has no memory across observations to the same node. Every downstream improvement assumes this works. |
 | 2 | A3: Sensitivity attribution | Inference | High governance value. Low implementation cost (leave-one-out over existing inference). Immediately useful in committee settings. |
 | 3 | B2: Pre-built scenario sequences | Narrative | High demo value. Low effort (data only, no new inference logic). Makes the app presentable in stakeholder meetings. |
-| 4 | B1: Daily narrative generation | Narrative | Depends on A3 (attribution feeds the narrative). Transforms the app from a dashboard into a briefing tool. The monthly meta-narrative layer follows naturally. |
+| 4 | B1: Daily narrative generation | Narrative | Enhanced by A3 (attribution enriches the narrative, but B1 can function without it using raw probability deltas). Transforms the app from a dashboard into a briefing tool. The monthly meta-narrative layer follows naturally. |
 | 5 | C1: Scenario comparison mode | Exploration | High analytical value. Moderate effort (parallel evidence threads, dual rendering). Natural complement to B2 sequences. |
 | 6 | B3: Session export | Narrative | Depends on B1 (narratives are the most valuable export content). Delivers the governance artefact: a distributable PDF with full audit trail. |
 | 7 | A2: Node-level credible intervals | Inference | Extends existing Dirichlet resampling. Moderate compute cost. Valuable for CPT refinement and elicitation workflows. |

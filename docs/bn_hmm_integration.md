@@ -1,12 +1,29 @@
 # Bridging Bayesian Networks and Hidden Markov Models: A Framework for Combining Causal Reasoning with Data-Driven Regime Inference
 
+## Executive Summary
+
+This document proposes a framework for integrating two probabilistic models: a **Bayesian network** (BN) encoding expert causal reasoning about geopolitical crises (already implemented in this repository) and a **Hidden Markov Model** (HMM) learning inflation regimes from market data (proposed in a companion document). The BN handles unprecedented events that have no historical data; the HMM handles temporal regime dynamics that experts cannot track in real time.
+
+Four integration mechanisms are presented, in order of increasing ambition:
+
+1. **Structural priors** (Section 3.1.5): The BN's causal beliefs provide informative priors on HMM parameters before estimation.
+2. **Transition-matrix covariates** (Section 3.1, Approach A): The BN's scenario posterior enters the HMM's transition matrix via a logistic link, accelerating regime entry when geopolitical evidence warrants it.
+3. **Emission modification** (Section 3.3, Approach C): The BN covariate shifts emission distributions, making regimes cause-sensitive without adding latent states.
+4. **Hierarchical sub-states** (Section 3.2, Approach B): The HMM's regimes are decomposed into causal sub-types informed by the BN.
+
+The BN also serves as the permanent interface between human expert judgment and the automated HMM — providing structured, auditable overrides rather than arbitrary probability adjustments (Section 6). Both frameworks admit lateral extensions (additional BNs for other risk channels, geographic HMM variants) before the harder hierarchical step (Section 5).
+
+This integration has no direct precedent in the published literature. Section 8 discusses methodological risks (double-counting, calibration mismatch, CPT fragility, structural misspecification) and their mitigations. Section 9 provides 25 verified references.
+
+---
+
 ## 1. Introduction and Motivation
 
 This document addresses a specific modelling challenge: how to integrate two distinct probabilistic frameworks — a **discrete Bayesian network** (BN) encoding causal geopolitical reasoning, and a **Bayesian Hidden Markov Model** (HMM) learning inflation regimes from market data — into a coherent system that is stronger than either component alone.
 
 The BN is already implemented (this repository). It models a Strait of Hormuz crisis through 13 causally linked nodes, with expert-elicited conditional probability tables (CPTs), and outputs posterior probabilities over three geopolitical scenarios. The HMM is proposed in a companion document as a Dynamic Scenario Pricing Framework for inflation regime identification, using market and macro indicators to infer latent inflation states in real time.
 
-Both models answer the same fundamental question: *given what we have observed, what is the probability of being in each scenario?* Both use Bayes' theorem to update that answer as new information arrives. Both produce posterior distributions with credible intervals, not just point estimates.
+Both models address a structurally analogous question: *given what we have observed, what is the probability of being in each scenario?* Both use Bayes' theorem to update that answer as new information arrives. Both produce posterior distributions with credible intervals, not just point estimates. (The scenarios themselves differ — geopolitical outcomes for the BN, macroeconomic regimes for the HMM — a distinction explored in Section 3.1.1.)
 
 The surface similarity is real, but it conceals a deep structural difference that determines when each framework is appropriate — and, more importantly, how they compose into something neither can achieve independently.
 
@@ -14,29 +31,15 @@ The surface similarity is real, but it conceals a deep structural difference tha
 
 ## 2. The Two Frameworks: What They Share and Where They Diverge
 
-### 2.1 The Shared Mathematical Core
+### 2.1 Shared Core and Key Divergence
 
-Both models are instances of **probabilistic graphical models over discrete latent states**. Both maintain a posterior distribution over a small set of scenarios (K = 3 in each case), updated by conditioning on observed data. Both propagate uncertainty: the BN through Dirichlet resampling of its CPT parameters, the HMM through full MCMC posterior distributions over transition matrices and emission parameters.
+Both models are **probabilistic graphical models over discrete latent states** that maintain posterior distributions over K=3 scenarios, updated by conditioning on observed data. Both propagate uncertainty (the BN through Dirichlet resampling, the HMM through full MCMC posteriors). Both use exact marginalisation (Variable Elimination for the BN, the forward algorithm for the HMM).
 
-The inference machinery differs in implementation but not in principle. The BN uses Variable Elimination to marginalise over intermediate nodes; the HMM uses the forward algorithm to marginalise over the latent regime path. Both are exact marginalisation procedures for their respective graph structures.
+The key divergence: **can the regime parameters be learned from historical data?** The HMM says yes — inflation regimes have occurred before (the 1970s oil shocks, the 2021–22 surge), providing decades of market data to learn emission distributions and transition matrices. The BN says no — a sustained Hormuz closure has no historical precedent, so the model encodes expert-elicited causal reasoning instead.
 
-### 2.2 The Structural Divergence
+The HMM is a **temporal model with learned parameters** that discovers what each regime looks like but not what causes transitions. The BN is a **causal model with elicited parameters** that explains why a scenario would materialise but has no time axis. They provide complementary signal through partially overlapping but structurally distinct channels: the same event (e.g., a tanker seizure) moves both oil prices (observed by the HMM) and the BN's causal graph, but the BN processes the *causal mechanism* while the HMM processes the *market manifestation*.
 
-The models diverge on one question: **can the regime parameters be learned from historical data?**
-
-**The HMM says yes.** Inflation regimes have occurred before — the OPEC shocks of the 1970s, the post-COVID surge of 2021–22. There exist decades of monthly CPI, breakeven inflation, commodity, and yield data across multiple regime episodes. The HMM exploits this: it fits regime-conditional emission distributions (means $\mu_k$ and covariances $\Sigma_k$) and a transition matrix $P$ from historical time series via Bayesian inference (MCMC or variational methods). The forward algorithm then filters today's market observations into regime probabilities. This is data-driven inference over a temporal process, grounded in the empirical regularity that inflation regimes are persistent (high diagonal entries in $P$) and that each regime produces a distinctive pattern in observable market indicators.
-
-**The BN says no** — at least for the specific scenario it models. A sustained closure of the Strait of Hormuz with severe infrastructure damage has no historical precedent. There is no dataset from which to estimate $P(\text{Severe\_Closure} \mid \text{damage=severe, duration=long, diplomacy=closed})$, because that parent configuration has never been observed. Instead of learning from time series, the BN encodes **expert-elicited causal reasoning**: "if the regime is unstable AND sanctions are tightening, then proxy activity is 70% likely to be high." The directed acyclic graph (DAG) structure itself represents causal channels — escalation, military response, diplomatic resolution — that no amount of market data could discover because they have never played out at scale.
-
-### 2.3 The Core Tension
-
-The HMM is a **temporal model with learned parameters**: it discovers regimes from patterns in data, with no causal story about why regimes switch. It knows what each regime looks like but not what causes transitions between them.
-
-The BN is a **causal model with elicited parameters**: it encodes expert reasoning about why a scenario would materialise, through an explicit graph of causal dependencies. It has no time axis and no mechanism for learning from data.
-
-In one sentence: the HMM learns "what does high inflation look like in market data" from history; the BN encodes "why would a strait closure happen" from expert reasoning. They provide complementary signal through non-overlapping information channels.
-
-### 2.4 Formal Comparison
+### 2.2 Formal Comparison
 
 The HMM is a chain-structured graphical model:
 
@@ -68,9 +71,9 @@ Evidence enters as observations on any node, and inference propagates through th
 
 ---
 
-## 3. Integration Architecture: Two Complementary Approaches
+## 3. Integration Architecture
 
-The two approaches described below are **not alternatives** — they address different aspects of the integration problem and compose naturally. The first (Section 3.1) is simpler to implement and provides immediate value; the second (Section 3.2) is architecturally richer and becomes essential for downstream applications such as regime-conditional asset return modelling.
+The BN and HMM can be connected through several mechanisms, each addressing a different aspect of the integration problem. This section presents them in order of increasing ambition: from lightweight coupling (Section 3.1) through intermediate options (Sections 3.2, 3.3) to the fully unified model (Section 3.4). These are **not mutually exclusive** — they address different dimensions and can be composed. The recommended development path (Section 5.4) sequences them by feasibility and value.
 
 ### 3.1 Approach A: The BN as an External Signal Injected into the HMM
 
@@ -78,13 +81,17 @@ The two approaches described below are **not alternatives** — they address dif
 
 The HMM's transition matrix $P$ governs how likely regime switches are. In the baseline specification, $P$ is estimated from historical data and remains fixed between monthly recalibrations. But a geopolitical event — an escalation in the Strait of Hormuz — should change the transition dynamics themselves. The historical base rate for transitioning from Moderate to High Inflation (perhaps $P(\text{Mod} \to \text{High}) = 0.03$) does not account for unprecedented geopolitical shocks, because such shocks are absent from (or extremely rare in) the training data.
 
-The BN provides exactly the missing signal. When a news headline is processed and the BN posterior shifts toward elevated conflict scenarios, that posterior is used to modify the HMM's transition matrix for the current period:
+The BN provides exactly the missing signal. When a news headline is processed and the BN posterior shifts toward elevated conflict scenarios, that posterior is used to modify the HMM's transition matrix for the current period.
+
+The standard approach in the TVTP literature (Diebold et al., 1994; Filardo, 1994) parameterises each row of the transition matrix through a logistic (softmax) link function, which guarantees that the adjusted matrix remains a valid stochastic matrix (non-negative entries, rows summing to 1). In our setting, the BN's scenario posterior $\pi^{\text{BN}}$ enters as a covariate in this link:
 
 $$
-P_{\text{adjusted}}(\text{Mod} \to \text{High}) = P_{\text{baseline}}(\text{Mod} \to \text{High}) + \lambda \cdot f(\pi^{\text{BN}})
+P_{jk}(t) = \frac{\exp(\alpha_{jk} + \beta_{jk} \cdot x_t)}{\sum_{l} \exp(\alpha_{jl} + \beta_{jl} \cdot x_t)}
 $$
 
-where $\lambda$ controls the coupling strength and $f$ maps the BN's three-state scenario posterior $\pi^{\text{BN}}$ into a scalar transition adjustment (e.g., a weighted combination of $P(\text{Prolonged\_Conflict})$ and $P(\text{Severe\_Closure})$, which both imply inflationary pressure).
+where $x_t = g(\pi^{\text{BN}}_t)$ is a scalar covariate derived from the BN posterior (e.g., a weighted escalation score), $\alpha_{jk}$ are the baseline log-odds (encoding the historical transition rates), and $\beta_{jk}$ are coupling parameters that control how strongly the BN signal shifts each transition probability. The logistic link ensures valid probabilities by construction.
+
+An important subtlety: the BN's scenario space (Stress_Mitigates, Prolonged_Conflict, Severe_Closure) is not the same as the HMM's regime space (Low, Moderate, High Inflation). The BN produces geopolitical outcomes; the HMM produces macroeconomic regimes. Severe Closure is a *cause* of High Inflation, not a synonym for it — and the inflationary impact of a Hormuz disruption depends on the broader macro context (oil import dependency, strategic reserves, monetary policy stance). The mapping function $g$ that converts the BN posterior into a transition covariate encodes this cross-domain translation, and it is itself a modelling assumption that should be validated by backtesting against historical episodes where geopolitical shocks produced (or failed to produce) inflationary regime transitions.
 
 #### 3.1.2 What This Achieves
 
@@ -115,11 +122,24 @@ The BN and the DSGE play analogous roles — both are slower-moving, structurall
 
 #### 3.1.4 Concrete Example
 
-A headline arrives: "Iran seizes two tankers; US deploys carrier strike group." The BN processes this and its posterior shifts to $P(\text{Severe\_Closure}) = 0.35$, $P(\text{Prolonged\_Conflict}) = 0.45$, $P(\text{Stress\_Mitigates}) = 0.20$.
+A headline — "Iran seizes two tankers; US deploys carrier strike group" — shifts the BN posterior to P(Severe\_Closure) = 0.35, P(Prolonged\_Conflict) = 0.45. The mapping function $g$ computes a scalar escalation covariate (e.g., $x_t = 0.45 + 2 \times 0.35 = 1.15$), which enters the logistic link and shifts $P(\text{Mod} \to \text{High})$ upward from its baseline of 0.03. The next day, oil spikes and breakevens jump — the HMM's emission likelihood reinforces the BN's structural signal, and both channels agree that High Inflation is more reachable.
 
-The coupling function computes: $f(\pi^{\text{BN}}) = 0.45 + 2 \times 0.35 = 1.15$ (a weighted escalation score). After scaling by $\lambda$, the HMM's $P(\text{Mod} \to \text{High})$ increases from $0.03$ to, say, $0.08$.
+#### 3.1.5 Alternative to Real-Time Coupling: BN as Structural Prior
 
-The next day's market data — oil spiking, breakeven inflation jumping — is filtered with this elevated transition prior. The two models reinforce each other: the BN said "the geopolitical situation makes high inflation more reachable," and the market data says "the market is pricing in exactly that."
+Approach A feeds the BN's output into the HMM as a real-time covariate. An alternative — closer in spirit to the Del Negro & Schorfheide (2004) DSGE-VAR framework we cite — uses the BN's causal structure to construct **informative priors on the HMM's parameters** before estimation, rather than modifying them at runtime.
+
+The idea: the BN's CPTs encode structural beliefs about what happens when geopolitical conditions change — e.g., that full strait closure with severe damage implies oil above \$120 and long conflict duration. These beliefs translate into prior distributions on the HMM's emission means ($\mu_k$), covariances ($\Sigma_k$), and transition probabilities ($P$):
+
+- Prior on $\mu_{\text{High, oil}}$: positive and large, consistent with the BN's `Oil_Price_Regime` CPT under escalation configurations.
+- Prior on $P(\text{High} \to \text{High})$: elevated, consistent with the BN's `Conflict_Duration` CPT implying persistent crises.
+
+The HMM is then estimated from market data with these structurally informed priors. With sufficient data, the likelihood dominates and the priors wash out; with sparse data (the unprecedented-scenario case), the BN's structural beliefs dominate — which is exactly the regime where expert judgment is most needed.
+
+**How this differs from Approach A:** There is no real-time coupling function. The BN's information enters the HMM once, through priors, before estimation. The HMM then runs as a standalone model. This eliminates the double-counting problem (Section 8.1) and the calibration mismatch (Section 8.2) entirely — the BN's information and the market data enter through separate Bayesian channels (prior and likelihood) that are combined coherently.
+
+**The tradeoff:** The BN's information is static — it doesn't update in real time as new headlines arrive. You would need to re-estimate the HMM whenever the BN's assessment changes substantially. This loses the event-driven responsiveness that the TVTP approach provides.
+
+**Practical recommendation:** Use structural priors for the HMM's baseline estimation (encoding the BN's general beliefs about what inflation regimes look like when geopolitical stress is present), *and* use the TVTP coupling for real-time event-driven updating (encoding the BN's assessment of the current geopolitical state). The two mechanisms are complementary: structural priors shape the parameter landscape; real-time covariates navigate within it.
 
 ---
 
@@ -142,6 +162,10 @@ z_t \mid s_t = \text{High},\; c_t = j \;\sim\; \mathcal{N}(\mu_{\text{High}, j},
 $$
 
 The BN's role in this architecture is to provide the posterior over the sub-state $c_t$, using its causal graph to determine which mechanism is active given the current geopolitical evidence. The BN's internal node posteriors — `Strait_Operationally_Closed`, `Energy_Infrastructure_Damage`, `Oil_Price_Regime` — directly inform which sub-state applies.
+
+**An important caveat on coverage:** The Hormuz BN as currently built provides structural support for only one sub-state: Supply\_Shock. The other sub-states (Demand\_Pull, Expectations\_Deanchor) have no corresponding BN — their priors would need to come from other sources (additional BNs covering monetary policy or expectations dynamics, as discussed in Section 5, or from purely data-driven estimation with weakly informative priors). Until those additional BNs exist, Approach B effectively operates as a two-way decomposition: "supply-shock-driven" (informed by the Hormuz BN) vs "other" (informed by data and generic priors).
+
+**A design choice on sub-state inference:** The sub-state $c_t$ can be handled in two ways. In a **mixture formulation**, $c_t$ is a latent variable marginalised in the forward algorithm alongside the macro regime $s_t$, so the HMM carries uncertainty over which sub-state is active. This is statistically principled but increases the effective state space and estimation difficulty. In a **hard-switch formulation**, $c_t$ is clamped to the BN's MAP assignment at each time step (e.g., Supply\_Shock if the Hormuz BN's escalation covariate exceeds a threshold), and the HMM conditions on that assignment as given. This is simpler but discards the BN's uncertainty about which mechanism is active. The recommended starting point is the hard switch, progressing to the full mixture once the hard-switch version is validated and estimation resources permit.
 
 #### 3.2.2 What This Provides Beyond Approach A
 
@@ -170,7 +194,9 @@ A critical clarification: Approaches A and B address **different aspects** of th
 - **Approach A operates on the arrows *between* HMM states** (the transition matrix). It answers: *should we be more likely to enter the High Inflation regime given the geopolitical evidence?*
 - **Approach B operates on the *interior* of an HMM state** (sub-state decomposition). It answers: *given that we are in (or entering) High Inflation, what is the causal mechanism?*
 
-These are orthogonal dimensions of the model. Approach B by itself has a blind spot: it does not help the HMM *transition into* High Inflation faster when geopolitical evidence warrants it. It only activates once the HMM has already assigned significant probability to the High regime. You still need the Approach A mechanism to handle the fact that unprecedented geopolitical shocks should accelerate regime entry beyond what the historical transition rate implies.
+These address different dimensions of the model, though they are not fully independent: both draw on the same BN posterior, and the transition adjustment from Approach A affects how quickly the HMM enters the regime where Approach B's sub-state decomposition becomes active. The two approaches interact through the BN — a strong escalation signal simultaneously increases the transition probability (Approach A) and shifts sub-state selection toward Supply\_Shock (Approach B). This interaction is a feature, not a bug, but it means the two approaches should be calibrated jointly rather than independently tuned.
+
+That said, Approach B by itself has a blind spot: it does not help the HMM *transition into* High Inflation faster when geopolitical evidence warrants it. It only activates once the HMM has already assigned significant probability to the High regime. You still need the Approach A mechanism to handle the fact that unprecedented geopolitical shocks should accelerate regime entry beyond what the historical transition rate implies.
 
 The full architecture with both approaches active:
 
@@ -208,7 +234,7 @@ Hierarchical HMMs are notoriously prone to **label-switching** and **non-identif
 
 **Computational cost.**
 
-The forward algorithm for a flat K=3 HMM scales as $O(T \cdot K^2)$ per likelihood evaluation. A hierarchical model with $K$ macro states and $J$ sub-states per macro state has an effective state space of $K \cdot J$, so the forward algorithm scales as $O(T \cdot (KJ)^2)$. For $K=3$ and $J=3$, this is 81 times more expensive per forward pass than the flat model. Combined with MCMC (thousands of likelihood evaluations), this becomes hours rather than minutes for a typical dataset.
+The forward algorithm for a flat K=3 HMM scales as $O(T \cdot K^2)$ per likelihood evaluation. A hierarchical model with $K$ macro states and $J$ sub-states within one regime has an effective state space of $K + J - 1$ (the decomposed regime contributes $J$ states instead of 1). For $K=3$ and $J=3$, this gives 5 effective states, so the forward pass scales as $O(T \cdot 25)$ vs $O(T \cdot 9)$ — roughly 3x more expensive. If sub-states are added to all $K$ regimes (effective state space $KJ$), the cost becomes $O(T \cdot (KJ)^2) = O(T \cdot 81)$, which is 9x the flat model. Combined with MCMC (thousands of likelihood evaluations), this can extend runtimes from minutes to hours depending on the specification.
 
 **The practical mitigation: informative priors from the BN.**
 
@@ -219,17 +245,68 @@ This is where the BN earns its keep beyond the Approach A injection. The sub-sta
 
 Without the BN, the hierarchical HMM's sub-state parameters are under-determined by data. With the BN, the priors carry genuine structural information that regularises the estimation. The model documentation (Section 6) already sketches this coupling — the BN posterior fed into PyMC as an informative Dirichlet prior on regime mixture weights.
 
-**Recommended progression:**
+A note on the BN-to-prior mapping: the BN's nodes have discrete states (e.g., `Oil_Price_Regime` ∈ {`below_90`, `90_to_120`, `above_120`}) while the HMM's emission parameters are continuous (monthly log-returns). Converting a discrete BN posterior over price buckets into an informative prior on a continuous Gaussian mean requires non-trivial design choices: what mean log-return does "above\_120" imply? What variance? These mappings should be treated as explicit modelling assumptions, documented and subject to sensitivity analysis rather than buried in implementation.
 
-The estimation challenges argue strongly for an incremental approach:
+**Recommended progression:** The estimation challenges argue strongly for an incremental approach: flat HMM first, then Approach A injection, then hierarchical sub-states only where justified by data and downstream need. The full development path, including lateral extensions, is detailed in Section 5.4.
 
-1. **Start with the flat K=3 HMM** (the companion proposal's Phase 1). Validate against known historical episodes. Get the data pipeline, PyMC implementation, and governance layer working.
+---
 
-2. **Add Approach A** (BN injection on the transition matrix). This is lightweight and does not change the HMM's internal architecture. It provides geopolitical early-warning capability immediately.
+### 3.3 Approach C: BN as Emission Modifier (Time-Varying Emissions)
 
-3. **Add hierarchical sub-states only where justified by data and downstream need.** Begin with the High Inflation regime only (the one where causal decomposition matters most for portfolio construction). Use strong informative priors from the BN. Start with J=2 sub-states (supply-shock vs demand-pull) rather than J=3, to keep the effective state space manageable. Validate that the sub-states are identifiable and that the MCMC sampler converges.
+Approach A modifies *when* the HMM transitions between regimes. Approach B decomposes *what kind* of regime is active. A third option modifies *what each regime looks like* — the emission distributions themselves — as a function of the BN's geopolitical state.
 
-4. **Expand the hierarchy as Phase 2 (conditional asset return modelling) demands it.** The business case for hierarchical sub-states is strongest when you need different return distributions per sub-type — which is precisely what Phase 2 delivers.
+#### 3.3.1 The Idea
+
+Instead of (or in addition to) entering the logistic link on the transition matrix, the BN covariate $x_t$ enters the emission model:
+
+$$
+z_t \mid s_t = k \;\sim\; \mathcal{N}(\mu_k + \delta_k \cdot x_t,\; \Sigma_k)
+$$
+
+where $\delta_k$ is a vector of regression coefficients controlling how the BN signal shifts the emission mean in each regime. When the BN indicates geopolitical escalation ($x_t$ is high), the High Inflation regime's expected oil return shifts upward, its expected breakeven change increases, and its expected yield change steepens. The Low and Moderate regimes may also be affected, but with different $\delta_k$ vectors — a geopolitical supply shock might increase oil price expectations even in a Moderate regime.
+
+#### 3.3.2 How This Differs from Approaches A and B
+
+**From Approach A:** Approach A says "geopolitical escalation makes regime *entry* more likely." Approach C says "geopolitical escalation makes each regime *look different*." A Hormuz escalation under Approach A increases P(High Inflation) but doesn't change what High Inflation looks like once you're in it. Under Approach C, the same escalation makes High Inflation more extreme — higher expected oil, wider breakevens — even if the transition probability is unchanged.
+
+**From Approach B:** Both address the question "what does High Inflation look like given the underlying cause?" But Approach B answers it through discrete sub-states (Supply_Shock vs Demand_Pull), each with its own fixed emission parameters. Approach C answers it through continuous modulation — the emission parameters slide as a function of the BN covariate, without discrete switching. Approach C is lighter-weight: it adds $d \times K$ parameters (the $\delta_k$ vectors) rather than doubling the effective state space.
+
+#### 3.3.3 When to Use This
+
+Approach C is a natural **intermediate step** between Approach A and the full hierarchical Approach B. If Approach A is too coarse (it only affects transitions, not what happens within a regime) but Approach B is too expensive (full sub-state estimation with scarce data), emission modification provides cause-sensitive emissions without the hierarchical machinery.
+
+It also composes with Approach A: the BN covariate can enter *both* the transition logistic link and the emission mean simultaneously. The transition channel handles "should we enter High Inflation?" while the emission channel handles "how extreme is High Inflation right now?" — two dimensions of the same geopolitical signal.
+
+**Estimation difficulty:** Moderate. The $\delta_k$ parameters interact with the emission likelihood and must be estimated jointly with $\mu_k$ and $\Sigma_k$. This is harder than Approach A (which only touches the transition matrix outside the likelihood) but substantially easier than Approach B (which expands the latent state space). Standard Bayesian regression within the HMM framework; well within PyMC's capabilities.
+
+---
+
+### 3.4 The Theoretical Endpoint: A Joint Model
+
+All preceding approaches treat the BN and HMM as **separate models connected by coupling functions** — the BN runs independently, produces output, and that output is fed into the HMM via covariates, priors, or sub-state selectors. The HMM doesn't know it's talking to a BN.
+
+The fully principled alternative is to embed both in a **single probabilistic model** — a Dynamic Bayesian Network (DBN) where the BN's discrete geopolitical nodes and the HMM's regime chain are joint latent variables, and inference over all of them is performed simultaneously.
+
+#### 3.4.1 What This Would Look Like
+
+At each time step $t$, the model contains:
+- The HMM's regime variable $s_t \in \{\text{Low}, \text{Moderate}, \text{High}\}$, following a Markov chain
+- The BN's geopolitical node states (e.g., `Tanker_Incidents_t`, `Strait_Closure_t`), following their own temporal dynamics
+- Emissions $z_t$ that depend on both $s_t$ and the relevant BN node states
+
+Evidence from headlines enters as observations on the BN's nodes; market data enters as observations on the emissions. Joint inference — marginalising over both the regime chain and the geopolitical nodes — produces a posterior that coherently combines both information sources, with uncertainty propagating correctly across all variables.
+
+This is a DBN, and both standard BNs and HMMs are special cases of DBNs. The unified model would eliminate all the coupling-function design problems (no $g$, no $\beta_{jk}$, no "most active BN" criterion) because the coupling emerges naturally from the joint probability structure.
+
+#### 3.4.2 Why This Is Not Proposed as a Near-Term Step
+
+**Computational cost.** The BN has 13 nodes with 2–3 states each. Marginalising over all of them at every time step, alongside the HMM's regime chain, produces a combinatorial state space that makes MCMC intractable without aggressive approximation (variational inference, structured mean-field, or custom message-passing).
+
+**Temporal elicitation burden.** The BN's nodes would need temporal transition probabilities — how does `Tanker_Incidents` at time $t$ depend on `Tanker_Incidents` at time $t-1$? The current BN has no temporal dynamics; adding them requires eliciting an entirely new layer of CPTs for every node.
+
+**Diminishing returns.** Much of the joint model's benefit can be approximated by the simpler approaches. Structural priors (Section 3.1.5) capture the BN's steady-state beliefs. TVTP coupling (Section 3.1) captures event-driven updating. Emission modification (Section 3.3) captures cause-sensitive regime behaviour. The joint model provides exact coherence, but the incremental approaches provide most of the value at a fraction of the cost.
+
+**Role in the development path:** The joint DBN is best understood as the **theoretical north star** that the incremental steps are converging toward, not as a near-term deliverable. Each intermediate step (structural priors → TVTP → emission modification → hierarchy) captures one more aspect of what the joint model would provide automatically. If the incremental steps eventually prove insufficient, the joint model is where the architecture would need to go — but that decision should be driven by demonstrated limitations of the simpler approaches, not by theoretical elegance.
 
 ---
 
@@ -287,43 +364,25 @@ Honestly: very hard, and it is never "done." Several specific challenges deserve
 
 ### 4.6 Tools in the Python and PyMC Ecosystem
 
-#### For BN construction and inference
-
-- **pgmpy** (already in this codebase): Handles discrete BN construction, CPT specification, and exact inference via Variable Elimination. Mature and well-documented. Its limitation: no native support for continuous observation nodes or parameter learning via MCMC.
-
-#### For bridging to continuous observations and parameter learning
-
-- **PyMC**: The proposed implementation framework for the HMM. Also the natural home for the BN extension described in this repository's model documentation (Section 6): add continuous emission layers conditioned on discrete BN nodes, then perform MCMC over the continuous parameters while marginalising the discrete latent states. PyMC's `pm.Mixture` and custom log-likelihood support make this feasible.
-
-- **pymc-extras / pymc-experimental**: Contains `MarginalMixture` and HMM-related distributions that handle the forward-algorithm marginalisation needed when the NUTS sampler cannot operate on discrete state paths directly. This is the implementation path for the HMM component.
-
-#### For structure learning (discovering or validating graph edges)
-
-- **pgmpy's structure learning module**: Implements constraint-based (PC algorithm), score-based (Hill Climbing with BIC/BDeu), and hybrid methods. Useful for validating whether expert-proposed edges are consistent with observed conditional independencies. Not a replacement for expert elicitation on unprecedented scenarios, but a valuable consistency check for nodes that do have empirical data (e.g., the `Oil_Price_Regime` node against actual oil price history).
-
-- **CausalNex** (QuantumBlack / McKinsey): A Python library for causal Bayesian networks that combines structure learning with expert knowledge injection. It supports "must-have" and "must-not-have" edge constraints, allowing the algorithm to fill in uncertain edges from data while respecting known causal relationships. Its NOTEARS-based continuous optimisation approach to structure learning is faster than constraint-based methods for moderate-dimensional problems.
-
-- **bnlearn** (Python): Another option for structure learning and parameter estimation from data. Wraps pgmpy but provides a simpler API for common structure-learning workflows.
-
-#### For expert elicitation
-
-- **SHELF** (Sheffield Elicitation Framework): Not a Python package but a structured protocol with R and Excel tools. The methodology — calibration training, individual assessment, structured reconciliation, consistency feedback — is directly applicable regardless of implementation language.
-
-- **Elicitpy**: A Python implementation of several elicitation methods (roulette, quartile, tertile methods) for translating expert beliefs into parametric prior distributions. Useful for converting qualitative statements ("high proxy activity is quite likely but not certain") into Dirichlet concentration parameters for CPT columns.
-
-- **PreliZ** (PyMC ecosystem): Explicitly designed for prior elicitation in Bayesian models. Provides interactive tools for matching expert beliefs to probability distributions, including Dirichlet distributions. This is the most natural fit for eliciting CPT columns within a PyMC workflow: the expert uses PreliZ to express their belief, PreliZ converts it to a Dirichlet prior, and PyMC uses that prior for parameter learning.
-
-#### For sensitivity analysis and model criticism
-
-- **ArviZ** (PyMC ecosystem): Posterior diagnostics, convergence checks, and model comparison. Once CPT parameters are treated as random variables with Dirichlet priors (as proposed in the model documentation Section 7), ArviZ provides the tools for inspecting posterior quality: `plot_forest`, `plot_posterior`, `loo` (leave-one-out cross-validation), and `compare` for formal model selection.
-
-- The existing Dirichlet resampling in `src/sensitivity.py` is a lightweight precursor to the full ArviZ workflow. As the model grows toward Bayesian parameter learning, the transition to ArviZ's diagnostic suite is natural.
+| Category | Tool | Role |
+|----------|------|------|
+| BN construction | **pgmpy** (in codebase) | Discrete BN construction, CPT specification, Variable Elimination inference. No continuous nodes or MCMC. |
+| Continuous extensions | **PyMC** | HMM implementation; BN continuous emission layers via `pm.Mixture` and custom log-likelihoods. |
+| | **pymc-extras** | `MarginalMixture` and HMM distributions for forward-algorithm marginalisation in NUTS. |
+| Structure learning | **pgmpy structure learning** | PC algorithm, Hill Climbing (BIC/BDeu). Validates expert-proposed edges against data. |
+| | **CausalNex** | Structure learning with expert edge constraints (must-have/must-not-have). NOTEARS-based. |
+| | **bnlearn** (Python) | Simpler API wrapping pgmpy for common structure-learning workflows. |
+| Expert elicitation | **SHELF protocol** | Structured group elicitation methodology (R/Excel tools). Calibration, individual assessment, reconciliation. |
+| | **Elicitpy** | Python elicitation methods (roulette, quartile) for converting expert beliefs to Dirichlet priors. |
+| | **PreliZ** (PyMC) | Interactive prior elicitation; natural fit for CPT column priors within PyMC workflows. |
+| Diagnostics | **ArviZ** (PyMC) | Posterior diagnostics (R-hat, ESS), model comparison (`loo`, `compare`). Essential once CPTs become learnable parameters. |
+| | `src/sensitivity.py` | Lightweight Dirichlet resampling already in codebase; precursor to full ArviZ workflow. |
 
 ---
 
 ## 5. Lateral Moves: Expanding Coverage Before Adding Depth
 
-The development path in Section 5.1 presents a vertical progression — flat HMM, then BN injection, then hierarchy. But both frameworks also admit **lateral moves**: expanding the scope of what each model covers, independently, before deepening the integration. These lateral extensions are often lower-risk and higher-impact than the hierarchical step, and they deserve explicit consideration in planning.
+The development path in Section 5.4 presents a vertical progression — flat HMM, then BN injection, then hierarchy. But both frameworks also admit **lateral moves**: expanding the scope of what each model covers, independently, before deepening the integration. These lateral extensions are often lower-risk and higher-impact than the hierarchical step, and they deserve explicit consideration in planning.
 
 ### 5.1 Lateral Moves for the BN
 
@@ -335,13 +394,15 @@ The Hormuz BN models one specific geopolitical scenario. But the same methodolog
 
 Each BN is a self-contained model with its own graph, CPTs, and dashboard. But crucially, each produces the same type of output: a posterior distribution over a small number of named scenarios. This means multiple BNs can feed into the HMM simultaneously via Approach A — each contributing an event-driven covariate on the transition matrix for a different risk channel.
 
-The architecture for this is a **factorial** or **multi-channel** injection: instead of one BN modifying $P(\text{Mod} \to \text{High})$, several BNs each contribute an additive or multiplicative adjustment. The HMM's transition matrix becomes:
+The architecture for this is a direct extension of the TVTP framework (Diebold et al., 1994; Filardo, 1994): instead of one covariate $x_t$ in the logistic link function, the transition matrix is parameterised with a vector of covariates, one per BN:
 
-$$P_{\text{adjusted}} = f(P_{\text{baseline}},\; \pi^{\text{Hormuz}},\; \pi^{\text{Russia-Ukraine}},\; \pi^{\text{China-Taiwan}},\; \ldots)$$
+$$
+P_{jk}(t) = \frac{\exp(\alpha_{jk} + \boldsymbol{\beta}_{jk}^\top \mathbf{x}_t)}{\sum_{l} \exp(\alpha_{jl} + \boldsymbol{\beta}_{jl}^\top \mathbf{x}_t)}, \quad \mathbf{x}_t = \begin{pmatrix} g_1(\pi^{\text{Hormuz}}_t) \\ g_2(\pi^{\text{Russia-Ukraine}}_t) \\ \vdots \end{pmatrix}
+$$
 
-This is conceptually related to the **factorial HMM** (Ghahramani & Jordan, 1997), where the hidden state is the Cartesian product of multiple independent Markov chains. In our case, the BNs are not Markov chains — they are static causal models updated event-by-event — but they play an analogous role: multiple independent latent processes that jointly determine the observable state.
+Each BN contributes one element of the covariate vector, and the coupling parameters $\boldsymbol{\beta}_{jk}$ determine how strongly each risk channel influences each transition. This is standard TVTP machinery — adding a second BN is adding a second covariate, not changing the model class.
 
-**Why this matters:** Adding a second BN is far easier than adding hierarchy to the HMM. The graph elicitation, translator, and dashboard infrastructure are already built; a new BN reuses all of it. And the multi-BN injection into the HMM is a straightforward extension of Approach A, with no change to the HMM's internal architecture. This means the system can grow in topical coverage without waiting for the technically harder hierarchical step.
+**Why this matters:** Adding a second BN is far easier than adding hierarchy to the HMM. The graph elicitation, translator, and dashboard infrastructure are already built; a new BN reuses all of it. And the multi-covariate TVTP injection requires no change to the HMM's internal architecture. This means the system can grow in topical coverage without waiting for the technically harder hierarchical step.
 
 ### 5.2 Lateral Moves for the HMM
 
@@ -357,9 +418,9 @@ Each of these is a re-estimation of the existing flat HMM on different data, not
 
 The most interesting lateral move is combining the two: **multiple BNs, each covering a different event-driven risk, feeding into a single HMM** via Approach A's transition-matrix injection.
 
-This creates a system where the HMM's regime dynamics are influenced by a portfolio of geopolitical risks, not just one. The Hormuz BN might be quiet while the Russia-Ukraine BN is active; the combined effect on the transition matrix reflects the net geopolitical risk environment. This is a richer and more realistic model of how geopolitical events affect inflation regimes — multiple risk channels, each with its own causal structure, contributing to a shared macroeconomic outcome.
+This creates a system where the HMM's regime dynamics are influenced by a portfolio of geopolitical risks, not just one. The Hormuz BN might be quiet while the Russia-Ukraine BN is active; the combined effect on the transition matrix reflects the net geopolitical risk environment. This is a richer and more realistic model of how geopolitical events affect inflation regimes — multiple risk channels, each with its own causal structure, contributing to a shared macroeconomic outcome. Technically, it is simply a multi-covariate TVTP model — an established framework in the regime-switching literature, not a new model class.
 
-Importantly, this multi-BN architecture is a prerequisite for, and feeds naturally into, the hierarchical step. If the HMM's High Inflation regime is eventually decomposed into sub-states (Approach B), the relevant sub-state can be selected based on *which BN is most active*: if the Hormuz BN is driving the transition, the sub-state is Supply Shock; if the monetary policy BN is driving it, the sub-state is Demand Pull. The BN portfolio provides the causal attribution that the hierarchy needs.
+Importantly, this multi-BN architecture is a prerequisite for, and feeds naturally into, the hierarchical step (Approach B). If the HMM's High Inflation regime is eventually decomposed into sub-states, the relevant sub-state can be selected based on *which BN is most active*. "Most active" requires a precise definition — for instance, the BN whose covariate $g_i(\pi^{\text{BN}}_t)$ currently contributes the largest positive shift to $P(\text{Mod} \to \text{High})$ in the logistic link, or the BN whose covariate has changed most over the recent window. The choice of activation criterion is a design decision that should be validated against historical episodes. Under any reasonable definition: if the Hormuz BN is the dominant driver, the sub-state is Supply Shock; if the monetary policy BN is dominant, the sub-state is Demand Pull. The BN portfolio provides the causal attribution that the hierarchy needs, and each sub-state gets structural prior support from its corresponding BN rather than relying on data alone.
 
 ---
 
@@ -373,13 +434,13 @@ Build and validate the K=3 Bayesian HMM as described in the companion proposal. 
 
 **Estimation difficulty:** Moderate. This is a well-understood model with established PyMC implementations and sufficient historical data. The main challenge is careful prior specification (particularly Dirichlet priors on the transition matrix rows to encode regime persistence) and convergence diagnostics. Expect 10–30 minutes per MCMC run for the baseline specification.
 
-**Deliverable:** Live inflation scenario probability engine, forward simulation, and controlled stress testing — the full Phase 1 scope.
+**Deliverable:** Live inflation scenario probability engine, forward simulation, and controlled stress testing — the full Phase 1 scope. BN-derived structural priors (Section 3.1.5) should be incorporated at this stage to encode the BN's steady-state beliefs about regime characteristics into the HMM's parameter priors.
 
 ### Step 2: BN Injection on the Transition Matrix (Approach A)
 
-Add the event-driven BN coupling to the HMM's transition matrix. Implement the coupling function $f(\pi^{\text{BN}})$. Calibrate $\lambda$ by backtesting: does the BN signal improve the HMM's detection speed for historically known geopolitical-inflation episodes (e.g., the 1990 Gulf War oil shock, the 2022 Russia-Ukraine commodity disruption)?
+Add the event-driven BN coupling to the HMM's transition matrix. Implement the logistic link with coupling parameters $\beta_{jk}$ as described in Section 3.1.1. Calibrate the $\beta$ parameters by backtesting: does the BN signal improve the HMM's detection speed for historically known geopolitical-inflation episodes (e.g., the 1990 Gulf War oil shock, the 2022 Russia-Ukraine commodity disruption)?
 
-**Estimation difficulty:** Low. This adds no new parameters to estimate — the coupling function and $\lambda$ are design choices, not learned quantities (though $\lambda$ can be calibrated via out-of-sample performance). The BN is already built.
+**Estimation difficulty:** Low. The coupling parameters $\beta_{jk}$ and the mapping function $g$ are design choices that can be calibrated via out-of-sample performance rather than requiring full Bayesian estimation. The BN is already built.
 
 **Deliverable:** Geopolitical early-warning capability. The HMM transitions into High Inflation faster when the BN detects escalation, before market data fully reflects it.
 
@@ -387,7 +448,7 @@ Add the event-driven BN coupling to the HMM's transition matrix. Implement the c
 
 Build one or two additional BNs covering other event-driven risks (e.g., Russia-Ukraine energy disruption, US monetary policy). Reuse the existing graph elicitation, translator, and dashboard infrastructure. Each new BN feeds into the HMM via the same Approach A mechanism, contributing an additional covariate on the transition matrix.
 
-**Estimation difficulty:** Low (for the BNs themselves — same methodology as the Hormuz BN). The multi-channel injection function $f$ requires design but not statistical estimation.
+**Estimation difficulty:** Low (for the BNs themselves — same methodology as the Hormuz BN). The multi-covariate logistic link (Section 5.1) requires specifying a mapping function $g_i$ per BN and calibrating the corresponding $\boldsymbol{\beta}_{jk}$ parameters, but this is design and calibration work, not full Bayesian estimation.
 
 **Deliverable:** A system that tracks multiple geopolitical risk channels simultaneously, providing a richer picture of the forces acting on inflation regime dynamics.
 
@@ -398,6 +459,14 @@ Re-estimate the flat HMM on data from other regions (Europe, GCC) or for other r
 **Estimation difficulty:** Moderate (same as Step 1, repeated). Data availability may vary by geography.
 
 **Deliverable:** Multi-market regime monitoring. Each variant is independently useful and also serves as a validation check (do inflation regimes across geographies correlate as expected?).
+
+### Step 2d (vertical): BN-Modulated Emissions (Approach C)
+
+Add the BN covariate to the HMM's emission model (Section 3.3), so that the geopolitical state affects not just transition probabilities but what each regime looks like. Estimate the $\delta_k$ regression coefficients jointly with the emission parameters.
+
+**Estimation difficulty:** Moderate. Adds $d \times K$ parameters to the emission model. These interact with the likelihood and must be estimated via MCMC, but the model structure remains a standard HMM with regression — no expansion of the latent state space.
+
+**Deliverable:** Cause-sensitive emission distributions. The HMM's High Inflation regime looks different during a geopolitical supply shock than during a demand-pull episode, without requiring discrete sub-states. This is a lighter-weight alternative to Step 3, and may prove sufficient for many applications.
 
 ### Step 3: Hierarchical Sub-States for the High Inflation Regime (Approach B)
 
@@ -425,7 +494,7 @@ A dimension of the BN's role that deserves explicit emphasis: it spans the full 
 
 ### 6.1 The Spectrum
 
-At one extreme, the BN operates as a **structured manual override tool**. An analyst clicks a node in the dashboard, selects a state, and the model propagates the implications. This is pure expert judgment, but disciplined: the analyst cannot set `Tanker_Incidents = frequent` without the model also computing what that implies for `Strait_Operationally_Closed`, `Energy_Infrastructure_Damage`, and ultimately `Scenario`. The BN enforces causal consistency on manual interventions — something a spreadsheet or a committee discussion cannot do.
+At one extreme, the BN operates as a **structured manual override tool**. An analyst clicks a node in the dashboard, selects a state, and the model propagates the implications. This is pure expert judgment, but disciplined: the analyst cannot set `Tanker_Incidents = frequent` without the model also computing what that implies for `Strait_Operationally_Closed`, `Energy_Infrastructure_Damage`, and ultimately `Scenario`. The BN propagates the causal implications of manual interventions — something a spreadsheet or a committee discussion cannot do.
 
 At the other extreme, the BN operates as an **automated translation layer**. A news headline arrives, the LLM translator maps it to node assignments with confidence distributions, and inference runs without human intervention. This is the daily monitoring workflow: evidence enters automatically, and the model updates continuously.
 
@@ -450,7 +519,7 @@ This means the BN is not merely a precursor to the HMM that gets retired once th
 This bridging role has direct governance implications:
 
 - **Override logging.** Every manual intervention passes through the BN's evidence layer, creating an audit trail of which nodes were set, by whom, when, and why. The HMM proposal (Section 6.4) calls for an override log; the BN provides it structurally.
-- **Consistency enforcement.** A committee member cannot independently set `Strait_Operationally_Closed = full` and `Energy_Infrastructure_Damage = none` if the CPTs encode that full closure almost certainly produces damage. The BN flags or prevents inconsistent manual overrides.
+- **Consistency flagging.** If a committee member sets `Strait_Operationally_Closed = full` and `Energy_Infrastructure_Damage = none`, the BN will accept both inputs but produce a posterior that assigns very low probability to that joint configuration — effectively flagging the inconsistency through its output. The dashboard can surface this as a warning ("your evidence combination has low prior probability under the model's CPTs"), making inconsistent overrides visible and debatable rather than silently accepted.
 - **Gradual automation.** As the organisation gains confidence in the automated pipeline, the governance wrapper can be loosened incrementally — from full manual review to exception-based review to full automation — without changing the underlying model. The BN's architecture accommodates all of these modes.
 
 ---
@@ -461,11 +530,13 @@ The Bayesian network and the Hidden Markov Model are not competing approaches. T
 
 The HMM learns what each regime looks like from historical market data and filters new observations into regime probabilities in real time. It cannot reason about unprecedented events.
 
-The BN encodes expert causal reasoning about unprecedented scenarios through an auditable graph of conditional dependencies. It cannot learn from data or model temporal dynamics.
+The BN encodes expert causal reasoning about unprecedented scenarios through an auditable graph of conditional dependencies. It does not currently learn from data or model temporal dynamics, though Bayesian updating of its CPT parameters (proposed in the model documentation, Section 7) is a natural extension.
 
-Their integration operates through two channels. The first (Approach A) uses the BN's scenario posterior to modify the HMM's transition dynamics, accelerating regime entry when geopolitical evidence warrants it. The second (Approach B) uses the BN's internal causal structure to decompose the HMM's regimes into mechanism-specific sub-states, enabling richer asset return modelling and stress testing. These channels are complementary, not alternative, and should be developed incrementally — with the flat HMM and Approach A delivering immediate value, and the hierarchical extension following as Phase 2 demands require it.
+Their integration operates through multiple channels of increasing ambition. The BN can provide structural priors on the HMM's parameters (Section 3.1.5), modify transition dynamics in real time via TVTP covariates (Approach A), modulate emission distributions to make regimes cause-sensitive (Approach C), or decompose regimes into mechanism-specific sub-states (Approach B). These channels are complementary, not alternative, and should be developed incrementally — with structural priors and Approach A delivering immediate value, emission modification (Approach C) providing a lightweight intermediate step, and the full hierarchical extension following only when Phase 2 demands require it. The theoretical endpoint is a joint Dynamic Bayesian Network (Section 3.4), but the incremental approaches capture most of its value at a fraction of the cost.
 
 Beyond the statistical integration, the BN serves as the permanent bridge between manual expert judgment and automated data-driven updating. It provides a structured, auditable channel for human interventions that the HMM cannot accommodate on its own — turning committee overrides from arbitrary probability adjustments into causal, traceable, consistency-checked evidence operations. The BN is not a precursor that the HMM replaces; it is the interface layer that makes the combined system governable.
+
+This integration has no direct precedent in the published literature and carries specific methodological risks — double-counting of information, calibration mismatch between subjective and empirical probabilities, CPT fragility, and structural misspecification of the causal graph. Section 8 discusses these concerns and their mitigations in detail.
 
 ---
 
@@ -475,19 +546,17 @@ The BN-to-HMM integration proposed in this document has no direct precedent in t
 
 ### 8.1 Double-Counting of Information
 
-The BN's evidence comes from news headlines. But news headlines move markets. If a tanker seizure drives both the BN posterior (via the translator) and oil prices (via market reaction), then both Approach A (BN adjusts transition matrix) and the HMM's emission likelihood (oil spike increases P(High Inflation)) are responding to the same underlying event. The HMM effectively sees the event twice: once through its direct market impact and once through the BN's structural interpretation.
+The same event (e.g., a tanker seizure) enters the system twice: through oil prices (HMM emission channel) and through the BN's causal graph (transition adjustment channel). This biases the model toward over-reaction for events that are both newsworthy and market-moving.
 
-**Severity:** Moderate. The double-counting biases the model toward over-reaction to events that are both newsworthy and market-moving. In the Hormuz scenario, a tanker seizure would spike oil prices (HMM emission channel) and shift the BN toward Severe Closure (transition adjustment channel). The combined effect could overshoot.
-
-**Mitigation:** The coupling parameter $\lambda$ in Approach A acts as a dampener. Calibrating $\lambda$ via backtesting on historical events where both channels fired simultaneously (e.g., the 2019 Abqaiq drone attack, the 2022 Russia-Ukraine commodity disruption) would reveal and correct systematic over-reaction. Alternatively, $\lambda$ could be made state-dependent: lower when market data already reflects the event (breakevens have jumped), higher when the BN detects a structural shift that markets have not yet priced (e.g., a diplomatic breakdown that has not yet produced a physical disruption).
+**Severity:** Moderate. **Mitigation:** Calibrate the $\beta_{jk}$ parameters via backtesting on historical events where both channels fired (e.g., 2019 Abqaiq attack, 2022 Russia-Ukraine disruption). Optionally, make the coupling state-dependent: weaker when market data already reflects the event, stronger when the BN detects a structural shift not yet priced.
 
 ### 8.2 Calibration Mismatch Between BN and HMM
 
 The BN's scenario probabilities are subjective — derived from expert-elicited CPTs, not from data. The HMM's regime probabilities are empirical — derived from historical market data via MCMC. These two probability scales are not commensurable by default. A BN posterior of P(Severe_Closure) = 0.35 does not necessarily mean the same thing as an HMM filtered probability of P(High Inflation) = 0.35. The former is a subjective judgment about an unprecedented event; the latter is a statistical inference from observed data.
 
-**Severity:** High if the coupling function $f$ treats BN probabilities as directly comparable to HMM probabilities. The BN may systematically produce higher or lower probabilities than the HMM for equivalent situations, leading to persistent over- or under-adjustment of the transition matrix.
+**Severity:** High if the mapping function $g$ and coupling parameters $\beta_{jk}$ treat BN probabilities as directly comparable to HMM probabilities. The BN may systematically produce higher or lower probabilities than the HMM for equivalent situations, leading to persistent over- or under-adjustment of the transition matrix.
 
-**Mitigation:** The coupling function should not operate in raw probability space. Instead, map BN outputs to transition adjustments via a calibrated transformation — for example, a logistic function whose parameters are fit by matching BN signals to known historical regime transitions. This is analogous to how the TVTP literature uses logistic link functions (Diebold et al., 1994) rather than feeding covariates linearly into transition probabilities. The key insight: the BN output is best treated as an ordinal signal ("more or less escalated") rather than a cardinal probability.
+**Mitigation:** The logistic link adopted in Section 3.1.1 addresses part of this problem — it ensures valid transition probabilities regardless of the covariate scale. But two residual issues remain. First, the mapping function $g$ that converts the BN posterior into a scalar covariate embeds an implicit scale: is $g(\pi) = 1.15$ a large or small signal? The $\beta_{jk}$ parameters absorb this scaling, but their calibration requires historical episodes where the BN would have fired — episodes that may not exist for truly unprecedented scenarios. Second, the BN output is best treated as an ordinal signal ("more or less escalated") rather than a cardinal probability; $g$ should be designed to preserve rank ordering rather than linear proportionality.
 
 ### 8.3 CPT Fragility and Error Propagation
 
@@ -495,23 +564,19 @@ The BN's CPTs are the weakest link in the system. They are hand-crafted, never v
 
 **Severity:** Depends on the sensitivity of the Scenario posterior to individual CPT entries. The existing Dirichlet sensitivity analysis (`src/sensitivity.py`) quantifies this: if the 80% credible interval for P(Severe_Closure) under full escalation evidence spans 0.25 to 0.55, the CPTs are not precise enough to provide a reliable transition adjustment.
 
-**Mitigation:** Three layers of defense. First, the Dirichlet sensitivity analysis identifies which CPT entries the Scenario posterior is most sensitive to, focusing elicitation effort where it matters. Second, as observations accumulate, Bayesian updating of CPT parameters (model documentation Section 7) replaces pure elicitation with data-informed estimates. Third, the coupling parameter $\lambda$ can be kept small initially and increased as the BN's calibration is validated, limiting the damage from CPT errors.
+**Mitigation:** Three layers of defense. First, the Dirichlet sensitivity analysis identifies which CPT entries the Scenario posterior is most sensitive to, focusing elicitation effort where it matters. Second, as observations accumulate, Bayesian updating of CPT parameters (model documentation Section 7) replaces pure elicitation with data-informed estimates. Third, the coupling parameters $\beta_{jk}$ can be kept small initially and increased as the BN's calibration is validated, limiting the damage from CPT errors.
 
 ### 8.4 The LLM Translator as a Noisy Channel
 
-The BN's evidence comes through an LLM translator that converts news headlines into node assignments with confidence distributions. This translator is itself a noisy, potentially biased channel. LLMs exhibit well-documented tendencies: they may anchor on dramatic language ("crisis," "attack") and overweight escalation signals; they may inconsistently map similar headlines to different node assignments across sessions; they may hallucinate causal connections that the headline does not support.
+The LLM translator that converts headlines into BN evidence is noisy and potentially biased: it may anchor on dramatic language, overweight escalation signals, map similar headlines inconsistently, or hallucinate causal connections.
 
-**Severity:** Moderate to high, depending on the governance wrapper. If the translator operates in fully automated mode (no human review), its biases propagate directly into the BN posterior and from there into the HMM's transition dynamics.
-
-**Mitigation:** The governance spectrum described in Section 6 is the primary defense: human review of translator output before evidence is committed. Additionally, the news memory database proposed in the companion next-steps document (Category E) would enable consistency checking — flagging when a headline produces a different mapping than a semantically similar past headline. Over time, the accumulated corpus of (headline, mapping) pairs could be used to fine-tune or evaluate the translator's calibration.
+**Severity:** Moderate to high, depending on governance wrapper. **Mitigation:** Human review before committing (Section 6). A news memory database (companion next-steps document, Category E) would enable consistency checking against past translations. The accumulated corpus could also be used to evaluate translator calibration over time.
 
 ### 8.5 Non-Stationarity of the BN-HMM Relationship
 
-Even if the coupling is well-calibrated today, the relationship between geopolitical events and inflation regime transitions is not stationary. The 1973 oil embargo produced a severe inflationary regime; a similar supply disruption in a world with strategic petroleum reserves, shale production capacity, and different monetary policy frameworks might produce a milder one. The coupling function $f$ calibrated on historical episodes may not transfer to future episodes with different structural context.
+The relationship between geopolitical events and inflation regime transitions changes over time. The 1973 oil embargo produced severe inflation; a similar disruption today, with strategic petroleum reserves and shale capacity, might produce a milder one. The $g$ and $\beta_{jk}$ calibrated on historical episodes may not transfer.
 
-**Severity:** Low in the short term (the current geopolitical context is the one the BN models), but high in the long term if the coupling function is not periodically re-evaluated.
-
-**Mitigation:** Periodic backtesting of the coupling function against new data. The DSGE component proposed in the companion HMM document (Section 4.5) provides a structural anchor that can partially account for changing macro-financial contexts, since the DSGE's output gap and natural rate estimates reflect current structural conditions.
+**Severity:** Low short-term, high long-term. **Mitigation:** Periodic backtesting. The DSGE component (companion proposal Section 4.5) provides a structural anchor reflecting current macro conditions.
 
 ### 8.6 Identifiability in the Hierarchical Extension
 
@@ -521,6 +586,14 @@ For Approach B specifically, the hierarchical sub-state decomposition introduces
 
 **Mitigation:** Strong informative priors from the BN (as discussed in Section 3.2.4). Order constraints on emission means (e.g., $\mu_{\text{oil, supply\_shock}} > \mu_{\text{oil, demand\_pull}}$) to break symmetry. Careful convergence diagnostics (R-hat, effective sample size, trace plots) with ArviZ. And the pragmatic willingness to retreat to the flat model if sub-states are not identifiable from available data.
 
+### 8.7 Structural Misspecification of the BN
+
+Beyond CPT errors (8.3) and translator noise (8.4), the BN's **graph structure itself** can be wrong — missing causal paths (e.g., a cyberattack channel, an insurance market withdrawal that closes the strait economically) or encoding spurious dependencies. This is qualitatively different because it cannot be corrected by adjusting numbers.
+
+**Severity:** Hard to assess — the BN produces internally consistent posteriors regardless of whether its graph matches reality. Sensitivity analysis identifies which CPT entries matter but cannot identify which edges are wrong.
+
+**Mitigation:** Periodic structural review with domain experts. Conditional independence testing against partial data where available. Structure learning algorithms (pgmpy, CausalNex) for nodes with historical data. Most fundamentally, **maintaining multiple BNs with alternative graph structures** for the same scenario — model averaging across structural specifications — provides robustness against the single-graph assumption, at the cost of additional elicitation effort.
+
 ---
 
 ## 9. References and Related Literature
@@ -529,70 +602,46 @@ The framework proposed in this document draws on several established research st
 
 ### Regime-Switching Models in Finance
 
-- **Hamilton, J.D. (1989).** "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle." *Econometrica*, 57(2), 357–384. — Introduces Markov regime-switching models for economic time series. An autoregression's parameters are governed by a discrete-state Markov process; the paper develops algorithms for inferring unobserved regime shifts and estimating parameters via maximum likelihood, applied to modelling expansions and contractions in GNP growth.
-
-- **Kim, C.-J. & Nelson, C.R. (1999).** *State-Space Models with Regime Switching: Classical and Gibbs-Sampling Approaches with Applications.* MIT Press. — Textbook presenting econometric methods for models combining state-space structure with Markov regime switching. Covers both approximate MLE (the "Kim filter") and Bayesian MCMC (Gibbs sampling), with applications to business cycles and monetary policy.
-
-- **Ang, A. & Bekaert, G. (2002).** "International Asset Allocation With Regime Shifts." *Review of Financial Studies*, 15(4), 1137–1187. — Solves the dynamic portfolio choice problem under regime switching that captures the tendency for international equity correlations and volatilities to increase in bear markets. Finds that despite rising correlations in bad times, international diversification still provides meaningful benefits because regime dynamics create hedging demand.
-
-- **Guidolin, M. & Timmermann, A. (2007).** "Asset Allocation under Multivariate Regime Switching." *Journal of Economic Dynamics and Control*, 31(11), 3503–3544. — Identifies four regimes (crash, slow growth, bull, recovery) in the joint distribution of stock and bond returns and solves the resulting dynamic asset allocation problem. Optimal allocations vary substantially across regimes, supporting the case for regime-conditional return modelling.
-
-- **Ang, A. & Timmermann, A. (2012).** "Regime Changes and Financial Markets." *Annual Review of Financial Economics*, 4, 313–337. — Comprehensive survey covering empirical evidence on regime-dependent means, volatilities, and correlations in financial markets, as well as equilibrium models where regime shifts in fundamentals drive nonlinear risk-return trade-offs.
+- **Hamilton (1989).** "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle." *Econometrica*, 57(2), 357–384. — Foundational paper introducing Markov regime-switching models; develops ML estimation for unobserved regime shifts in GNP growth.
+- **Kim & Nelson (1999).** *State-Space Models with Regime Switching.* MIT Press. — Textbook unifying state-space and Markov-switching estimation via both MLE ("Kim filter") and Gibbs sampling.
+- **Ang & Bekaert (2002).** "International Asset Allocation With Regime Shifts." *Review of Financial Studies*, 15(4), 1137–1187. — Dynamic portfolio choice under regime switching; shows ignoring regimes is costly for international allocation.
+- **Guidolin & Timmermann (2007).** "Asset Allocation under Multivariate Regime Switching." *JEDC*, 31(11), 3503–3544. — Identifies four regimes in joint stock/bond returns; optimal allocations vary substantially across regimes.
+- **Ang & Timmermann (2012).** "Regime Changes and Financial Markets." *Annual Review of Financial Economics*, 4, 313–337. — Comprehensive survey of regime-switching models in finance.
 
 ### Time-Varying Transition Probabilities (Approach A)
 
-- **Diebold, F.X., Lee, J.-H. & Weinbach, G. (1994).** "Regime Switching with Time-Varying Transition Probabilities." In Hargreaves (ed.), *Nonstationary Time Series Analysis and Cointegration*, Oxford University Press, 283–302. — Proposes the class of Markov-switching models where transition probabilities depend on economic fundamentals via logistic functions, rather than being fixed constants. Develops an EM algorithm for estimation and illustrates with simulation examples. The direct theoretical ancestor of our Approach A.
-
-- **Filardo, A.J. (1994).** "Business-Cycle Phases and Their Transitional Dynamics." *Journal of Business & Economic Statistics*, 12(3), 299–308. — Extends Hamilton's model by making transition probabilities between business cycle phases depend on leading indicator variables. Demonstrates that time-varying transition probabilities improve the model's characterisation of business cycle dynamics and turning-point prediction.
-
-- **Bazzi, M., Blasques, F., Koopman, S.J. & Lucas, A. (2017).** "Time-Varying Transition Probabilities for Markov Regime Switching Models." *Journal of Time Series Analysis*, 38(3), 458–478. — Introduces an observation-driven (score-driven) approach to time-varying transition probabilities, where updates are generated by the score of the predictive likelihood. Provides a theoretically grounded and computationally tractable alternative to parameter-driven specifications.
-
-- **Pouzo, D., Psaradakis, Z. & Sola, M. (2022).** "Maximum Likelihood Estimation in Markov Regime-Switching Models with Covariate-Dependent Transition Probabilities." *Econometrica*, 90(4), 1681–1710. — Establishes consistency and local asymptotic normality of the ML estimator for a broad class of hidden Markov regime-switching models with covariate-dependent transition matrices. Results apply under general conditions including autoregressive dynamics and possible model misspecification.
+- **Diebold, Lee & Weinbach (1994).** "Regime Switching with Time-Varying Transition Probabilities." In Hargreaves (ed.), *Nonstationary Time Series*, OUP, 283–302. — Proposes transition probabilities that depend on fundamentals via logistic functions; direct theoretical ancestor of our Approach A.
+- **Filardo (1994).** "Business-Cycle Phases and Their Transitional Dynamics." *JBES*, 12(3), 299–308. — Leading-indicator-driven TVTPs improve turning-point prediction in business cycles.
+- **Bazzi, Blasques, Koopman & Lucas (2017).** "Time-Varying Transition Probabilities for Markov Regime Switching Models." *JTSA*, 38(3), 458–478. — Score-driven (observation-driven) TVTPs; theoretically grounded alternative to parameter-driven specifications.
+- **Pouzo, Psaradakis & Sola (2022).** "MLE in Markov Regime-Switching Models with Covariate-Dependent Transition Probabilities." *Econometrica*, 90(4), 1681–1710. — Rigorous asymptotic theory for covariate-dependent transition matrices under general conditions.
 
 ### Hierarchical and Nonparametric HMMs (Approach B)
 
-- **Fine, S., Singer, Y. & Tishby, N. (1998).** "The Hierarchical Hidden Markov Model: Analysis and Applications." *Machine Learning*, 32, 41–62. — Introduces the HHMM, a recursive generalisation of standard HMMs that captures multi-scale structure in sequences. Extends the Baum-Welch algorithm for parameter estimation and demonstrates the model on hierarchical parsing of English text.
-
-- **Murphy, K.P. & Paskin, M.A. (2001).** "Linear-Time Inference in Hierarchical HMMs." *Advances in Neural Information Processing Systems* (NeurIPS 14). — Shows that HHMMs can be cast as a special case of dynamic Bayesian networks, yielding an inference algorithm that runs in O(T) time rather than the original O(T³). This computational advance made HHMMs practical for real-world applications with long sequences.
-
-- **Fox, E.B., Sudderth, E.B., Jordan, M.I. & Willsky, A.S. (2011).** "A Sticky HDP-HMM with Application to Speaker Diarization." *Annals of Applied Statistics*, 5(2A), 1020–1056. — Augments the Hierarchical Dirichlet Process HMM with a "sticky" parameter that increases self-transition probability, overcoming the basic HDP-HMM's tendency to rapidly switch between redundant states. Applied to speaker diarization (segmenting audio by speaker identity without knowing the number of speakers).
-
-- **Johnson, M.J. & Willsky, A.S. (2013).** "Bayesian Nonparametric Hidden Semi-Markov Models." *Journal of Machine Learning Research*, 14, 673–701. — Extends the HDP-HMM with explicit state duration distributions (semi-Markov), allowing principled nonparametric Bayesian modelling of segment durations rather than the geometric durations implicit in standard Markov models. Develops efficient Gibbs sampling algorithms.
-
-### Factorial HMMs and Multi-Chain Architectures (Lateral Moves)
-
-- **Ghahramani, Z. & Jordan, M.I. (1997).** "Factorial Hidden Markov Models." *Machine Learning*, 29, 245–273. — Introduces FHMMs where the hidden state is factored into multiple independent state variables, enabling a distributed representation. Because exact inference is intractable due to the combinatorial state space, the authors develop approximate inference methods using Gibbs sampling and variational techniques.
-
-- **Augustyniak, M., Bauwens, L. & Dufays, A. (2019).** "A New Approach to Volatility Modeling: The Factorial Hidden Markov Volatility Model." *Journal of Business & Economic Statistics*, 37(4), 696–709. — Applies factorial HMM structure to financial volatility, decomposing latent volatility into a persistent component, a jump component, and a leverage-effect component. Demonstrates that factorial decomposition provides a parsimonious yet flexible framework for capturing key features of financial return volatility.
+- **Fine, Singer & Tishby (1998).** "The Hierarchical Hidden Markov Model." *Machine Learning*, 32, 41–62. — Original HHMM paper; recursive generalisation of HMMs capturing multi-scale structure.
+- **Murphy & Paskin (2001).** "Linear-Time Inference in Hierarchical HMMs." *NeurIPS 14*. — Casts HHMMs as dynamic Bayesian networks, reducing inference from O(T³) to O(T).
+- **Fox, Sudderth, Jordan & Willsky (2011).** "A Sticky HDP-HMM." *Annals of Applied Statistics*, 5(2A), 1020–1056. — Adds a persistence parameter to HDP-HMMs, preventing spurious rapid state switching.
+- **Johnson & Willsky (2013).** "Bayesian Nonparametric Hidden Semi-Markov Models." *JMLR*, 14, 673–701. — Extends HDP-HMM with explicit duration distributions for non-geometric regime persistence.
 
 ### Bayesian Networks for Risk Assessment
 
-- **Koller, D. & Friedman, N. (2009).** *Probabilistic Graphical Models: Principles and Techniques.* MIT Press. — Comprehensive textbook covering the three pillars of probabilistic graphical models: representation (Bayesian networks, Markov random fields), inference (exact and approximate), and learning (parameter and structure). The standard graduate-level reference in the field.
-
-- **Fenton, N. & Neil, M. (2018).** *Risk Assessment and Decision Analysis with Bayesian Networks.* 2nd ed., CRC Press. — Practically oriented textbook on building BN-based risk models for decision support, covering causal reasoning, influence diagrams, and sensitivity analysis. The second edition adds material on cybersecurity risk, learning from data, and value of information.
-
-- **Caldara, D. & Iacoviello, M. (2022).** "Measuring Geopolitical Risk." *American Economic Review*, 112(4), 1194–1225. — Constructs a news-based Geopolitical Risk (GPR) index by counting newspaper articles about geopolitical threats and events. Shows that higher geopolitical risk foreshadows lower investment and employment, driven by both the threat and realisation of geopolitical events.
+- **Koller & Friedman (2009).** *Probabilistic Graphical Models.* MIT Press. — Standard graduate reference covering BN/MRF representation, inference, and learning.
+- **Fenton & Neil (2018).** *Risk Assessment and Decision Analysis with Bayesian Networks.* 2nd ed., CRC Press. — Practical guide to BN-based risk models; covers causal reasoning, influence diagrams, sensitivity analysis.
+- **Caldara & Iacoviello (2022).** "Measuring Geopolitical Risk." *AER*, 112(4), 1194–1225. — News-based GPR index; shows geopolitical risk foreshadows lower investment and employment.
 
 ### Expert Elicitation
 
-- **O'Hagan, A., Buck, C.E., Daneshkhah, A., Eiser, J.R., Garthwaite, P.H., Jenkinson, D.J., Oakley, J.E. & Rakow, T. (2006).** *Uncertain Judgements: Eliciting Experts' Probabilities.* Wiley. — Comprehensive guide to eliciting probability distributions from domain experts, covering psychological foundations of subjective judgment, methods for minimising cognitive biases, and practical protocols for structured elicitation exercises.
-
-- **Gosling, J.P. (2018).** "SHELF: The Sheffield Elicitation Framework." In Dias, Morton & Quigley (eds.), *Elicitation*, International Series in Operations Research & Management Science, vol. 261, Springer, 61–93. — Describes the SHELF protocol for structured group expert elicitation using behavioural aggregation — a facilitator guides experts through discussion and information sharing to reach a consensus probability distribution.
-
-- **O'Hagan, A. (2019).** "Expert Knowledge Elicitation: Subjective but Scientific." *The American Statistician*, 73(sup1), 69–81. — Argues that expert elicitation, while inherently subjective, can be made rigorous and scientific by following structured protocols. Reviews leading protocols (including SHELF) and contrasts their approaches through a detailed case study.
-
-- **Mikkola, P., Martin, O.A. et al. (2024).** "Prior Knowledge Elicitation: The Past, Present, and Future." *Bayesian Analysis*, 19(4), 1129–1161. — Comprehensive survey analysing the state of the art in prior elicitation, identifying key dimensions (nature of modelling task, form of prior specification, mode of expert interaction) and arguing that practical tools integrating elicitation into Bayesian workflows remain underdeveloped.
-
-- **Icazatti, A., Abril-Pla, O., Klami, A. & Martin, O.A. (2023).** "PreliZ: A Tool-Box for Prior Elicitation." *Journal of Open Source Software*, 8(89), 5499. — PyMC-ecosystem Python package offering tools for prior elicitation, covering methods from unidimensional parameter-space elicitation to predictive elicitation on the observed space.
+- **O'Hagan et al. (2006).** *Uncertain Judgements: Eliciting Experts' Probabilities.* Wiley. — Comprehensive elicitation methodology covering cognitive biases, structured protocols, and practical guidance.
+- **Gosling (2018).** "SHELF: The Sheffield Elicitation Framework." In Dias et al. (eds.), *Elicitation*, Springer, 61–93. — Documents the SHELF protocol for structured group expert elicitation via behavioural aggregation.
+- **O'Hagan (2019).** "Expert Knowledge Elicitation: Subjective but Scientific." *The American Statistician*, 73(sup1), 69–81. — Argues elicitation can be rigorous and scientific when following structured protocols.
+- **Mikkola, Martin et al. (2024).** "Prior Knowledge Elicitation: The Past, Present, and Future." *Bayesian Analysis*, 19(4), 1129–1161. — State-of-the-art survey; argues practical elicitation tools remain underdeveloped.
+- **Icazatti, Abril-Pla, Klami & Martin (2023).** "PreliZ: A Tool-Box for Prior Elicitation." *JOSS*, 8(89), 5499. — PyMC-ecosystem package for interactive prior specification.
 
 ### Combining Structural and Reduced-Form Models
 
-- **Del Negro, M. & Schorfheide, F. (2004).** "Priors from General Equilibrium Models for VARs." *International Economic Review*, 45(2), 643–673. — Proposes using a DSGE model to construct an informative prior for a VAR, creating a hybrid "DSGE-VAR" where a hyperparameter controls how closely the VAR adheres to the structural model's restrictions. The resulting model is competitive with standard VAR benchmarks while maintaining economic interpretability. The closest published precedent for our idea of feeding structural (BN) model outputs into a reduced-form (HMM) statistical model.
-
-- **Del Negro, M. & Schorfheide, F. (2006).** "How Good Is What You've Got? DSGE-VAR as a Toolkit for Evaluating DSGE Models." *Federal Reserve Bank of Atlanta Economic Review*, 91(Q2), 21–37. — Describes how to embed a DSGE model inside a VAR framework and systematically relax the structural restrictions, using the resulting DSGE-VAR to evaluate model fit and forecasting performance. Analogous to testing whether BN-informed transitions outperform fixed-transition HMMs.
+- **Del Negro & Schorfheide (2004).** "Priors from General Equilibrium Models for VARs." *IER*, 45(2), 643–673. — DSGE-VAR hybrid where a hyperparameter controls structural vs. data-driven weight; the closest precedent for our BN-to-HMM integration.
+- **Del Negro & Schorfheide (2006).** "How Good Is What You've Got? DSGE-VAR as a Toolkit." *FRB Atlanta Economic Review*, 91(Q2), 21–37. — Diagnostics for evaluating whether structural restrictions improve forecasting.
 
 ### Probabilistic Programming and Empirical Motivation
 
-- **Salvatier, J., Wiecki, T.V. & Fonnesbeck, C. (2016).** "Probabilistic Programming in Python using PyMC3." *PeerJ Computer Science*, 2, e55. — Introduces PyMC3, a Python probabilistic programming framework built on Theano with automatic differentiation and advanced MCMC samplers (NUTS, HMC). The implementation platform for both the HMM and the BN's continuous extensions.
-
-- **Neville, H., Draaisma, T., Funnell, B., Harvey, C.R. & Van Hemert, O. (2021).** "The Best Strategies for Inflationary Times." *Journal of Portfolio Management*, 47(8), 8–37. — Analyses 95 years of data across the US, UK, and Japan, finding that unexpected inflation is detrimental to traditional stock and bond returns while commodities and trend-following strategies provide reliable real returns during inflationary episodes. The motivating empirical evidence behind the HMM proposal's indicator selection and regime characterisation.
+- **Salvatier, Wiecki & Fonnesbeck (2016).** "Probabilistic Programming in Python using PyMC3." *PeerJ Computer Science*, 2, e55. — PyMC3 framework paper; the implementation platform for the HMM and BN continuous extensions.
+- **Neville, Draaisma, Funnell, Harvey & Van Hemert (2021).** "The Best Strategies for Inflationary Times." *JPM*, 47(8), 8–37. — 95-year empirical study showing commodities and trend-following outperform in inflationary regimes; motivates the HMM's indicator selection.
