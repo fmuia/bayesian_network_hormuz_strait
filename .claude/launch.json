@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "streamlit-dashboard",
+      "runtimeExecutable": "pixi",
+      "runtimeArgs": ["run", "app"],
+      "port": 8501
+    }
+  ]
+}
