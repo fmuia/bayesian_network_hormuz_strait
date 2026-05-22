@@ -36,7 +36,10 @@ from streamlit_agraph import agraph
 from src.evidence import EXAMPLE_HEADLINES, Observation
 from src.inference import BNInferenceEngine
 from src.network import SCENARIO_NARRATIVES, STATES, build_network
-from src.sensitivity import scenario_credible_intervals
+from src.sensitivity import (
+    node_credible_intervals,
+    scenario_credible_intervals,
+)
 from src.translator import (
     TranslatorError,
     TranslatorResult,
@@ -97,17 +100,114 @@ st.markdown(
       }}
       [data-testid="stDecoration"] {{ display: none; }}
       [data-testid="stStatusWidget"] {{ display: none; }}
+      /* =====================================================
+         Sidebar toggle buttons — unified styling.
+         One shared card visual for:
+           - the reopen button when the sidebar is folded
+             (wrapper: stSidebarCollapsedControl, card: inner button)
+           - the collapse button when the sidebar is unfolded
+             (wrapper: stSidebarCollapseButton, card: the wrapper itself)
+         Positioning is set per-state at the bottom of this block.
+         ===================================================== */
+
+      /* The card (identical rules for both states). position: relative
+         anchors the absolutely-centred SVG below, which is what makes
+         the icon sit dead-centre regardless of the intrinsic widths
+         Streamlit's BaseWeb button injects on its inner wrappers. */
+      [data-testid="stSidebarCollapseButton"],
+      [data-testid="stSidebarCollapsedControl"] button,
+      [data-testid="stSidebarCollapsedControl"] > button,
+      [data-testid="stSidebarCollapsedControl"] [role="button"] {{
+        position: relative !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 1.9rem !important;
+        height: 1.9rem !important;
+        min-width: 1.9rem !important;
+        max-width: 1.9rem !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: white !important;
+        color: {NAVY} !important;
+        border: 1px solid {RULE} !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 3px rgba(27, 42, 61, 0.08) !important;
+        transition: background 120ms ease, color 120ms ease,
+                    border-color 120ms ease, box-shadow 120ms ease !important;
+      }}
+
+      /* Shared hover */
+      [data-testid="stSidebarCollapseButton"]:hover,
+      [data-testid="stSidebarCollapsedControl"] button:hover,
+      [data-testid="stSidebarCollapsedControl"] > button:hover,
+      [data-testid="stSidebarCollapsedControl"] [role="button"]:hover {{
+        background: {NAVY} !important;
+        color: white !important;
+        border-color: {NAVY} !important;
+        box-shadow: 0 3px 8px rgba(27, 42, 61, 0.18) !important;
+      }}
+
+      /* Neutralise all inner wrappers Streamlit injects (they have
+         their own margins / paddings that push the icon off-centre),
+         then flex-centre them so the SVG sits dead in the middle. */
+      [data-testid="stSidebarCollapseButton"] *,
+      [data-testid="stSidebarCollapsedControl"] * {{
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+      }}
+      [data-testid="stSidebarCollapseButton"] > *,
+      [data-testid="stSidebarCollapseButton"] button,
+      [data-testid="stSidebarCollapseButton"] [data-testid="stMarkdownContainer"],
+      [data-testid="stSidebarCollapseButton"] p,
+      [data-testid="stSidebarCollapsedControl"] button > *,
+      [data-testid="stSidebarCollapsedControl"] [data-testid="stMarkdownContainer"],
+      [data-testid="stSidebarCollapsedControl"] button p {{
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }}
+
+      /* Icon: absolutely-centred inside the card. Fixing an explicit
+         width/height stops the intrinsic SVG viewBox from drifting the
+         glyph off the card's visual centre. Inherit text colour so the
+         hover flip works uniformly. */
+      [data-testid="stSidebarCollapseButton"] svg,
+      [data-testid="stSidebarCollapsedControl"] svg {{
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: 1rem !important;
+        height: 1rem !important;
+        margin: 0 !important;
+        color: inherit !important;
+        fill: currentColor !important;
+        display: block !important;
+      }}
+
+      /* Per-state positioning */
       [data-testid="stSidebarCollapsedControl"] {{
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        position: fixed;
-        top: 0.6rem;
-        left: 0.7rem;
-        z-index: 10000;
-        background: white;
-        border: 1px solid {RULE};
-        border-radius: 8px;
+        position: fixed !important;
+        top: 0.6rem !important;
+        left: 0.7rem !important;
+        z-index: 10000 !important;
+      }}
+      [data-testid="stSidebarCollapseButton"] {{
+        position: absolute !important;
+        top: 0.55rem !important;
+        right: 0.55rem !important;
+        z-index: 20 !important;
+        visibility: visible !important;
       }}
 
       /* Align sidebar and main content with the top of the page. */
@@ -117,21 +217,26 @@ st.markdown(
       [data-testid="stAppViewContainer"] > .main {{ padding-top: 0; }}
       [data-testid="stSidebar"] {{ background: {PANEL}; }}
       [data-testid="stSidebar"] > div:first-child {{ padding-top: 0; }}
+
+      /* Collapse the native sidebar header so the collapse button can
+         float top-right without pushing content below. */
       [data-testid="stSidebarHeader"] {{
-        padding: 0.12rem 0.45rem 0.08rem 0.45rem;
-        margin: 0;
-        min-height: 1.8rem;
-        height: auto;
+        padding: 0 !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        height: 0 !important;
+        position: relative;
       }}
-      [data-testid="stSidebarCollapseButton"] {{
-        display: flex !important;
-        visibility: visible !important;
-      }}
+
+      /* Neutralise any default top padding Streamlit adds to the
+         sidebar content block — we'll do the push directly on the
+         sidebar title (.sb-header) below, which is the only rule that
+         reliably lands across Streamlit versions. */
       section[data-testid="stSidebar"] .block-container {{
-        padding-top: 0.22rem;
+        padding-top: 0 !important;
       }}
       [data-testid="stSidebarUserContent"] {{
-        padding-top: 0.22rem;
+        padding-top: 0 !important;
       }}
 
       h1, h2, h3, h4 {{ color: {NAVY}; font-weight: 600; }}
@@ -189,8 +294,15 @@ st.markdown(
         background: #E7F4EF; color: {GREEN};
         margin-bottom: 0.5rem;
       }}
+      /* Top margin = Streamlit header height + the same block-container
+         padding the main page uses. This puts the sidebar title on the
+         same baseline as the main title. Tune the last number below if
+         it ends up off. */
       .sb-header {{
-        margin: 0.3rem 0 0.62rem 0;
+        margin-top: calc(var(--header-height, 0.9rem) + 0.4rem) !important;
+        margin-right: 2.4rem !important;
+        margin-bottom: 0.62rem !important;
+        margin-left: 0 !important;
       }}
       .sb-header-title {{
         font-size: 1.1rem;
@@ -226,10 +338,23 @@ st.markdown(
       .stream-done {{ border-color: {GREEN}; background: #F0FAF5; color: {GREEN}; }}
       .stream-error {{ border-color: {RED}; background: #FEF2F2; color: {RED}; }}
 
-      /* Compact sliders for the override panel. Collapse inter-slider
-         gap only; leave each slider's internal bubble spacing alone. */
-      [data-testid="stSlider"] {{ margin-bottom: -1.1rem; }}
-      [data-testid="stSlider"] label p {{ font-size: 0.82rem; }}
+      /* Compact sliders for the override panel. Tightened so the
+         override box stacks to roughly the height of the DAG box. */
+      [data-testid="stSlider"] {{
+        margin-top: -0.4rem !important;
+        margin-bottom: -1.35rem !important;
+      }}
+      [data-testid="stSlider"] label {{
+        margin-bottom: -0.75rem !important;
+      }}
+      [data-testid="stSlider"] label p {{
+        font-size: 0.78rem !important;
+        margin: 0 !important;
+        line-height: 1.1 !important;
+      }}
+      [data-testid="stSlider"] [data-testid="stTickBar"] {{
+        display: none !important;
+      }}
 
       /* Translator output panel */
       .translator-headline {{
@@ -281,9 +406,22 @@ st.markdown(
       .obs-remove + div button {{
         min-width: 1.6rem !important; width: 1.6rem !important;
         height: 1.6rem !important; padding: 0 !important;
-        border-radius: 50% !important; line-height: 1 !important;
+        border-radius: 50% !important;
         font-size: 0.75rem !important; color: {MUTED} !important;
         border-color: {RULE} !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        line-height: 1 !important;
+      }}
+      .obs-remove + div button > div,
+      .obs-remove + div button [data-testid="stMarkdownContainer"],
+      .obs-remove + div button p {{
+        margin: 0 !important; padding: 0 !important;
+        line-height: 1 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
       }}
       .obs-remove + div button:hover {{
         color: #B91C1C !important; border-color: #B91C1C !important;
@@ -320,6 +458,20 @@ def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
 ) -> Dict[str, Tuple[float, float, float]]:
     return scenario_credible_intervals(dict(evidence_items), m=200, concentration=20.0)
+
+
+@st.cache_data(show_spinner="Computing node uncertainty…")
+def cached_node_credible_intervals(
+    evidence_items: Tuple[Tuple[str, str], ...],
+    soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
+) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
+    soft = {node: dict(dist) for node, dist in soft_evidence_items}
+    return node_credible_intervals(
+        dict(evidence_items),
+        soft_evidence=soft,
+        m=200,
+        concentration=20.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -495,13 +647,19 @@ def _render_model_appendix() -> None:
 
         **Uncertainty panel**
 
-        Credible intervals are estimated by resampling CPT columns from Dirichlet distributions and rerunning inference:
+        Credible intervals are estimated by resampling every CPT column from a Dirichlet distribution centred on the elicited point estimate and rerunning inference:
 
         $$
-        \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot})
+        \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot}),
+        \qquad \alpha_{j,\cdot} = \kappa \cdot \theta_{j,\cdot}^{\text{point}}
         $$
 
-        with concentration set to 20 and $m=200$ draws in the dashboard.
+        with concentration $\kappa = 20$ and $m = 200$ draws. Each draw perturbs **all** CPTs jointly and the full network is re-run under the current evidence, so the resulting posterior samples reflect *global* parameter uncertainty, not a per-node local variation.
+
+        The 10th–90th percentiles across samples give an 80% credible interval per node per state, exposed in two places:
+
+        - **Scenario cards** (top band): headline CIs for the three scenarios.
+        - **Node detail panel** (right of the Network tab): per-node dumbbells with a robustness badge (🟢 robust < ±8 pp · 🟡 moderate ±8–20 pp · 🔴 fragile > ±20 pp). Hard-observed nodes collapse to deltas; soft-observed nodes keep their CIs because the posterior still varies under CPT resampling.
         """
     )
 
@@ -751,6 +909,15 @@ with st.spinner("Quantifying parameter uncertainty…"):
 
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
+soft_evidence_ci_items = tuple(
+    (node, tuple(sorted(dist.items())))
+    for node, dist in sorted(soft_evidence.items())
+)
+node_ci_table = cached_node_credible_intervals(
+    tuple(sorted(evidence.items())),
+    soft_evidence_ci_items,
+)
+
 # Map each observed node to the latest day it was set.
 observed_day_map: Dict[str, int] = {}
 for obs in st.session_state.observations:
@@ -876,8 +1043,11 @@ with st.container(border=True):
         engine_h = get_engine()
         engine_h.clear_evidence()
         priors = engine_h.get_prior_probabilities()
-        history_rows.append({"Day": 0, "HeadlinesOnDay": "(prior)",
-                             "n_obs": 0, **priors})
+        prior_ci = cached_credible_intervals(tuple())
+        history_rows.append({
+            "Day": 0, "HeadlinesOnDay": "(prior)", "n_obs": 0,
+            "ci": prior_ci, **priors,
+        })
 
         grouped: Dict[int, List[Dict]] = {}
         for obs in st.session_state.observations:
@@ -885,39 +1055,55 @@ with st.container(border=True):
 
         cum_hard: Dict[str, str] = {}
         cum_soft: Dict[str, Dict[str, float]] = {}
-        for day in sorted(grouped):
-            day_obs = grouped[day]
-            for obs in day_obs:
-                for node, state in obs.get("assignments", {}).items():
-                    cum_hard[node] = state
-                    cum_soft.pop(node, None)
-                for node, dist in obs.get("soft_assignments", {}).items():
-                    cum_soft[node] = {k: float(v) for k, v in dist.items()}
-                    cum_hard.pop(node, None)
-            engine_h.clear_evidence()
-            if cum_hard:
-                engine_h.update_evidence(cum_hard)
-            if cum_soft:
-                engine_h.update_soft_evidence(cum_soft)
-            headlines = " · ".join(o["headline"] for o in day_obs)
-            if len(headlines) > 180:
-                headlines = headlines[:177] + "…"
-            history_rows.append({
-                "Day": day,
-                "HeadlinesOnDay": headlines,
-                "n_obs": len(day_obs),
-                **engine_h.get_scenario_probabilities(),
-            })
+        with st.spinner("Quantifying parameter uncertainty per day…"):
+            for day in sorted(grouped):
+                day_obs = grouped[day]
+                for obs in day_obs:
+                    for node, state in obs.get("assignments", {}).items():
+                        cum_hard[node] = state
+                        cum_soft.pop(node, None)
+                    for node, dist in obs.get("soft_assignments", {}).items():
+                        cum_soft[node] = {k: float(v) for k, v in dist.items()}
+                        cum_hard.pop(node, None)
+                engine_h.clear_evidence()
+                if cum_hard:
+                    engine_h.update_evidence(cum_hard)
+                if cum_soft:
+                    engine_h.update_soft_evidence(cum_soft)
+                headlines = " · ".join(o["headline"] for o in day_obs)
+                if len(headlines) > 180:
+                    headlines = headlines[:177] + "…"
+                day_ci_evidence = dict(cum_hard)
+                for node, dist in cum_soft.items():
+                    day_ci_evidence[node] = max(dist, key=dist.get)
+                day_ci = cached_credible_intervals(
+                    tuple(sorted(day_ci_evidence.items()))
+                )
+                history_rows.append({
+                    "Day": day,
+                    "HeadlinesOnDay": headlines,
+                    "n_obs": len(day_obs),
+                    "ci": day_ci,
+                    **engine_h.get_scenario_probabilities(),
+                })
 
         wide = pd.DataFrame(history_rows)
         long_rows = []
         for _, r in wide.iterrows():
             for sc in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
+                mean_ci, lo_ci, hi_ci = r["ci"][sc]
                 long_rows.append({
                     "Day": int(r["Day"]),
                     "Scenario": SCENARIO_LABEL[sc],
                     "ScenarioKey": sc,
-                    "Probability": float(r[sc]),
+                    # Use the Dirichlet-resample mean so the line is the
+                    # centre of the CI band (and matches the scenario
+                    # cards). The unperturbed posterior from
+                    # get_scenario_probabilities() can lie outside
+                    # [Lo, Hi] because inference is non-linear in the CPTs.
+                    "Probability": float(mean_ci),
+                    "Lo": float(lo_ci),
+                    "Hi": float(hi_ci),
                     "HeadlinesOnDay": r["HeadlinesOnDay"],
                     "n_obs": int(r["n_obs"]),
                 })
@@ -942,6 +1128,10 @@ with st.container(border=True):
             color=alt.Color("Scenario:N", scale=color_scale,
                             legend=alt.Legend(title=None, orient="top")),
         )
+        bands = base.mark_area(opacity=0.18, interpolate="linear").encode(
+            y=alt.Y("Lo:Q", scale=alt.Scale(domain=[0, 1]), title="Probability"),
+            y2="Hi:Q",
+        )
         lines = base.mark_line(strokeWidth=2.6, point=alt.OverlayMarkDef(size=70))
         hover = alt.selection_point(
             fields=["Day"], nearest=True, on="mouseover", empty=False,
@@ -950,15 +1140,25 @@ with st.container(border=True):
             tooltip=[
                 alt.Tooltip("Day:O"),
                 alt.Tooltip("Scenario:N"),
-                alt.Tooltip("Probability:Q", format=".1%"),
+                alt.Tooltip("Probability:Q", format=".1%", title="Mean"),
+                alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
+                alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
                 alt.Tooltip("n_obs:Q", title="# obs added"),
                 alt.Tooltip("HeadlinesOnDay:N", title="Headlines"),
             ],
         ).add_params(hover)
-        chart = (lines + tooltip).properties(height=260).configure_view(
+        chart = (bands + lines + tooltip).properties(height=260).configure_view(
             stroke=None,
         )
         st.altair_chart(chart, use_container_width=True)
+        st.caption(
+            "Lines are the Dirichlet-resample posterior mean (matching the "
+            "scenario cards above). Shaded bands are the 80% credible "
+            "interval from CPT resampling at each day's evidence state "
+            "(concentration = 20, m = 200). They reflect parameter "
+            "uncertainty **at that day**, not forecast uncertainty about "
+            "future trajectories."
+        )
 
         last_day = max(grouped)
         last_headlines = " · ".join(o["headline"] for o in grouped[last_day])
@@ -967,13 +1167,151 @@ with st.container(border=True):
         )
 
 
+# ---------------------------------------------------------------------------
+# Node-CI rendering helpers (A2)
+# ---------------------------------------------------------------------------
+
+_NAVY_FULL = NAVY
+_NAVY_MID = "#5B6A7D"
+_NAVY_LIGHT = "#9BA5B0"
+_WIDTH_COLOR_SCALE = alt.Scale(
+    domain=["narrow", "moderate", "fragile"],
+    range=[_NAVY_FULL, _NAVY_MID, _NAVY_LIGHT],
+)
+
+
+def _width_category(half_width_pp: float) -> str:
+    if half_width_pp < 8:
+        return "narrow"
+    if half_width_pp < 20:
+        return "moderate"
+    return "fragile"
+
+
+def _ci_dataframe(
+    ci_dict: Dict[str, Tuple[float, float, float]],
+    sorted_states: List[str],
+) -> pd.DataFrame:
+    rows = []
+    for state in sorted_states:
+        mean, lo, hi = ci_dict[state]
+        half_w_pp = (hi - lo) * 50.0
+        rows.append({
+            "State": state,
+            "Mean": mean,
+            "Lo": lo,
+            "Hi": hi,
+            "HalfWidthPP": half_w_pp,
+            "WidthCategory": _width_category(half_w_pp),
+        })
+    return pd.DataFrame(rows)
+
+
+def _dumbbell_chart(df: pd.DataFrame, sorted_states: List[str]) -> alt.Chart:
+    y_enc = alt.Y(
+        "State:N", sort=sorted_states, title=None,
+        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
+        axis=alt.Axis(
+            labelColor=NAVY, labelFontSize=11,
+            labelOverlap=False, labelLimit=200, labelPadding=6,
+        ),
+    )
+    x_scale = alt.Scale(domain=[0, 1])
+    x_axis = alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY)
+    color_enc = alt.Color(
+        "WidthCategory:N", scale=_WIDTH_COLOR_SCALE, legend=None,
+    )
+    tooltip = [
+        alt.Tooltip("State:N"),
+        alt.Tooltip("Mean:Q", format=".1%", title="Mean"),
+        alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
+        alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
+        alt.Tooltip("HalfWidthPP:Q", format=".1f", title="± pp"),
+    ]
+    base = alt.Chart(df).encode(y=y_enc)
+    rule = base.mark_rule(strokeWidth=4).encode(
+        x=alt.X("Lo:Q", scale=x_scale, axis=x_axis, title="Probability"),
+        x2="Hi:Q",
+        color=color_enc,
+    )
+    cap_lo = base.mark_tick(thickness=3, size=18).encode(
+        x="Lo:Q", color=color_enc,
+    )
+    cap_hi = base.mark_tick(thickness=3, size=18).encode(
+        x="Hi:Q", color=color_enc,
+    )
+    mean_pt = base.mark_circle(size=140).encode(
+        x="Mean:Q", color=color_enc, tooltip=tooltip,
+    )
+    height = max(160, 50 * len(sorted_states) + 30)
+    return (rule + cap_lo + cap_hi + mean_pt).properties(
+        height=height
+    ).configure_view(stroke=None)
+
+
+def _flat_bar_chart(
+    dist: Dict[str, float], sorted_states: List[str]
+) -> alt.Chart:
+    """Plain bars without CI — for hard/soft-observed nodes."""
+    df = pd.DataFrame(
+        [{"State": s, "Probability": dist[s]} for s in sorted_states]
+    )
+    y_enc = alt.Y(
+        "State:N", sort=sorted_states, title=None,
+        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
+        axis=alt.Axis(
+            labelColor=NAVY, labelFontSize=11,
+            labelOverlap=False, labelLimit=200, labelPadding=6,
+        ),
+    )
+    x_enc = alt.X(
+        "Probability:Q", scale=alt.Scale(domain=[0, 1]),
+        axis=alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY),
+        title="Probability",
+    )
+    bars = alt.Chart(df).mark_bar(size=14, color=NAVY).encode(
+        x=x_enc, y=y_enc,
+        tooltip=[
+            alt.Tooltip("State:N"),
+            alt.Tooltip("Probability:Q", format=".1%"),
+        ],
+    )
+    height = max(160, 50 * len(sorted_states) + 30)
+    return bars.properties(height=height).configure_view(stroke=None)
+
+
+def _robustness_badge_html(
+    ci_dict: Dict[str, Tuple[float, float, float]],
+    sorted_states: List[str],
+) -> str:
+    widest_state = max(
+        sorted_states, key=lambda s: ci_dict[s][2] - ci_dict[s][1],
+    )
+    mean_w, lo_w, hi_w = ci_dict[widest_state]
+    half_w_pp = (hi_w - lo_w) * 50.0
+    cat = _width_category(half_w_pp)
+    if cat == "narrow":
+        emoji, label, color = "🟢", "robust", GREEN
+    elif cat == "moderate":
+        emoji, label, color = "🟡", "moderate", AMBER
+    else:
+        emoji, label, color = "🔴", "fragile", RED
+    return (
+        f"<div style='font-size:0.82rem; margin:0.2rem 0 0.55rem 0; "
+        f"color:{color}; font-weight:600;'>"
+        f"{emoji} {label} · widest CI ±{half_w_pp:0.1f} pp "
+        f"<span style='color:{MUTED}; font-weight:400;'>"
+        f"(state: {widest_state})</span></div>"
+    )
+
+
 # ===========================================================================
 # TABS — Network & model / Observations / Audit trail
 # ===========================================================================
 
-tab_net, tab_edges, tab_obs, tab_audit = st.tabs(
-    ["🕸️  Network & model", "🧭  Edge rationale",
-     "📝  Observations", "🔎  Audit trail"]
+tab_net, tab_obs, tab_audit, tab_edges = st.tabs(
+    ["🕸️  Network & model", "📝  Observations",
+     "🔎  Audit trail", "🧭  Edge rationale"]
 )
 
 
@@ -1024,41 +1362,59 @@ with tab_net:
                 unsafe_allow_html=True,
             )
             if sel and sel in STATES:
-                st.markdown(
-                    f"<div class='card-sub'><b>{sel.replace('_',' ')}</b></div>",
-                    unsafe_allow_html=True,
-                )
                 marginal = all_marginals[sel]
+                sorted_states = list(STATES[sel])
                 if sel in evidence:
-                    st.markdown(
-                        f"<div class='card-sub'>Currently observed: "
-                        f"<b>{evidence[sel]}</b> (day {observed_day_map.get(sel, '?')})"
-                        "</div>",
-                        unsafe_allow_html=True,
+                    tip_text = (
+                        f"Hard evidence: {evidence[sel]} "
+                        f"(day {observed_day_map.get(sel, '?')}). "
+                        "No residual model uncertainty — the node is "
+                        "pinned to the observed state."
                     )
                 elif sel in soft_evidence:
                     dist = soft_evidence[sel]
                     top_state = max(dist, key=dist.get)
-                    st.markdown(
-                        f"<div class='card-sub'>Soft evidence from headlines: "
-                        f"<b>{top_state}</b> ({dist[top_state]*100:0.1f}%, "
-                        f"day {observed_day_map.get(sel, '?')})</div>",
-                        unsafe_allow_html=True,
+                    tip_text = (
+                        f"Soft evidence from headlines: {top_state} "
+                        f"({dist[top_state]*100:0.1f}%, "
+                        f"day {observed_day_map.get(sel, '?')}). "
+                        "Intervals show how the posterior shifts when "
+                        "CPT parameters are resampled (Dirichlet, "
+                        "concentration = 20, m = 200)."
                     )
                 else:
+                    tip_text = (
+                        "Posterior marginal after propagating all injected "
+                        "evidence. Intervals come from CPT resampling "
+                        "(Dirichlet, concentration = 20, m = 200)."
+                    )
+                tip_attr = tip_text.replace("'", "&#39;")
+                st.markdown(
+                    f"<div class='card-sub' style='display:flex; "
+                    f"align-items:center; gap:0.35rem;'>"
+                    f"<b>{sel.replace('_',' ')}</b>"
+                    f"<span title='{tip_attr}' "
+                    f"style='cursor:help; color:{MUTED}; "
+                    f"font-size:0.9rem; font-weight:500;'>ⓘ</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if sel in evidence:
+                    st.altair_chart(
+                        _flat_bar_chart(marginal, sorted_states),
+                        use_container_width=True,
+                    )
+                else:
+                    node_ci = node_ci_table[sel]
                     st.markdown(
-                        "<div class='card-sub'>Posterior marginal after propagating "
-                        "all injected evidence:</div>",
+                        _robustness_badge_html(node_ci, sorted_states),
                         unsafe_allow_html=True,
                     )
-                for state, prob in marginal.items():
-                    st.markdown(
-                        f"<div style='font-size:0.8rem; color:{NAVY}; "
-                        f"margin-bottom:0.15rem;'>{state} — "
-                        f"<b>{prob*100:0.1f}%</b></div>",
-                        unsafe_allow_html=True,
+                    ci_df = _ci_dataframe(node_ci, sorted_states)
+                    st.altair_chart(
+                        _dumbbell_chart(ci_df, sorted_states),
+                        use_container_width=True,
                     )
-                    st.progress(min(max(prob, 0.0), 1.0))
             else:
                 st.markdown(
                     "<div class='card-sub'>Click a node in the graph to inspect "

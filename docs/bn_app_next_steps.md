@@ -4,6 +4,8 @@
 
 The Streamlit dashboard is a functional prototype. This document proposes 11 improvements across five categories — inference mechanics, narrative/reporting, exploration, workflow, and knowledge infrastructure — to move it toward production use. The most critical finding: **the current evidence merging is last-observation-wins**, meaning the model has no memory across observations to the same node. Fixing this (A1) is the foundational prerequisite. After that, sensitivity attribution (A3) and pre-built scenario sequences (B2) provide the highest immediate value for committee demos and governance. A reach goal (E1) outlines a news memory database for institutional knowledge persistence.
 
+**Status legend.** ✅ = shipped. Items shipped so far: A2 (node-level credible intervals, 2026-04).
+
 ## Context
 
 The dashboard (`app/dashboard.py`) translates headlines into BN evidence, runs inference, displays scenario probabilities with credible intervals, and provides interactive network visualisation with manual override. Named sessions can be saved and restored.
@@ -38,13 +40,19 @@ where $\lambda$ controls the decay rate. With $\lambda = 0$ this is uniform aver
 
 **Supporting UI changes:** Visual staleness indicators on observed nodes (muted/hatched when old). Per-node evidence history panel showing the full stack of observations that contributed to the merged distribution.
 
-### A2. Node-Level Credible Intervals
+### A2. Node-Level Credible Intervals — ✅ Shipped (2026-04)
 
-**What exists now.** Credible intervals (Dirichlet resampling, m=200, concentration=20) are computed for the terminal Scenario node only.
+**What shipped.** `node_credible_intervals` in `src/sensitivity.py` extends the Dirichlet-resampling machinery to every node (not just Scenario). The same m=200 draws, concentration=20 regime is used: each sample resamples all CPTs jointly, re-runs variable elimination, and the per-state posterior is recorded. CIs are the 10th–90th percentiles across samples. Hard-observed nodes short-circuit to deltas; soft-observed nodes still get real CIs because the posterior varies under CPT resampling even when the soft likelihood is pinned.
 
-**What to add.** Extend `scenario_credible_intervals` (or write a parallel function) to compute credible intervals for every node's posterior marginal, not just Scenario. Display these as error bars on the posterior bar charts in the node detail panel (right side of the Network tab).
+In the dashboard, the node detail panel on the right of the Network tab now renders:
 
-**Why it matters.** When an expert clicks on `Strait_Operationally_Closed` and sees "partial: 52%", they should also see the uncertainty band. Is it 52% +/- 3pp (robust) or 52% +/- 15pp (fragile)? This identifies which parts of the causal chain are stable conclusions and which are sensitive to CPT specification.
+- A **robustness badge** (🟢 robust < ±8 pp · 🟡 moderate ±8–20 pp · 🔴 fragile > ±20 pp) summarising the widest CI across the node's states.
+- A **dumbbell chart** (range rule + end caps + mean dot per state), with colour opacity encoding CI width so narrow/stable intervals read as saturated and fragile intervals appear muted.
+- A **text row** per state: `state — mean% · 80% CI [lo% – hi%] · ±pp` for screenshots / accessibility.
+
+Caching is keyed on (hard evidence, soft evidence) tuples so the ~5–15 s resample cost is paid only when evidence changes.
+
+**Why it matters.** When an expert clicks on `Strait_Operationally_Closed` and sees "partial: 52%", they now see whether that is 52 ± 3 pp (robust conclusion) or 52 ± 15 pp (CPT-sensitive artefact). The badge makes this legible at a glance across the whole causal chain and is load-bearing for the C2 elicitation workflow.
 
 ### A3. Sensitivity Attribution — "What Drove the Change?"
 
@@ -197,7 +205,7 @@ The table below suggests a sequencing that balances foundational correctness, st
 | 4 | B1: Daily narrative generation | Narrative | Enhanced by A3 (attribution enriches the narrative, but B1 can function without it using raw probability deltas). Transforms the app from a dashboard into a briefing tool. The monthly meta-narrative layer follows naturally. |
 | 5 | C1: Scenario comparison mode | Exploration | High analytical value. Moderate effort (parallel evidence threads, dual rendering). Natural complement to B2 sequences. |
 | 6 | B3: Session export | Narrative | Depends on B1 (narratives are the most valuable export content). Delivers the governance artefact: a distributable PDF with full audit trail. |
-| 7 | A2: Node-level credible intervals | Inference | Extends existing Dirichlet resampling. Moderate compute cost. Valuable for CPT refinement and elicitation workflows. |
+| 7 | A2: Node-level credible intervals ✅ | Inference | **Shipped 2026-04.** Extended Dirichlet resampling to all nodes; rendered as dumbbell chart + robustness badge in the detail panel. |
 | 8 | C2: CPT explorer | Exploration | Depends on A2 (per-column sensitivity is the key feature). Enables the iterative elicitation loop described in `bn_hmm_integration.md`. |
 | 9 | D1: Batch processing | Workflow | Quality-of-life for daily operations. Independent of other improvements but more useful once A1 (accumulation) exists. |
 | 10 | C3: Undo/redo and pinning | Exploration | Quality-of-life for interactive use. Independent but compounds with C1 (comparison mode). |
