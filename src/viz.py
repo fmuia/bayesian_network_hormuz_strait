@@ -404,9 +404,13 @@ def build_agraph_payload(
             )
         )
 
+    # Canvas height calibrated to the combined height of the Posterior
+    # and Override boxes in the right column of the Network tab.
+    # nodeSpacing / treeSpacing scaled proportionally from the original
+    # 240/260 @ height=340 so the DAG fills the canvas.
     config = Config(
         width="100%",
-        height=560,
+        height=460,
         directed=True,
         physics=False,
         hierarchical=True,
@@ -415,15 +419,14 @@ def build_agraph_payload(
         collapsible=False,
         node={"labelProperty": "label", "renderLabel": True},
         link={"renderLabel": False},
-        # vis.js nested hierarchical options
         layout={
             "hierarchical": {
                 "enabled": True,
                 "direction": "LR",
                 "sortMethod": "directed",
                 "levelSeparation": 330,
-                "nodeSpacing": 240,
-                "treeSpacing": 260,
+                "nodeSpacing": 300,
+                "treeSpacing": 325,
             }
         },
         interaction={"hover": True, "zoomView": False, "dragView": False},
