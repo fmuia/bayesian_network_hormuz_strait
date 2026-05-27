@@ -1,8 +1,8 @@
 # PyMC Integration and Continuous-Variable Migration Plan
 
-> **Status.** Draft, 2026-05-26. No phases started.
+> **Status.** Draft. No phases started.
 >
-> **Related docs.** `docs/dashboard_review_2026-05.md` motivates the migration (findings M1, M2, M3, M4, M7). `docs/bn_app_next_steps.md` is the broader roadmap. `docs/bn_hmm_integration.md` describes the longer-horizon BN↔HMM story, which is **out of scope for this plan**: it requires a separately-trained inflation HMM that does not exist in this repo. `notes/latent_regime_math.md` contains the foundational math (Parts 1–6, plus Appendices A on independence/d-separation, B on entropy, C on uncertainty under the latent regime).
+> **Related docs.** `docs/master_plan.md` §4 is the in-tree registry of finding IDs and lists the findings this plan closes (M2, M3, M4). M1 and M7 (latent regime) used to be in this plan as Phase 3; they have been consolidated into `docs/01_latent_regime_plan.md` (Plan 1) so the conceptual decision and the engineering implementation live together. This plan still provides the `PymcBackend` substrate Plan 1's engineering depends on (Phase 2 here is the gating dependency), and Plan 1's engineering must land before this plan's continuous-variable phases (Phases 3–4) can build on it. `docs/bn_hmm_integration.md` describes the longer-horizon BN↔HMM story, **out of scope for this plan** — it requires a separately-trained inflation HMM that does not exist in this repo.
 >
 > **Status legend.** ⬜ not started · ⏳ in progress · ✅ shipped (with date).
 
@@ -10,13 +10,13 @@
 
 This document is the plan to migrate the inference backend from pgmpy to PyMC, with the migration designed so that the existing pgmpy backend can continue to serve the all-discrete case at lower cost. The migration unlocks three capabilities the current architecture cannot deliver cleanly:
 
-1. **Hierarchical priors over CPTs.** Resolves M1 (latent regime), M2 (soft evidence semantics), M3 (uniform κ), and M4 (independent CPT resampling) in a single architectural move — they share a common shape that PyMC supports natively.
+1. **Hierarchical priors over CPTs.** Resolves M2 (soft evidence semantics), M3 (uniform κ), and M4 (independent CPT resampling) in a single architectural move — they share a common shape that PyMC supports natively. M1 and M7 (latent regime) are addressed by Plan 1, which builds on this plan's `PymcBackend` substrate.
 2. **Continuous variables.** Several nodes in the current model (Oil_Price_Regime, Conflict_Duration, Energy_Infrastructure_Damage) are forced discretizations of inherently continuous quantities.
 3. **Modern Bayesian diagnostics.** Posterior diagnostics, R-hat, ESS, divergence tracking — the PPL ecosystem standard.
 
 The migration is structured as a **dual-backend system**. A declarative `NetworkSpec` describes the model; a dispatcher routes to either `PgmpyBackend` (when the network is all-discrete and the user prefers it) or `PymcBackend` (when continuous variables are present, or when the user opts in for richer features). The dashboard layer stays backend-agnostic.
 
-The plan is six phases (0 through 5). Each phase ends with a clear deliverable and a validation criterion. Phases 0–2 are pure refactoring with no semantic change; Phases 3–5 are progressive scope expansion. Temporal extensions (a Markov chain on the BN's regime variable) and full BN↔HMM integration are out of scope; see `docs/bn_hmm_integration.md` for the longer-horizon story.
+The plan is five phases (0 through 4). Phases 0–2 are pure refactoring with no semantic change — they deliver the `NetworkSpec`, the `PgmpyBackend` wrapper, and `PymcBackend` for discrete networks. **Plan 1's engineering implementation slots between Phase 2 and Phase 3** (Plan 1 promotes the latent regime to a first-class topology on top of `PymcBackend`'s discrete substrate). Phases 3–4 then build on top of Plan 1's latent regime: continuous-variable support (Phase 3) and the production Oil_Price migration (Phase 4). Temporal extensions and BN↔HMM integration are out of scope; see `docs/bn_hmm_integration.md` for the longer-horizon story.
 
 ## Section A — Motivation and the math
 
@@ -24,7 +24,7 @@ The plan is six phases (0 through 5). Each phase ends with a clear deliverable a
 
 Two converging motivations make a backend change worth the engineering cost:
 
-**1. Hierarchical CPT priors.** The M-series findings in the dashboard review (M1 latent regime, M2 soft-evidence semantics, M3 uniform $\kappa$, M4 independent CPT column resampling) all share a common shape: they want CPT entries themselves to be random variables with explicit prior distributions, not point values with bolt-on Dirichlet resampling. The current `src/sensitivity.py` is a post-hoc workaround. Under PyMC, the Dirichlet prior *is* the CPT prior, and parameter uncertainty becomes inference, not perturbation.
+**1. Hierarchical CPT priors.** The M-series findings in the dashboard review (M2 soft-evidence semantics, M3 uniform $\kappa$, M4 independent CPT column resampling) all share a common shape: they want CPT entries themselves to be random variables with explicit prior distributions, not point values with bolt-on Dirichlet resampling. The current `src/sensitivity.py` is a post-hoc workaround. Under PyMC, the Dirichlet prior *is* the CPT prior, and parameter uncertainty becomes inference, not perturbation. M1 and M7 (the latent-regime findings) are owned by Plan 1, which builds on the `PymcBackend` substrate this plan delivers.
 
 **2. Continuous variables.** Three nodes in the current model are "secretly continuous" and have been forced into 3-state discretizations: Oil_Price_Regime ($\in \{$below_90, 90_to_120, above_120$\}$), Conflict_Duration ($\in \{$short, medium, long$\}$), Energy_Infrastructure_Damage ($\in \{$none, moderate, severe$\}$). All three lose information in the discretization. PyMC handles mixed discrete/continuous models natively; pgmpy does not.
 
@@ -411,34 +411,13 @@ Each phase has a clear scope, deliverable, and validation criterion. Phases 0–
 - Sampling is seeded and reproducible.
 - Diagnostics: R-hat < 1.01 across all parameters; ESS > 400 for scenario marginals.
 
-### Phase 3 — Latent-regime restructure under `PymcBackend`
+> **Note.** Plan 1 (`docs/01_latent_regime_plan.md`) owns the latent-regime conceptual decision and engineering implementation, including the resolution of findings M1 and M7. **Plan 1's engineering implementation slots between Phase 2 and Phase 3 below**: Phase 2 ships the `PymcBackend` substrate Plan 1 builds on; Phase 3 (continuous variables) depends on Plan 1's latent regime being in place because the continuous emissions are emissions *of the latent regime*.
+
+### Phase 3 — Continuous variable support in `PymcBackend`
 
 **Status.** ⬜ not started
-**Resolves.** Review findings M1 (latent regime) and M7 (resample-mean vs point-estimate consistency — the latent-regime posterior makes the resample mean the natural reported quantity).
-
-**Scope.** Add a `LatentRegime` flag to `NetworkSpec` signaling the latent-regime topology ($S \to D, T, P$ instead of $D, T, P \to S$). `PymcBackend` builds the appropriate model. `PgmpyBackend` either supports the latent regime via the three-exact-inferences trick (see `notes/latent_regime_math.md` Part 4) or raises if the spec requires it.
-
-The emission CPTs $P(D \mid S, M, C)$, $P(T \mid S, U_1, U_3, M)$, $P(P \mid S, U_1, U_3, U_2)$ are **anchor-derived in Phase 3 and re-elicited in Plan 3 Layer 2**. Phase 3 ships with one-off anchor values authored from current-model marginals (inverting the existing labelling CPT against the current root priors), with a provisional uniform $\kappa = 20$ on every emission CPT. Once Plan 3 Layer 4 lands, the elicitation tool round-trips these CPTs into the elicitation store, the per-CPT $\kappa$ values become elicited outputs, and `PymcBackend` consumes them via the provenance pathway documented in Plan 3 Layer 4. Phase 3 is therefore correct-but-provisional on the emission parameters; Plan 3 produces the defensible elicited replacements.
-
-The Scenario labelling CPT $P(S \mid D, T, P)$ is removed. A regime prior $\pi(S)$ with concentration $\kappa_S$ is added.
-
-**Deliverables.**
-
-- `src/cpt_data.py` — elicited emission CPTs and regime prior, with per-CPT $\kappa$ values.
-- Updated `build_hormuz_spec()` that can produce either the current or the latent-regime topology based on a flag.
-- `src/backends/pymc_backend.py` — handles the latent-regime topology.
-- `src/backends/pgmpy_backend.py` — implements the three-exact-inferences trick for the latent-regime case.
-
-**Validation.**
-
-- Latent regime model produces qualitatively-sensible posteriors on canonical test evidence (escalation sequence pushes Severe up, de-escalation sequence pushes Stress up).
-- Bayes factors $\Lambda_{s_1, s_2} = P(E \mid S = s_1) / P(E \mid S = s_2)$ computable and consistent with the regime posterior shift.
-- D-separation behavior validated: with evidence only on upstream nodes, $P(S \mid E) \approx \pi(S)$ (regime stays at prior), confirming the structural conditional-independence property documented in Appendix A of the notes doc.
-
-### Phase 4 — Continuous variable support in `PymcBackend`
-
-**Status.** ⬜ not started
-**Resolves.** Review findings M2 (soft evidence as proper likelihood), M3 (per-CPT $\kappa$ — the `NetworkSpec`-side mechanism; the elicitation-side mechanism that populates κ is Plan 3 Layer 4), and M4 (independent CPT column resampling — under PyMC's hierarchical priors, all rows of a CPT share a single Dirichlet parameter draw per posterior sample, so correlated shape uncertainty is the natural output of one inference pass rather than a post-hoc resampling artefact).
+**Depends on.** Plan 1's engineering implementation (latent regime) having landed.
+**Resolves.** Review findings M2 (soft evidence as proper likelihood), M3 (per-CPT $\kappa$ — the `NetworkSpec`-side mechanism; the elicitation-side mechanism that populates κ is Plan 4 Layer 4), and M4 (independent CPT column resampling — under PyMC's hierarchical priors, all rows of a CPT share a single Dirichlet parameter draw per posterior sample, so correlated shape uncertainty is the natural output of one inference pass rather than a post-hoc resampling artefact).
 
 **Scope.** Extend `NetworkSpec` to support `ContinuousNode`. `PymcBackend` translates these to PyMC continuous distributions (LogNormal, Gamma, Beta) with regime-dependent parameters. Dispatcher routes any spec with continuous nodes to `PymcBackend` unconditionally.
 
@@ -449,7 +428,7 @@ Posterior object gains continuous-variable APIs (`probability_of_interval`, `den
 - `src/network_spec.py` — `ContinuousNode` activated.
 - `src/backends/pymc_backend.py` — handles continuous nodes.
 - `src/posterior.py` — continuous-variable query API.
-- Continuous-variable UI components live in Plan 4 (`app/components/continuous_viz.py` — density plot, interval query). Phase 4 here ships only the backend hooks; the rendering work is owned by Plan 4 Category C (item C14).
+- Continuous-variable UI components live in Plan 5 (`app/components/continuous_viz.py` — density plot, interval query). Phase 3 here ships only the backend hooks; the rendering work is owned by Plan 5 Category C (item C14).
 
 **Validation.**
 
@@ -457,9 +436,10 @@ Posterior object gains continuous-variable APIs (`probability_of_interval`, `den
 - Hard observations on the continuous node update the regime posterior in expected directions.
 - Soft observations (interval, noisy) work and produce sensible updates.
 
-### Phase 5 — Migrate Oil_Price to continuous in production
+### Phase 4 — Migrate Oil_Price to continuous in production
 
 **Status.** ⬜ not started
+**Depends on.** Phase 3 above (continuous-variable support in `PymcBackend`).
 
 **Scope.** Promote `Oil_Price_Regime` from discrete 3-state to continuous LogNormal. Update emission CPT, translator (to handle continuous observations: point, interval, noisy), and dashboard visualization for the continuous node.
 
@@ -475,7 +455,7 @@ with regime-dependent mean and variance. Initial parameter values anchored to hi
 
 - `src/cpt_data.py` — continuous emission parameters for Oil_Price.
 - `src/translator.py` — extended to recognize continuous observations from headlines.
-- Dashboard rendering (density plot for Oil_Price posterior, interval-probability queries on the scenario cards: $P(\text{Oil} > 120)$ etc.) is owned by Plan 4 Category C item C14. Phase 5 here ships the backend data; Plan 4 ships the surfaces.
+- Dashboard rendering (density plot for Oil_Price posterior, interval-probability queries on the scenario cards: $P(\text{Oil} > 120)$ etc.) is owned by Plan 5 Category C item C14. Phase 4 here ships the backend data; Plan 5 ships the surfaces.
 
 **Validation.**
 
@@ -488,12 +468,12 @@ with regime-dependent mean and variance. Initial parameter values anchored to hi
 Each phase has a natural exit point if you want to stop:
 
 - **After Phase 1.** Backend abstraction in place; can keep pgmpy as the only backend. Value: cleaner architecture, no semantic change.
-- **After Phase 2.** PyMC available as opt-in for the existing discrete model. Validated parity between backends.
-- **After Phase 3.** Latent regime available, M1 resolved.
-- **After Phase 4.** Continuous variables possible. M2/M3 also naturally resolved.
-- **After Phase 5.** One real continuous node in production.
+- **After Phase 2.** PyMC available as opt-in for the existing discrete model. Validated parity between backends. Plan 1's engineering implementation can begin from this point.
+- **After Plan 1's engineering** (between this plan's Phase 2 and Phase 3). Latent regime in production; M1 and M7 resolved. Bayes factors as first-class outputs.
+- **After Phase 3.** Continuous variables possible. M2 / M3 / M4 also naturally resolved.
+- **After Phase 4.** One real continuous node (Oil_Price) in production.
 
-Temporal extensions and BN↔HMM integration sit beyond Phase 5 and are tracked in `docs/bn_hmm_integration.md`; they require a separately-trained inflation HMM and are out of scope for this plan.
+Temporal extensions and BN↔HMM integration sit beyond Phase 4 and are tracked in `docs/bn_hmm_integration.md`; they require a separately-trained inflation HMM and are out of scope for this plan.
 
 ## Section E — Open questions
 
@@ -502,9 +482,9 @@ These do not block Phase 0 but should be resolved before the corresponding phase
 | Question | Block | Notes |
 | --- | --- | --- |
 | Sampler choice for discrete latents in Phase 2 | Phase 2 | Default: analytic marginalization for $S$ (low cardinality, exact). NUTS + CompoundStep for larger discrete sets. Decide if needed beyond 3-state. |
-| Per-CPT $\kappa$ values for the latent-regime emission CPTs | Phase 3 (resolved: provisional in Phase 3, elicited in Plan 3 Layer 4) | Phase 3 ships uniform $\kappa = 20$ on the anchor-derived emission CPTs; Plan 3 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance` and `PymcBackend` consumes them from there. See M3 in the review for the underlying motivation. |
-| Continuous oil-price source data | Phase 5 | Bloomberg, FRED, Quandl, EIA? Decide data source and update cadence. |
-| Translator extension for continuous observations | Phase 5 | Headlines like "oil hit $148" — extract as point observations. "Oil between $140-150 this week" — extract as interval. LLM prompt extension needed. |
+| Per-CPT $\kappa$ values for the latent-regime emission CPTs | Plan 1 (resolved: provisional in Plan 1, elicited in Plan 4 Layer 4) | Plan 1 ships uniform $\kappa = 20$ on the anchor-derived emission CPTs; Plan 4 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance` and `PymcBackend` consumes them from there. See M3 in the review for the underlying motivation. |
+| Continuous oil-price source data | Phase 4 | Bloomberg, FRED, Quandl, EIA? Decide data source and update cadence. |
+| Translator extension for continuous observations | Phase 4 | Headlines like "oil hit $148" — extract as point observations. "Oil between $140-150 this week" — extract as interval. LLM prompt extension needed. |
 
 ## Section F — Execution order summary table
 
@@ -515,10 +495,10 @@ For coherence with the format used in `docs/bn_app_next_steps.md`:
 | 1 | 0 — NetworkSpec refactor | Architecture | Foundational. Pure refactor, no semantic change. Unblocks every subsequent phase. |
 | 2 | 1 — PgmpyBackend | Architecture | Wrap existing inference behind backend interface. Dashboard becomes backend-agnostic. |
 | 3 | 2 — PymcBackend (discrete) | Architecture | Validated dual-backend support. Discrete-only opt-in for PyMC. |
-| 4 | 3 — Latent regime under PymcBackend | M1 (latent regime), M7 (mean vs point-estimate consistency) | Math objection from Part 2 of `notes/latent_regime_math.md` resolved. Bayes factors first-class. |
-| 5 | 4 — Continuous variable support | M2 (soft evidence semantics), M3 (per-CPT κ), M4 (correlated CPT shape uncertainty) | Hierarchical priors over CPTs; continuous nodes possible; all-rows-share-one-Dirichlet-draw closes M4. |
-| 6 | 5 — Migrate Oil_Price to continuous | Operational | First production continuous node. Interval-probability queries on the dashboard. |
+| — | (Plan 1 engineering slots in here) | M1, M7 | Latent regime built on top of `PymcBackend`. See `docs/01_latent_regime_plan.md` Section B. |
+| 4 | 3 — Continuous variable support | M2 (soft evidence semantics), M3 (per-CPT κ), M4 (correlated CPT shape uncertainty) | Hierarchical priors over CPTs; continuous nodes possible; all-rows-share-one-Dirichlet-draw closes M4. Depends on Plan 1's engineering being in place. |
+| 5 | 4 — Migrate Oil_Price to continuous | Operational | First production continuous node. Interval-probability queries on the dashboard. |
 
 ---
 
-**End of plan.** Companion math document: `notes/latent_regime_math.md` (Parts 1–6 plus Appendices A–C). Companion review document with all M-series findings: `docs/dashboard_review_2026-05.md`.
+**End of plan.** Companion plan with latent-regime math and engineering: `docs/01_latent_regime_plan.md`. M-series findings registry: `docs/master_plan.md` §4.

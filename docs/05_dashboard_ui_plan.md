@@ -1,10 +1,10 @@
 # Dashboard UI, Visualization, and Polish Plan
 
-> **Status.** Draft, 2026-05-26. No items started.
+> **Status.** Draft. No items started.
 >
-> **Position in the sequencing.** Fourth of four sequential plans. Closes the visualization, dashboard-architecture, performance, code-hygiene, and test-coverage findings from `docs/dashboard_review_2026-05.md` that are not addressed by the three backend plans. Runs after Plans 1–3, although several items in Category A and D can be opportunistically picked up earlier.
+> **Position in the sequencing.** Last (fourth) of the four sequential engineering plans; fifth overall in the programme (Plan 1 is the latent-regime reframing — conceptual decision plus engineering — that the engineering plans build on; Plans 2–4 are the upstream engineering plans). Closes the visualization, dashboard-architecture, performance, code-hygiene, and test-coverage findings (catalogued in `docs/master_plan.md` §4) that are not addressed by the three backend plans. Runs after Plans 2–4, although several items in Category A and D can be opportunistically picked up earlier.
 >
-> **Related docs.** `docs/dashboard_review_2026-05.md` raises the findings this plan closes (V1–V15, C1–C14 where not addressed elsewhere, M8, M9). `docs/bn_app_next_steps.md` is the feature roadmap (A1–E1) — several roadmap items are UI-flavoured (A3 sensitivity attribution, B2 scenario sequences, C1 comparison, C3 undo/redo) and naturally compound with this plan's deliverables. `docs/master_plan.md` is the orchestrator that maps every review finding to a plan.
+> **Related docs.** `docs/master_plan.md` §4 is the in-tree registry of finding IDs and lists the findings this plan closes (V1–V15, C1–C14 where not addressed elsewhere, M8, M9). `docs/bn_app_next_steps.md` is the feature roadmap (A1–E1) — several roadmap items are UI-flavoured (A3 sensitivity attribution, B2 scenario sequences, C1 comparison, C3 undo/redo) and naturally compound with this plan's deliverables.
 >
 > **Status legend.** ⬜ not started · ⏳ in progress · ✅ shipped (with date).
 
@@ -16,7 +16,7 @@ The plan is organised into five categories:
 
 - **Category A — Architectural refactor.** The 1878-line `app/dashboard.py` is split into a component library; the inline CSS is extracted; the cached-but-mutated `engine` pattern is fixed; the hardcoded DAG layout becomes topologically derived.
 - **Category B — Performance and caching.** Streamlit caches gain bounds and TTLs; the probability-evolution series is memoised on observation IDs rather than evidence values; slider interactions stop triggering full recomputation.
-- **Category C — Visualization improvements.** Fourteen discrete improvements to the user-facing experience: better scenario card density, smoother robustness gradient, drag-to-simplex sliders, richer panels for observed nodes, improved DAG layout, distinguished visual encoding for parameter vs forecast uncertainty, before/after deltas on new observations, stacked bar visualization of translator distributions, colorblind-safe palette, multi-line tooltips, edge rationale on hover, responsive scenario narratives, flex/grid DAG canvas, and a continuous Oil_Price panel with interval queries (paired with Plan 2 Phase 4/5).
+- **Category C — Visualization improvements.** Fourteen discrete improvements to the user-facing experience: better scenario card density, smoother robustness gradient, drag-to-simplex sliders, richer panels for observed nodes, improved DAG layout, distinguished visual encoding for parameter vs forecast uncertainty, before/after deltas on new observations, stacked bar visualization of translator distributions, colorblind-safe palette, multi-line tooltips, edge rationale on hover, responsive scenario narratives, flex/grid DAG canvas, and a continuous Oil_Price panel with interval queries (paired with Plan 3 Phase 3/4).
 - **Category D — Code hygiene.** Dead code removal, unused field cleanup, defensive-guard documentation, and deduplication of sensitivity functions.
 - **Category E — Test coverage.** Tests for the helpers and visualisation primitives the current test suite doesn't reach.
 
@@ -28,35 +28,35 @@ Categories A and D are pure refactor / cleanup. Category B is performance optimi
 
 Four plans run sequentially:
 
-1. **Plan 1 — `docs/translator_robustification.md`** — evidence ingestion.
-2. **Plan 2 — `docs/pymc_integration_plan.md`** — inference engine.
-3. **Plan 3 — `docs/elicitation_tool_plan.md`** — methodology layer.
-4. **Plan 4 (this doc)** — dashboard UI, visualization, performance, polish.
+1. **Plan 2 — `docs/02_translator_robustification.md`** — evidence ingestion.
+2. **Plan 3 — `docs/03_pymc_integration_plan.md`** — inference engine.
+3. **Plan 4 — `docs/04_elicitation_tool_plan.md`** — methodology layer.
+4. **Plan 5 (this doc)** — dashboard UI, visualization, performance, polish.
 
-The backend plans deliver capabilities; Plan 4 delivers the user-facing experience that exposes those capabilities. Dependencies are item-specific rather than category-wide:
+The backend plans deliver capabilities; Plan 5 delivers the user-facing experience that exposes those capabilities. Dependencies are item-specific rather than category-wide:
 
-- **A3 (engine caching fix)** lands cleanly once Plan 2 Phase 1's `Posterior` interface is in place — without it, A3 still works but the "pure-function query" target shape isn't established. A3 can also ship pgmpy-only as an interim.
-- **C4 (rich observed-node panel)** has a Bayes-factor mode that requires Plan 2 Phase 3 (latent regime). Falls back to delta display if Phase 3 hasn't landed (see open question in Section C).
-- **C14 (continuous Oil_Price panel)** requires Plan 2 Phase 4 (continuous-node support in `PymcBackend`); production data wiring lands with Plan 2 Phase 5.
-- **C8 (stacked-bar translator distributions)** can ship on the current translator output; richer per-sample views compound with Plan 1 C1 (ensemble) once it lands.
+- **A3 (engine caching fix)** lands cleanly once Plan 3 Phase 1's `Posterior` interface is in place — without it, A3 still works but the "pure-function query" target shape isn't established. A3 can also ship pgmpy-only as an interim.
+- **C4 (rich observed-node panel)** has a Bayes-factor mode that requires Plan 1 (latent regime). Falls back to delta display if Plan 1's engineering hasn't landed (see open question in Section C).
+- **C14 (continuous Oil_Price panel)** requires Plan 3 Phase 3 (continuous-node support in `PymcBackend`); production data wiring lands with Plan 3 Phase 4.
+- **C8 (stacked-bar translator distributions)** can ship on the current translator output; richer per-sample views compound with Plan 2 C1 (ensemble) once it lands.
 
-The rest of Plan 4 — A1/A2/A4, B1/B2/B3, the bulk of Category C, and all of D and E — is backend-independent and can be picked up opportunistically alongside the other plans.
+The rest of Plan 5 — A1/A2/A4, B1/B2/B3, the bulk of Category C, and all of D and E — is backend-independent and can be picked up opportunistically alongside the other plans.
 
 ### Relationship to the existing feature roadmap
 
 `docs/bn_app_next_steps.md` contains a feature roadmap with items A1–E1. Several of those items are UI-flavoured and compound with this plan's work:
 
-- **Roadmap A3 (sensitivity attribution)** — compounds with this plan's C7 (before/after delta on new observation). Plan 4's delta-chip is the minimum-viable version; A3 is the full waterfall attribution.
-- **Roadmap B2 (pre-built scenario sequences)** — demo-time UX; compounds with Plan 4's general UI polish.
-- **Roadmap C1 (scenario comparison mode)** — multi-pane forked-evidence view. Compounds with Plan 4's information-architecture work in C1.
-- **Roadmap C3 (undo/redo and pinning)** — UI feature, compounds with Plan 4's evidence-management UX.
-- **Roadmap D1 (batch processing)** — UI for multi-headline ingest, compounds with Plan 1's batch capabilities.
+- **Roadmap A3 (sensitivity attribution)** — compounds with this plan's C7 (before/after delta on new observation). Plan 5's delta-chip is the minimum-viable version; A3 is the full waterfall attribution.
+- **Roadmap B2 (pre-built scenario sequences)** — demo-time UX; compounds with Plan 5's general UI polish.
+- **Roadmap C1 (scenario comparison mode)** — multi-pane forked-evidence view. Compounds with Plan 5's information-architecture work in C1.
+- **Roadmap C3 (undo/redo and pinning)** — UI feature, compounds with Plan 5's evidence-management UX.
+- **Roadmap D1 (batch processing)** — UI for multi-headline ingest, compounds with Plan 2's batch capabilities.
 
 This plan does not duplicate those items; they remain in the roadmap doc. The orchestrator (`docs/master_plan.md`) maps the coupling explicitly.
 
 ## Diagnosis: What's Wrong With the Current Dashboard
 
-The findings list this plan closes. Items marked (V*/C*/M*) reference `docs/dashboard_review_2026-05.md`.
+The findings list this plan closes. Items marked (V*/C*/M*) are finding IDs from the master-plan §4 matrix.
 
 1. **`app/dashboard.py` is 1878 lines / 76 KB in a single file (C2).** CSS, session state, four tabs of UI, helper components, and computation are interleaved. Any change risks regressing unrelated parts; nothing in the helpers is unit-testable.
 2. **The CSS is embedded inline (~350 lines) (V8).** Style edits require scrolling past hundreds of `!important` rules to find the Python code.
@@ -111,7 +111,7 @@ These items are pure refactoring with no semantic change. They establish the str
 - `app/components/audit_tab.py` — Audit trail tab.
 - `app/components/translator_stream.py` — sidebar translator-stream UI.
 
-Each component module exposes one or a few public render functions consuming a `Posterior` (from Plan 2) and session state. Pure rendering; no inference, no global state mutation.
+Each component module exposes one or a few public render functions consuming a `Posterior` (from Plan 3) and session state. Pure rendering; no inference, no global state mutation.
 
 **Anticipated additional components.** Items downstream of A1 introduce new component files. A1 establishes the directory and conventions; later items add to it without restructuring. The expected additions are:
 
@@ -119,8 +119,8 @@ Each component module exposes one or a few public render functions consuming a `
 - `app/components/observed_node_panel.py` — added in C4 (rich panel for hard-observed nodes).
 - `app/components/evolution_chart.py` — split out as C6 / C10 land (band rendering + tooltips).
 - `app/components/translator_panel.py` — added in C8 (stacked-bar distributions). Distinct from `translator_stream.py`: the stream is the sidebar feed; the panel is the per-observation detail view.
-- `app/components/sources_tab.py` — Plan 1 B1b's Sources tab, shared with Plan 3 Layer 3.
-- `app/components/continuous_viz.py` — added in C14 (continuous Oil_Price panel), once Plan 2 Phase 4 lands.
+- `app/components/sources_tab.py` — Plan 2 B1b's Sources tab, shared with Plan 4 Layer 3.
+- `app/components/continuous_viz.py` — added in C14 (continuous Oil_Price panel), once Plan 3 Phase 3 lands.
 
 **Deliverables.**
 
@@ -163,7 +163,7 @@ Two acceptable resolutions:
 1. **Pure-function queries.** `query(net, evidence)` returns a `Posterior` without mutating any cached object. The `net` is cached as a `cache_resource`; the engine is constructed per-query (cheap operation).
 2. **Per-session engine.** Move the engine into `st.session_state` so each user gets their own.
 
-Option 1 aligns with the backend interface in Plan 2 (Posterior consumer pattern). Recommend Option 1.
+Option 1 aligns with the backend interface in Plan 3 (Posterior consumer pattern). Recommend Option 1.
 
 **Deliverables.**
 
@@ -330,7 +330,7 @@ Recommend implementing both as toggleable modes; analysts have preferences.
 - Downstream effect: change in scenario posterior since the observation was committed.
 - The previous posterior (before observation) for comparison.
 
-If the latent regime (Plan 2 Phase 3) is in place, also show the Bayes-factor contribution of this observation.
+If the latent regime (Plan 1) is in place, also show the Bayes-factor contribution of this observation.
 
 **Deliverables.**
 
@@ -508,9 +508,9 @@ Streamlit's layout primitives are limited; implementation likely needs a small c
 ### C14. Continuous Oil_Price panel and interval queries
 
 **Status.** ⬜ not started
-**Resolves.** Surfaces Plan 2 Phase 4/5 outputs in the UI. No specific V-finding — added so the continuous-variable visualization work has a clear owner in Plan 4 rather than being smuggled into Plan 2.
+**Resolves.** Surfaces Plan 3 Phase 3/4 outputs in the UI. No specific V-finding — added so the continuous-variable visualization work has a clear owner in Plan 5 rather than being smuggled into Plan 3.
 
-**Scope.** When Plan 2 Phase 4 ships continuous-node support and Phase 5 promotes `Oil_Price` to a continuous LogNormal, the dashboard needs:
+**Scope.** When Plan 3 Phase 3 ships continuous-node support and Phase 4 promotes `Oil_Price` to a continuous LogNormal, the dashboard needs:
 
 - A density-plot panel for the continuous Oil_Price posterior (replacing the 3-state bar chart).
 - Interval-probability readouts on the scenario cards: $P(\text{Oil} > 120 \mid E)$, $P(\text{Oil} \in [100, 140] \mid E)$, plus an analyst-editable threshold.
@@ -520,7 +520,7 @@ Lands behind a capability flag from the `Posterior` object — only renders when
 
 **Deliverables.**
 
-- `app/components/continuous_viz.py` — density plot, interval-query widget. The corresponding `Posterior.probability_of_interval` / `Posterior.density` API is shipped by Plan 2 Phase 4.
+- `app/components/continuous_viz.py` — density plot, interval-query widget. The corresponding `Posterior.probability_of_interval` / `Posterior.density` API is shipped by Plan 3 Phase 3.
 - `app/components/scenario_cards.py` — wire interval-probability readout into the card when continuous Oil_Price is present.
 
 **Validation.**
@@ -691,10 +691,10 @@ Hygiene items to prevent silent regressions on the refactor work in Category A.
 
 ## Section B — Design decisions resolved
 
-Decisions recorded as of 2026-05-26.
+The decisions below are resolved.
 
 1. **Refactor order — Decided: Category A before Category C.** Splitting the monolith and extracting the CSS first means Category C improvements drop into clean component modules rather than wading through the inline tangle.
-2. **Engine caching pattern — Decided: pure-function queries.** Aligns with Plan 2's `Posterior` consumer pattern. Avoids per-session-state engine objects.
+2. **Engine caching pattern — Decided: pure-function queries.** Aligns with Plan 3's `Posterior` consumer pattern. Avoids per-session-state engine objects.
 3. **Slider UX — Decided: drag-to-simplex + anchor mode, toggleable.** Both patterns offered; user picks per task.
 4. **Robustness encoding — Decided: smooth gradient, retain emoji as coarse summary.** No hard category flips; emoji stays as a quick-glance signal.
 5. **Colour palette — Decided: Wong's CVD-safe set.** `#0072B2`, `#E69F00`, `#D55E00`. Plus line-style encoding on charts.
@@ -711,7 +711,7 @@ Decisions recorded as of 2026-05-26.
 | Stacked-bar component implementation | C8 | Pure Altair? Custom Streamlit component? Decide before C8 starts. |
 | CVD-safe palette validation | C9 | Need a stakeholder review with someone CVD-affected. Optional but worth it. |
 | Flex/grid DAG canvas — defer or implement | C13 | Decided to defer; revisit if a UI-framework migration happens. |
-| Bayes-factor display in observed-node panel | C4 | Depends on Plan 2 Phase 3 landing. If still in pgmpy-only mode, fall back to delta display. |
+| Bayes-factor display in observed-node panel | C4 | Depends on Plan 1 landing. If still in pgmpy-only mode, fall back to delta display. |
 
 ## Section D — Execution order summary table
 
@@ -737,7 +737,7 @@ Decisions recorded as of 2026-05-26.
 | 18 | C11 — Edge rationale on hover | Visualization | V13 | Couples reasoning to the DAG it explains. |
 | 19 | C12 — Responsive narratives | Visualization | V14 | Compounds with roadmap B1. Quick interim fix: hide them. |
 | 20 | C13 — Flex/grid DAG canvas | Visualization | V15 | Likely deferred. |
-| 21 | C14 — Continuous Oil_Price panel | Visualization | Plan 2 Phase 4/5 UI | Owns the continuous-viz work cleanly inside Plan 4 instead of inside Plan 2. Gated on Phase 4. |
+| 21 | C14 — Continuous Oil_Price panel | Visualization | Plan 3 Phase 3/4 UI | Owns the continuous-viz work cleanly inside Plan 5 instead of inside Plan 3. Gated on Phase 3. |
 | 22 | D1 — Dead code triage | Cleanup | C9 | Either delete or annotate `render_network_png`. |
 | 23 | D2 — Drop `Tone` | Cleanup | C13 | Either thread or remove. |
 | 24 | D3 — Document `+1e-6` guard | Cleanup | M8 | One-line comment. |
@@ -749,4 +749,4 @@ Decisions recorded as of 2026-05-26.
 
 ---
 
-**End of plan.** Companion plans: `docs/translator_robustification.md` (Plan 1, evidence ingestion), `docs/pymc_integration_plan.md` (Plan 2, inference engine), `docs/elicitation_tool_plan.md` (Plan 3, methodology layer). Orchestrator: `docs/master_plan.md`. Underlying review: `docs/dashboard_review_2026-05.md`.
+**End of plan.** Companion plans: `docs/02_translator_robustification.md` (Plan 2, evidence ingestion), `docs/03_pymc_integration_plan.md` (Plan 3, inference engine), `docs/04_elicitation_tool_plan.md` (Plan 4, methodology layer). Orchestrator: `docs/master_plan.md`.

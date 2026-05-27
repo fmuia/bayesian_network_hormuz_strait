@@ -1,10 +1,10 @@
 # Elicitation Tool Plan: A Multi-Protocol CPT Elicitation Platform
 
-> **Status.** Draft, 2026-05-26. No layers started.
+> **Status.** Draft. No layers started.
 >
-> **Position in the sequencing.** Third of three sequential plans. Depends on `docs/translator_robustification.md` (Plan 1) for the audit-log substrate (item D3) and on `docs/pymc_integration_plan.md` (Plan 2) for the `NetworkSpec` declarative model representation. Run after both are complete.
+> **Position in the sequencing.** Third of three sequential plans. Depends on `docs/02_translator_robustification.md` (Plan 2) for the audit-log substrate (item D3) and on `docs/03_pymc_integration_plan.md` (Plan 3) for the `NetworkSpec` declarative model representation. Run after both are complete.
 >
-> **Related docs.** `docs/dashboard_review_2026-05.md` raises the underlying epistemic problem (CPT values are currently structured guesses with no formal elicitation). `docs/translator_robustification.md` builds the audit log, versioned-artefact pattern, HITL review queue, and source-credibility infrastructure that this plan reuses. `docs/pymc_integration_plan.md` provides the `NetworkSpec` interface that elicited CPTs are exported to. `notes/latent_regime_math.md` documents the math context for why per-CPT $\kappa$ values and hierarchical priors matter.
+> **Related docs.** `docs/master_plan.md` §4 is the in-tree registry of finding IDs (this plan closes the elicitation-related M-findings, notably M3 and M6, plus C2 from the roadmap). `docs/02_translator_robustification.md` builds the audit log, versioned-artefact pattern, HITL review queue, and source-credibility infrastructure that this plan reuses. `docs/03_pymc_integration_plan.md` provides the `NetworkSpec` interface that elicited CPTs are exported to. `docs/01_latent_regime_plan.md` Section A.8 covers the math context for why per-CPT $\kappa$ values and hierarchical priors matter.
 >
 > **Status legend.** ⬜ not started · ⏳ in progress · ✅ shipped (with date).
 
@@ -12,7 +12,7 @@
 
 This plan delivers the **elicitation methodology layer** for the platform: a multi-protocol tool for eliciting, aggregating, versioning, and calibrating the conditional probability tables that drive the Bayesian network. It addresses the deepest epistemic weakness of the current model — that CPT values are inline literals chosen by one author without formal protocol, multi-expert input, or calibration tracking.
 
-The plan is structured as **six layers in scope** (Layers 0 through 5) plus a deferred commercial Layer 6 (billing, onboarding, support) that ships only when paying customers exist. Layer 0 is the data model and storage substrate that extends Plan 1's audit log; Layer 1 is the mathematical engine (aggregation primitives, ranked nodes, sensitivity analysis); Layer 2 implements three elicitation protocols (Cooke's classical model, IDEA, SHELF) as configurable workflows; Layer 3 is the Streamlit UI; Layer 4 integrates with Plan 2's inference engine; Layer 5 adds advanced features (LLM-proposed CPTs, calibration tracking, ranked-node UI).
+The plan is structured as **six layers in scope** (Layers 0 through 5) plus a deferred commercial Layer 6 (billing, onboarding, support) that ships only when paying customers exist. Layer 0 is the data model and storage substrate that extends Plan 2's audit log; Layer 1 is the mathematical engine (aggregation primitives, ranked nodes, sensitivity analysis); Layer 2 implements three elicitation protocols (Cooke's classical model, IDEA, SHELF) as configurable workflows; Layer 3 is the Streamlit UI; Layer 4 integrates with Plan 3's inference engine; Layer 5 adds advanced features (LLM-proposed CPTs, calibration tracking, ranked-node UI).
 
 The platform is positioned as **methodology-as-product** with an **open-core licensing model**: the inference engine, mathematical primitives, and protocol implementations are open-source; the commercial layer (deployment automation, support, hosted version, premium integrations) is closed. Deployment shape is **multi-deployment, single-tenant per deployment** — each customer engagement gets its own isolated stack rather than sharing infrastructure SaaS-style. This matches the high-stakes regulatory and consulting-led nature of the use cases.
 
@@ -22,9 +22,9 @@ The platform is positioned as **methodology-as-product** with an **open-core lic
 
 Three plans run sequentially:
 
-1. **Plan 1 — `docs/translator_robustification.md`**: fixes the evidence ingestion layer. Establishes the audit-log substrate, versioned-artefact pattern, HITL review queue, source-credibility infrastructure, and golden-set evaluation harness.
-2. **Plan 2 — `docs/pymc_integration_plan.md`**: rebuilds the inference layer. Introduces the `NetworkSpec` declarative model, dual-backend dispatch (pgmpy / PyMC), hierarchical priors over CPTs, support for continuous variables, and the latent-regime topology.
-3. **Plan 3 (this doc)**: builds the elicitation methodology layer on top of the substrate from Plan 1 and the model spec from Plan 2.
+1. **Plan 2 — `docs/02_translator_robustification.md`**: fixes the evidence ingestion layer. Establishes the audit-log substrate, versioned-artefact pattern, HITL review queue, source-credibility infrastructure, and golden-set evaluation harness.
+2. **Plan 3 — `docs/03_pymc_integration_plan.md`**: rebuilds the inference layer. Introduces the `NetworkSpec` declarative model, dual-backend dispatch (pgmpy / PyMC), hierarchical priors over CPTs, support for continuous variables, and the latent-regime topology.
+3. **Plan 4 (this doc)**: builds the elicitation methodology layer on top of the substrate from Plan 2 and the model spec from Plan 3.
 
 Each plan is fully self-contained internally; the three together cover evidence ingestion, inference, and methodology — the three layers of a defensible scenario-modelling platform.
 
@@ -42,7 +42,7 @@ The market gap we occupy: **methodologically rigorous, multi-protocol, calibrati
 
 ## Diagnosis: Why the Current State Is Insufficient
 
-The list below is the failure surface this plan closes. Items marked (M*) appear in `docs/dashboard_review_2026-05.md`.
+The list below is the failure surface this plan closes. Items marked (M*) are finding IDs from the master-plan §4 matrix.
 
 1. **CPT values are inline literals chosen by one author without protocol.** `src/network.py` contains hand-tuned probability values with brief Python comments as justification. No record of who picked the numbers, when, against what reference, or with what confidence. The README acknowledges this explicitly.
 2. **No multi-expert aggregation.** Even when multiple analysts have views on a CPT entry, there is no infrastructure to elicit them independently and aggregate. A single author's blind spots become the model's blind spots.
@@ -53,7 +53,7 @@ The list below is the failure surface this plan closes. Items marked (M*) appear
 7. **No support for ranked-node compression.** A 27-column CPT is brutal to elicit cell-by-cell. The Fenton & Neil ranked-node methodology reduces this to a handful of weights, but it's not implemented anywhere.
 8. **No support for multiple protocols.** Different stakeholders demand different rigour. Regulators expect Cooke's classical model; corporate boards accept IDEA; a single analyst can do SHELF. The current implementation supports none of them explicitly.
 9. **No reuse across customer engagements.** Each new client problem would today require copy-paste-and-edit of `network.py`. A productised platform requires per-deployment isolation and per-engagement configuration.
-10. **No coupling to the LLM translator's evidence corpus.** Plan 1 builds an audit log of every article translated, with span-grounded claims and analyst-approved corrections. This corpus is exactly the analog-event database that anchored elicitation needs, but it's not currently usable for CPT elicitation.
+10. **No coupling to the LLM translator's evidence corpus.** Plan 2 builds an audit log of every article translated, with span-grounded claims and analyst-approved corrections. This corpus is exactly the analog-event database that anchored elicitation needs, but it's not currently usable for CPT elicitation.
 
 ## Architecture: Layered Platform Design
 
@@ -62,8 +62,8 @@ The list below is the failure surface this plan closes. Items marked (M*) appear
 1. **Methodology-as-product, open-core.** The inference engine, mathematical primitives, protocol implementations, and aggregation logic are open-source under a permissive license. The commercial layer — deployment automation, hosted versions, premium integrations, support — is closed. This is the standard pattern for PPL-adjacent B2B tooling.
 2. **Multi-deployment, single-tenant per deployment.** Each customer engagement gets its own isolated stack: own database, own app instance, own users, own configuration. The code is shared across engagements; the deployments are not. No tenant_id columns; no row-level security; no SaaS-style data co-mingling. This matches the high-stakes regulatory and consulting-led nature of the use cases.
 3. **Layered architecture with foundation-first ordering.** Each layer is independently testable and deliverable. Lower layers do not depend on higher ones; higher layers consume lower ones via stable interfaces.
-4. **Shared infrastructure with Plan 1.** The audit log schema, versioned-artefact pattern, HITL review queue, source-credibility registry, and Streamlit UI shell are extended rather than duplicated.
-5. **Shared interface with Plan 2.** Elicited CPTs export to the `NetworkSpec` from `docs/pymc_integration_plan.md`. Per-CPT $\kappa$ values respected by both backends.
+4. **Shared infrastructure with Plan 2.** The audit log schema, versioned-artefact pattern, HITL review queue, source-credibility registry, and Streamlit UI shell are extended rather than duplicated.
+5. **Shared interface with Plan 3.** Elicited CPTs export to the `NetworkSpec` from `docs/03_pymc_integration_plan.md`. Per-CPT $\kappa$ values respected by both backends.
 6. **Streamlit-first UI.** Streamlit forms for v1; upgrade to a dedicated web frontend when scaling or feature demands require it. Do not over-engineer the UI before product-market fit.
 
 ### The layered structure
@@ -109,14 +109,14 @@ Each customer engagement runs an isolated stack. Within a single deployment, the
 | `expert_calibration` | Per-expert performance on calibration questions (Cooke weights) |
 | `elicitation_sessions` | Protocol runs (Cooke / IDEA / SHELF) with all inputs and aggregated outputs |
 | `elicitation_session_events` | State machine events for resumable workflows |
-| `articles` | Translator audit log (shared schema with Plan 1) |
-| `translations` | Per-article translation outputs (Plan 1's D3) |
-| `analyst_actions` | HITL review log (shared with Plan 1) |
-| `sources` | Per-source credibility registry (shared with Plan 1) |
+| `articles` | Translator audit log (shared schema with Plan 2) |
+| `translations` | Per-article translation outputs (Plan 2's D3) |
+| `analyst_actions` | HITL review log (shared with Plan 2) |
+| `sources` | Per-source credibility registry (shared with Plan 2) |
 | `outcomes` | Realised intermediate-node states for Tier 2 calibration |
 | `calibration_runs` | Scheduled evaluation results |
 
-The tables marked "shared with Plan 1" already exist after Plan 1 is complete; this plan extends them with elicitation-specific columns or adjacent join tables rather than duplicating.
+The tables marked "shared with Plan 2" already exist after Plan 2 is complete; this plan extends them with elicitation-specific columns or adjacent join tables rather than duplicating.
 
 No `tenant_id` column anywhere. Each deployment's database is one customer's data.
 
@@ -131,7 +131,7 @@ Each layer has a clear scope, deliverables, and validation criteria. Layers 0–
 **Status.** ⬜ not started
 **Resolves.** Diagnosis items 4 (no CPT versioning), 5 (no provenance), 9 (no reuse across engagements). Establishes the platform foundation.
 
-**Scope.** Define and ship the elicitation-tool schema as an extension of Plan 1's audit log schema. Per-deployment isolated database. Auth scaffolding (per-deployment user table, with hooks for SSO integration). Configuration system for per-deployment customisation (network choice, protocol availability, branding).
+**Scope.** Define and ship the elicitation-tool schema as an extension of Plan 2's audit log schema. Per-deployment isolated database. Auth scaffolding (per-deployment user table, with hooks for SSO integration). Configuration system for per-deployment customisation (network choice, protocol availability, branding).
 
 The schema additions in this layer:
 
@@ -190,7 +190,7 @@ All three are fully unit-testable and have no external dependencies beyond numpy
 **Status.** ⬜ not started
 **Resolves.** Diagnosis item 8 (no support for multiple protocols).
 
-**Latent-regime impact.** Under the Step 0 latent-regime topology (see `docs/master_plan.md` §3 Step 0 and Plan 2 Phase 3), the CPTs the protocols elicit change shape entirely. The old labelling CPT $P(S \mid D, T, P)$ is removed; the new emission CPTs $P(D \mid S, \ldots)$, $P(T \mid S, \ldots)$, $P(P \mid S, \ldots)$ are elicited from scratch, plus a regime prior $\pi(S)$. The elicitation questions become generative ("given the regime, what does damage look like?") rather than labelling ("given outcomes, which regime?"), which is easier to defend with domain experts. The `CPTColumnTarget` shape covers all of these; Layer 2 is topology-agnostic at the protocol level. The deployment configuration (Layer 0 YAML) names which CPTs are in scope for elicitation given the active topology.
+**Latent-regime impact.** Under the Plan 1 latent-regime topology (see `docs/01_latent_regime_plan.md`), the CPTs the protocols elicit change shape entirely. The old labelling CPT $P(S \mid D, T, P)$ is removed; the new emission CPTs $P(D \mid S, \ldots)$, $P(T \mid S, \ldots)$, $P(P \mid S, \ldots)$ are elicited from scratch, plus a regime prior $\pi(S)$. The elicitation questions become generative ("given the regime, what does damage look like?") rather than labelling ("given outcomes, which regime?"), which is easier to defend with domain experts. The `CPTColumnTarget` shape covers all of these; Layer 2 is topology-agnostic at the protocol level. The deployment configuration (Layer 0 YAML) names which CPTs are in scope for elicitation given the active topology.
 
 **Scope.** Three configurable workflows, each implemented as a state machine persisted in `elicitation_session_events`. Resumable across browser sessions. Each protocol exposes:
 
@@ -205,14 +205,14 @@ The three protocols differ along three axes (number of experts, per-expert workf
 - **`IDEAProtocol`.** 3-7 experts. Two-round iterative: private estimate → group discussion → private revised estimate → aggregation. Aggregation: linear or geometric pooling, selectable. Best for mid-stakes contexts with multi-analyst teams.
 - **`CookeProtocol`.** 4-12 experts. Calibration questions answered first; performance scores compute per-expert Cooke weights; target questions then weighted by calibration. Best for high-stakes regulatory contexts. Requires a deployment-specific calibration question set in the domain.
 
-Each protocol's `workflow()` is parameterised by an `ElicitationTarget`. The default target is a single CPT column (one $P(Y \mid \text{Pa}(Y) = u)$ at a time). One additional target shape is supported so the protocols cover the elicitation surfaces that Plans 2 and 4 require:
+Each protocol's `workflow()` is parameterised by an `ElicitationTarget`. The default target is a single CPT column (one $P(Y \mid \text{Pa}(Y) = u)$ at a time). One additional target shape is supported so the protocols cover the elicitation surfaces that Plans 3 and 5 require:
 
 - **`CPTColumnTarget`** — default. Elicits one row of a CPT. Shape: a categorical distribution on $|Y|$ states.
 - **`RankedNodeTarget`** — for Layer 5's visual ranked-node UI. Elicits the per-parent weights and aggregation function of a Fenton & Neil ranked node; the CPT is generated downstream from these weights.
 
 Both targets share the same state-machine infrastructure; they differ in the per-step UI components (Layer 3) and in the validation that the aggregated output is well-formed (CPT row vs ranked-node parameter set).
 
-A temporal `TransitionMatrixTarget` (row-stochastic transition matrices for an HMM extension) is **not in scope** because BN↔HMM integration is out of scope for the four plans; see `docs/master_plan.md` §6 (Gaps) and `docs/bn_hmm_integration.md`. If a temporal BN extension is eventually built, the `ElicitationTarget` abstraction is the right hook to add it without restructuring Layer 2.
+A temporal `TransitionMatrixTarget` (row-stochastic transition matrices for an HMM extension) is **not in scope** because BN↔HMM integration is out of scope for all five plans; see `docs/master_plan.md` §6 (Gaps) and `docs/bn_hmm_integration.md`. If a temporal BN extension is eventually built, the `ElicitationTarget` abstraction is the right hook to add it without restructuring Layer 2.
 
 **Deliverables.**
 
@@ -241,8 +241,8 @@ Pages and tabs:
 
 - **New CPT elicitation.** Pick a node, pick a protocol, run the wizard step-by-step. Workflow state persists between page loads.
 - **CPT review and override.** Inspect a current CPT, compare to historical versions, override a single cell with a manual entry (records the override in `cpt_provenance` as a manual edit).
-- **Sources tab.** Shared with translator workflow from Plan 1's B1b. Single source-credibility registry serves both translation and elicitation contexts.
-- **HITL triage.** Shared with translator workflow from Plan 1's E1. Confidence-driven review queue serves both translator outputs and elicitation proposals.
+- **Sources tab.** Shared with translator workflow from Plan 2's B1b. Single source-credibility registry serves both translation and elicitation contexts.
+- **HITL triage.** Shared with translator workflow from Plan 2's E1. Confidence-driven review queue serves both translator outputs and elicitation proposals.
 - **Calibration dashboard.** Per-expert Cooke weight history; per-CPT calibration over time (where outcome data exists); model-level calibration plots.
 - **CPT version history viewer.** Time-machine view of any CPT across all elicitation sessions that produced it.
 
@@ -262,9 +262,9 @@ Pages and tabs:
 ### Layer 4 — Integration with inference
 
 **Status.** ⬜ not started
-**Resolves.** Diagnosis item 9 (no reuse across engagements). Couples Plan 3 to Plan 2's inference engine.
+**Resolves.** Diagnosis item 9 (no reuse across engagements). Couples Plan 4 to Plan 3's inference engine.
 
-**Scope.** Elicited CPTs export to Plan 2's `NetworkSpec`. Round-trip: elicit → save → load into `PgmpyBackend` or `PymcBackend` → run inference. Per-CPT $\kappa$ values from the elicitation provenance are respected by `PymcBackend`'s Dirichlet priors (closes M3 from the dashboard review for the elicited-CPT path).
+**Scope.** Elicited CPTs export to Plan 3's `NetworkSpec`. Round-trip: elicit → save → load into `PgmpyBackend` or `PymcBackend` → run inference. Per-CPT $\kappa$ values from the elicitation provenance are respected by `PymcBackend`'s Dirichlet priors (closes M3 from the dashboard review for the elicited-CPT path).
 
 The export interface:
 
@@ -281,7 +281,7 @@ def cpts_to_network_spec(
     """
 ```
 
-The inverse direction (`network_spec_to_cpts`) is also supported, so that an existing `NetworkSpec` (e.g., the bootstrap Hormuz network from Plan 2 Phase 0) can be imported into the elicitation store as the starting point for refinement.
+The inverse direction (`network_spec_to_cpts`) is also supported, so that an existing `NetworkSpec` (e.g., the bootstrap Hormuz network from Plan 3 Phase 0) can be imported into the elicitation store as the starting point for refinement.
 
 **Deliverables.**
 
@@ -303,17 +303,17 @@ The inverse direction (`network_spec_to_cpts`) is also supported, so that an exi
 
 **Scope.** Five advanced subsystems on top of the v1 platform:
 
-1. **LLM-proposed initial CPT values.** Couples to Plan 1's E2 (RAG memory). For a new CPT being elicited, the LLM retrieves the most relevant analog historical events from the translator audit log and proposes initial CPT values with span-grounded citations. The expert reviews, edits, or rejects. The proposal step does not commit anything; it gives the human elicitor a starting point.
+1. **LLM-proposed initial CPT values.** Couples to Plan 2's E2 (RAG memory). For a new CPT being elicited, the LLM retrieves the most relevant analog historical events from the translator audit log and proposes initial CPT values with span-grounded citations. The expert reviews, edits, or rejects. The proposal step does not commit anything; it gives the human elicitor a starting point.
 2. **Ranked-node visual UI.** The Fenton & Neil ranked-node methodology from Layer 1 gets a visual elicitation surface: instead of entering CPT cells, the expert specifies per-parent weights and an aggregation function (TNormal, weighted mean, etc.). The Streamlit UI generates the full CPT from these inputs and shows it to the expert for review.
 3. **Sensitivity-driven prioritization workflow.** Wraps Layer 1's Morris/Sobol primitives in an analyst-facing workflow: "show me which CPT entries dominate the scenario posterior under the current evidence." The output is a ranked list of CPT cells to elicit formally; the rest can stay as analyst placeholders.
 4. **Calibration Tier 2 — intermediate-node tracking.** For nodes where outcomes can be observed (e.g., "did `Tanker_Incidents = frequent` actually materialise in the month following the model's prediction?"), record the realised outcome in `outcomes` and compute Brier scores and calibration plots over time. Refines per-CPT $\kappa$ values via empirical updating.
-5. **Calibration Tier 3 — Bayes factor / regime trajectory.** For the latent-regime model (Plan 2 Phase 3), record log-Bayes-factor predictions for each evidence increment against expert-judged "true" regime trajectories on historical analog events. Reveals which CPT regions are systematically miscalibrated.
+5. **Calibration Tier 3 — Bayes factor / regime trajectory.** For the latent-regime model (Plan 1), record log-Bayes-factor predictions for each evidence increment against expert-judged "true" regime trajectories on historical analog events. Reveals which CPT regions are systematically miscalibrated.
 
 Subsystem 4 also feeds back into the Cooke protocol from Layer 2: experts who participate in CPT elicitation accrue calibration scores over time as their contributions' outcomes are observed, and their Cooke weights in future elicitations update accordingly.
 
 **Deliverables.**
 
-- `src/elicitation/proposals/llm.py` — RAG-augmented CPT proposal generator (consumes the translator's E2 index from Plan 1).
+- `src/elicitation/proposals/llm.py` — RAG-augmented CPT proposal generator (consumes the translator's E2 index from Plan 2).
 - `src/elicitation/ranked_nodes/ui.py` — Streamlit components for ranked-node visual elicitation.
 - `src/elicitation/sensitivity/workflow.py` — analyst-facing prioritization workflow.
 - `src/elicitation/calibration/tier2.py` — intermediate-node outcome tracking and Brier scoring.
@@ -342,17 +342,17 @@ Subsystem 4 also feeds back into the Cooke protocol from Layer 2: experts who pa
 
 ## Section B — Design decisions resolved
 
-Decisions recorded as of 2026-05-26.
+The decisions below are resolved.
 
 1. **Platform positioning — Decided: methodology-as-product (Option B), open-core licensing.** Engine + protocols + math primitives are open-source under a permissive license. Commercial layer (deployment automation, hosted versions, premium integrations, support contracts) is closed. This matches standard B2B PPL-adjacent tooling and aids adoption while preserving monetisation.
 2. **Deployment shape — Decided: multi-deployment, single-tenant per deployment.** Each customer engagement gets its own isolated stack. No `tenant_id` columns. No SaaS data co-mingling. Matches the high-stakes regulatory and consulting-led nature of target use cases.
 3. **UI strategy — Decided: Streamlit for v1, upgrade later.** Streamlit forms are the fastest path to a usable interactive UI. Replace with a dedicated frontend (React or similar) when scaling demand or feature complexity justifies the investment. Do not over-engineer the UI before product-market fit.
 4. **Storage — Decided: SQLite for development, Postgres for production.** SQLAlchemy / SQLModel ORM. Alembic migrations. Per-deployment isolated database.
-5. **Audit log substrate — Decided: extend Plan 1's schema rather than duplicate.** The `articles`, `translations`, `analyst_actions`, and `sources` tables from Plan 1 are extended with elicitation-adjacent join tables rather than re-created. Single source of truth for shared concepts (sources, analyst actions, audit events).
+5. **Audit log substrate — Decided: extend Plan 2's schema rather than duplicate.** The `articles`, `translations`, `analyst_actions`, and `sources` tables from Plan 2 are extended with elicitation-adjacent join tables rather than re-created. Single source of truth for shared concepts (sources, analyst actions, audit events).
 6. **Protocol coverage — Decided: Cooke, IDEA, SHELF all in Layer 2.** Three protocols, one platform, configurable at elicitation start. Cooke for high-stakes regulatory contexts (Hormuz-style); IDEA for mid-stakes corporate decisions; SHELF for solo analyst work.
 7. **CPT compression — Decided: ranked nodes (Fenton & Neil) as the primary compression method.** Implemented in Layer 1, exposed as a visual elicitation surface in Layer 5. Noisy-OR / Noisy-MAX deprioritised because most relationships in Hormuz-style models are non-additive.
-8. **Calibration tiers — Decided: three tiers with phased introduction.** Tier 1 (translator-level) shipped via Plan 1's D2. Tier 2 (intermediate-node) infrastructure in Layer 5 from day one; signal accumulates over months. Tier 3 (Bayes factor / regime trajectory) deferred until the latent regime (Plan 2 Phase 3) is in production.
-9. **Translator coupling — Decided: deep.** The translator's audit log (Plan 1 D3) is the source of analog historical events for anchored elicitation; the translator's RAG memory (Plan 1 E2) feeds LLM-proposed CPT values; the translator's HITL queue (Plan 1 E1) serves elicitation proposals.
+8. **Calibration tiers — Decided: three tiers with phased introduction.** Tier 1 (translator-level) shipped via Plan 2's D2. Tier 2 (intermediate-node) infrastructure in Layer 5 from day one; signal accumulates over months. Tier 3 (Bayes factor / regime trajectory) deferred until the latent regime (Plan 1) is in production.
+9. **Translator coupling — Decided: deep.** The translator's audit log (Plan 2 D3) is the source of analog historical events for anchored elicitation; the translator's RAG memory (Plan 2 E2) feeds LLM-proposed CPT values; the translator's HITL queue (Plan 2 E1) serves elicitation proposals.
 10. **Cooke calibration question set — Decided: per-deployment.** Each customer engagement constructs its own domain-relevant calibration question set during onboarding. Re-used across all Cooke protocol runs in that deployment. Mostly relevant for the Hormuz reference deployment in the near term; corporate deployments using IDEA or SHELF do not require it.
 
 ## Section C — Open questions
@@ -363,25 +363,25 @@ These do not block Layer 0 but should be resolved before the corresponding layer
 | --- | --- | --- |
 | Per-deployment Postgres setup automation | Layer 0 | Docker Compose for the engineering MVP; Terraform / Helm for production. Choose toolchain. |
 | Auth provider for SSO integration | Layer 0 | Self-hosted (Keycloak, Authentik) vs hosted (Auth0, Clerk). Recommend hosted for v1 to ship faster. |
-| LLM model for proposal generation | Layer 5 | Anthropic API (Claude) or OpenAI? Coupled to Plan 1's translator provider choice. |
+| LLM model for proposal generation | Layer 5 | Anthropic API (Claude) or OpenAI? Coupled to Plan 2's translator provider choice. |
 | Cooke calibration question set design | Layer 2 | Hormuz-specific seed questions need authoring with domain experts. Bootstrapping cost. Defer until Layer 2 ships and the first Cooke deployment is concrete. |
 | UI upgrade trigger | Layer 3 | When does Streamlit stop being sufficient? Define the criterion (e.g., > N concurrent users per deployment, > M custom UI components needed). |
 | Open-source license choice | Layer 0 | MIT, Apache 2.0, BSD-3? Recommend Apache 2.0 for patent grant; compatible with open-core commercial layer. |
 
 ## Section D — Execution order summary table
 
-For coherence with the format used in Plans 1 and 2:
+For coherence with the format used in Plans 2 and 3:
 
 | Order | Layer | Resolves | Rationale |
 | --- | --- | --- | --- |
-| 1 | 0 — Data model and storage substrate | Foundation | Per-deployment isolation, versioning schema, auth scaffolding. Unblocks every subsequent layer. Extends rather than duplicates Plan 1's schema. |
+| 1 | 0 — Data model and storage substrate | Foundation | Per-deployment isolation, versioning schema, auth scaffolding. Unblocks every subsequent layer. Extends rather than duplicates Plan 2's schema. |
 | 2 | 1 — Core engine | Diagnosis items 6, 7 | Aggregation primitives, ranked nodes, sensitivity analysis. Pure-function library; no UI or DB dependencies; fully unit-testable. |
 | 3 | 2 — Protocol implementations | Diagnosis item 8 | Cooke / IDEA / SHELF as state-machine workflows. Configurable at elicitation start. The methodological core of the platform. |
 | 4 | 3 — UI layer (Streamlit) | Usability | Makes Layers 0–2 accessible to analysts and domain experts. v1 milestone: end-to-end elicitation usable by non-engineers. |
-| 5 | 4 — Integration with inference | Diagnosis item 9 | Elicited CPTs → `NetworkSpec` → `PgmpyBackend` / `PymcBackend`. Round-trip with Plan 2's inference layer. |
+| 5 | 4 — Integration with inference | Diagnosis item 9 | Elicited CPTs → `NetworkSpec` → `PgmpyBackend` / `PymcBackend`. Round-trip with Plan 3's inference layer. |
 | 6 | 5 — Advanced features | Diagnosis items 1, 2, 3, 10 | LLM-proposed CPTs, ranked-node UI, sensitivity prioritization, calibration tiers 2 and 3, Cooke weight updates from outcomes. |
 | 7 | 6 — Commercial layer | Productisation | Deferred until paying customers exist. Billing, onboarding, support, tenant config UI. |
 
 ---
 
-**End of plan.** Companion plans: `docs/translator_robustification.md` (Plan 1, evidence ingestion) and `docs/pymc_integration_plan.md` (Plan 2, inference engine). Foundational math reference: `notes/latent_regime_math.md` (Parts 1–6, Appendices A–C). Underlying review motivating this work: `docs/dashboard_review_2026-05.md`.
+**End of plan.** Companion plans: `docs/02_translator_robustification.md` (Plan 2, evidence ingestion) and `docs/03_pymc_integration_plan.md` (Plan 3, inference engine). Math context: `docs/01_latent_regime_plan.md` Section A.8.

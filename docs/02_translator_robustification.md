@@ -26,7 +26,7 @@ This plan operates one layer below the existing roadmap in [docs/bn_app_next_ste
 
 ## Diagnosis: Why the Current Translator Is a Demo
 
-The list below is the failure surface this plan closes. Items marked (M*/C*) appear in [docs/dashboard_review_2026-05.md](docs/dashboard_review_2026-05.md) and are included for completeness.
+The list below is the failure surface this plan closes. Items marked (M*/C*) are finding IDs from the master-plan §4 matrix and are included for completeness.
 
 1. **Semantic mismatch with the inference layer (M2, C5).** The prompt at [src/translator.py:106-122](src/translator.py#L106-L122) asks for a *posterior-shaped* distribution that sums to 1. The inference layer at [src/inference.py:123-139](src/inference.py#L123-L139) consumes it as a *likelihood*. Every credible interval in the UI is in a slightly wrong place because of this single interface bug.
 2. **Headline-only input.** A single sentence is the entire signal. The lede, body, source identity, dateline, and qualifiers ("no injuries," "unconfirmed," "Iranian state media reports") are dropped before the LLM ever sees them. The translator's accuracy ceiling is whatever a single sentence can convey.
@@ -57,7 +57,7 @@ These items fix the contracts between the translator and everything it touches. 
 
 **Recommendation.** Option 1. Add one paragraph to `docs/model_documentation.md` formalising the contract, update the system prompt, change `_validate_payload` to enforce `0 ≤ ε ≤ 1` with at least one `ε = 1`, and update `_virtual_evidence_cpds()` accordingly. Closes M2 and C5.
 
-**Latent-regime impact.** Under the Step 0 latent-regime topology (see `docs/master_plan.md` §3 Step 0 and Plan 2 Phase 3), the likelihood-ratio output of this item is exactly what feeds the Bayes-factor decomposition $\Lambda_{s_1, s_2} = P(E \mid S = s_1) / P(E \mid S = s_2)$. Option 1's $\varepsilon_s$ values are per-evidence-channel likelihoods over the emission node's states; Phase 3 then propagates them through the emission CPTs to produce regime-level Bayes factors. No additional work required in this plan — Option 1's contract is already the right shape.
+**Latent-regime impact.** Under the Plan 1 latent-regime topology (see `docs/01_latent_regime_plan.md`), the likelihood-ratio output of this item is exactly what feeds the Bayes-factor decomposition $\Lambda_{s_1, s_2} = P(E \mid S = s_1) / P(E \mid S = s_2)$. Option 1's $\varepsilon_s$ values are per-evidence-channel likelihoods over the emission node's states; Plan 1's engineering propagates them through the emission CPTs to produce regime-level Bayes factors. No additional work required in this plan — Option 1's contract is already the right shape.
 
 ### A2. Schema hardening
 
@@ -269,7 +269,7 @@ The sequencing balances dependency chains, smallest-correctness-win-first, and s
 
 ## Design Decisions
 
-Resolved decisions (recorded 2026-05-26). One question remains open at the bottom of the section.
+Resolved decisions. One question remains open at the bottom of the section.
 
 1. **Likelihood semantics (A1) — Decided: likelihood-ratio output.** The prompt asks the LLM for `ε_s = P(article | state=s) / max_s'`. The best-supported state pins at `ε=1.0`; others are fractions in `(0, 1]`. Maps directly onto pgmpy's virtual-evidence convention without modification. Closes M2/C5 from the review.
 2. **Input pathway (B1) — Decided: all three supported, analyst chooses per article.** Paste-only headline (current behaviour preserved), paste-with-body, and a piped feed (RSS/GDELT) are all valid inputs. The `Article` dataclass tolerates missing `body`, `url`, `published_at`; the structured-reasoning prompt (B2) is told explicitly which fields are present so it can downgrade confidence when working from a headline alone.
