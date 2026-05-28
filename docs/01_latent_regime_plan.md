@@ -2,7 +2,7 @@
 
 > **Status.** Conceptual decision ✅ resolved. Framework write-up ⬜ not started. Engineering implementation ⬜ not started.
 >
-> **Position in the sequencing.** First plan in the programme. The **conceptual decision** is settled and underlies the specification of Plans 2–5. The **framework write-up** (see B.2) and the **engineering implementation** are the outstanding work. Engineering depends on Plan 3 Phase 2 (`PymcBackend` for discrete networks); the framework write-up can proceed in parallel.
+> **Position in the sequencing.** First plan in the programme. The **conceptual decision** is settled and underlies the specification of Plans 2–5. The **framework write-up** (see B.2) and the **engineering implementation** are the outstanding work. Engineering depends on Plan 3 Phase 1 (`PgmpyBackend` wrapped under `NetworkSpec`) — the latent regime ships on pgmpy first, in the backend the repo already uses, with PyMC-native support added later as part of Plan 3 Phase 2. The framework write-up can proceed in parallel.
 >
 > **Foundational reference.** This plan applies the *scenario-as-latent BN framework* to the Hormuz network. The framework — five node categories ($\mathcal X, \mathcal M, \mathcal O, S, \mathcal D$) and six edge rules (R1–R6) — is specified in [docs/scenario_bn_framework.md](scenario_bn_framework.md). This plan is the Hormuz **instance** of the framework, not a re-derivation of it. Sections A.1–A.3 below assume framework fluency at the level of that document.
 >
@@ -160,7 +160,7 @@ Almost every upstream node has an active path to $S$ — propagation runs throug
 
 ### A.7 Relationship to the regime-switching HMM
 
-The team already operates a regime-switching HMM for the inflation forecasting workstream. The latent-regime BN is, structurally, **the static slice of exactly that HMM** with the transition channel replaced by the context-summary parents $\text{Pa}(S)$. Schematically:
+A regime-switching HMM is in operation in a sibling inflation-forecasting workstream (separate codebase; the inflation HMM does not exist in this repository — see [docs/bn_hmm_integration.md](bn_hmm_integration.md) and master plan §6). The latent-regime BN is, structurally, **the static slice of exactly that style of HMM** with the transition channel replaced by the context-summary parents $\text{Pa}(S)$. Schematically:
 
 ```
 Regime-switching HMM (temporal):
@@ -189,13 +189,13 @@ Glide-path consequence: a future workstream layering temporal dynamics onto the 
 - **Entropy diagnostic for M1.** Shannon entropy $H(P) = -\sum_i p_i \log_2 p_i$ on a 3-state distribution ranges in $[0, \log_2 3] \approx [0, 1.585]$ bits. The current $P(S \mid D, T, P)$ has $H \in [0.37, 0.52]$ at corner columns and $H \approx 1.37$ at interior columns — the U-shape of a labelling function (framework §10, "labelling-CPT trap").
 - **Regime posterior factorisation.** With $\text{Pa}(S) = \{M, C\}$:
 
-  $$P(S = s \mid E) \;\propto\; P(S = s, E) \;=\; \sum_{m, c} P(M = m, C = c \mid E_{\text{up}}) \cdot P(S = s \mid m, c) \cdot P(E_{\text{down}} \mid S = s, m, c, \ldots).$$
+  $$P(S = s \mid E) \;\propto\; \sum_{m, c} P(M = m, C = c \mid E_{\text{up}}) \cdot P(S = s \mid m, c) \cdot P(E_{\text{down}} \mid S = s, m, c, \ldots).$$
 
-  Exact inference (variable elimination) in pgmpy computes this sum directly given the topology.
+  The "$\propto$" absorbs a factor of $P(E_{\text{up}})$ that arises if one writes the chain rule with the joint $P(M, C, E_{\text{up}})$ instead of the conditional $P(M, C \mid E_{\text{up}})$ used here; it is constant in $s$ and therefore drops out of the normalisation over scenario states. Exact inference (variable elimination) in pgmpy computes this sum directly given the topology.
 
 - **Bayes factors as first-class outputs.** $\Lambda_{s_1, s_2} = P(E \mid S = s_1) / P(E \mid S = s_2)$ — the evidence strength against a regime hypothesis. Composes by independence: $\Lambda(E_1, E_2) = \Lambda(E_1) \cdot \Lambda(E_2)$ if $E_1, E_2$ are conditionally independent given $S$. This is the quantity stakeholders actually want for governance (*"evidence X is 8.7× more likely under Severe than under Stress"*) and the current model cannot produce it. Extraction mechanics in §B.1 item 3.
 - **D-separation rules.** Chain $A \to B \to C$ and fork $A \leftarrow B \to C$: $B$ blocks when conditioned on, otherwise active. Collider $A \to B \leftarrow C$: opposite — blocks by default, opens when $B$ or any descendant is conditioned on. These are the rules underwriting the §A.6 d-separation table.
-- **Dirichlet-based parameter uncertainty.** Existing resampling $\theta^{(m)} \sim \text{Dirichlet}(\kappa \cdot \theta_{\text{elicited}})$ transfers unchanged in form. The labelling CPT $P(S \mid D, T, P)$ leaves the resampled set; the three emission CPTs (each with $S$ as one extra parent) and the new regime CPT $P(S \mid M, C)$ join it. Per-category $\kappa$ defaults follow framework §9: emission CPTs and the regime CPT at $\kappa = 10$ (regime-conditional generation, genuinely uncertain), upstream-chain CPTs at $\kappa \in [20, 50]$ (historical pattern-matching, moderate confidence). Plan 1 ships at $\kappa = 10$ on the new CPTs pending elicited replacements from Plan 4 Layer 4.
+- **Dirichlet-based parameter uncertainty.** Existing resampling $\theta^{(m)} \sim \text{Dirichlet}(\kappa \cdot \theta_{\text{elicited}})$ transfers unchanged in form. The labelling CPT $P(S \mid D, T, P)$ leaves the resampled set; the three emission CPTs (each with $S$ as one extra parent) and the new regime CPT $P(S \mid M, C)$ join it. Per-category $\kappa$ defaults follow framework §9: emission CPTs and the regime CPT at $\kappa = 10$ (regime-conditional generation, genuinely uncertain), upstream-chain CPTs at $\kappa \in [20, 50]$ (historical pattern-matching, moderate confidence). Plan 1 ships at $\kappa = 10$ on the new CPTs pending elicited replacements from Plan 4 Layer 4. Note: pgmpy direct VE consumes the point-estimate CPT only, so the pgmpy-only Plan 1 MVP is insensitive to the $\kappa$ choice; $\kappa$ first becomes operative when `PymcBackend` lands in Plan 3 Phase 2 (hierarchical priors).
 
 ---
 
@@ -203,7 +203,7 @@ Glide-path consequence: a future workstream layering temporal dynamics onto the 
 
 ### B.1 Scope
 
-Three pieces of work, all gated on Plan 3 Phase 2 (`PymcBackend` for discrete networks) having shipped:
+Three pieces of work, all gated on Plan 3 Phase 1 (`PgmpyBackend` wrapped under `NetworkSpec`) having shipped. The latent regime is implementable in pgmpy today via direct VE, so Plan 1 ships on the backend the repo already uses; PyMC-native latent-regime support is added later as part of Plan 3 Phase 2, alongside whatever else is needed for the rest of the system to keep working under the new backend.
 
 1. **`NetworkSpec` extension.** A `LatentRegime` flag is added to `NetworkSpec` signalling that the spec uses the inverted topology ($S$ as an internal latent with $\text{Pa}(S) \subseteq \mathcal M$, emissions to $\mathcal O$). The Hormuz spec ships a flag toggle so the same spec can build either the current network or the latent-regime variant; once Plan 1 lands in production, the flag is set permanently.
 2. **Emission CPTs and regime CPT.** The labelling CPT $P(S \mid D, T, P)$ is removed. New CPTs:
@@ -228,8 +228,8 @@ Three pieces of work, all gated on Plan 3 Phase 2 (`PymcBackend` for discrete ne
    **Concentrations.** Provisional $\kappa = 10$ on every emission CPT and on $P(S \mid M, C)$ — the framework §9 default for regime-conditional CPTs whose epistemic basis is genuinely uncertain rather than empirical historical pattern-matching. Plan 4 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance` and `PymcBackend` consumes them from there. Plan 1 is therefore correct-but-provisional on the new CPT parameters; Plan 4 produces the defensible elicited replacements.
 
 3. **Backend support.**
-   - **`PymcBackend`** builds the latent-regime model natively. $S$ is a `pm.Categorical("S", p=cpt_table[m_idx, c_idx])` indexed by the current $(M, C)$ values. For $|S| = 3$, analytic marginalisation of $S$ inside the categorical step is the default sampler choice (framework §8.2).
-   - **`PgmpyBackend`** uses direct variable elimination for the posterior $P(S \mid E)$. For Bayes factor extraction (the Plan 5 C4 use case), it implements the **three-clamped-inferences pattern** (framework §8.1): pre-compute $P_{\text{marg}}(S = s)$ via one VE call with no evidence; for each $s$, clamp $S = s$ and run VE with evidence $E$ to obtain $P(E, S = s)$; divide to get $P(E \mid S = s)$ and form Bayes factors. Clamping $S = s$ leaves $\text{Pa}(S)$ in the model — pgmpy marginalises them as part of standard VE.
+   - **`PgmpyBackend` (Plan 1 ships here).** Uses direct variable elimination for the posterior $P(S \mid E)$. For Bayes factor extraction (the Plan 5 C4 use case), it implements the **three-clamped-inferences pattern** (framework §8.1): pre-compute $P_{\text{marg}}(S = s)$ via one VE call with no evidence; for each $s$, clamp $S = s$ and run VE with evidence $E$ to obtain $P(E, S = s)$; divide to get $P(E \mid S = s)$ and form Bayes factors. Clamping $S = s$ leaves $\text{Pa}(S)$ in the model — pgmpy marginalises them as part of standard VE. The pgmpy implementation is the canonical reference for the latent regime and remains in service after Phase 2 lands (dispatcher routes to it for fast exact inference on discrete-only specs).
+   - **`PymcBackend` (added in Plan 3 Phase 2).** Builds the latent-regime model natively. $S$ is a `pm.Categorical("S", p=cpt_table[m_idx, c_idx])` indexed by the current $(M, C)$ values. For $|S| = 3$, analytic marginalisation of $S$ inside the categorical step is the default sampler choice (framework §8.2). Lands together with whatever else Phase 2 needs to keep the rest of the system working under the new backend; validated for parity against the pgmpy reference per B.3.
 
 ### B.2 Deliverables
 
@@ -237,8 +237,8 @@ Three pieces of work, all gated on Plan 3 Phase 2 (`PymcBackend` for discrete ne
 - **`src/cpt_data.py`** — anchor-derived emission CPTs ($P(D \mid S, M, C)$, $P(T \mid S, U_1, U_3, M)$, $P(P \mid S, U_1, U_3, U_2)$) and the regime CPT $P(S \mid M, C)$, with per-CPT $\kappa$ values.
 - **`build_hormuz_spec()`** — updated to produce either the current or the latent-regime topology based on the `LatentRegime` flag on `NetworkSpec`.
 - **`src/network_spec.py`** — `LatentRegime` flag and validation (rejects specs that violate R1–R6 of the framework when the flag is set; in particular, rejects $\text{Pa}(S) \cap \mathcal O \neq \emptyset$).
-- **`src/backends/pymc_backend.py`** — handles the latent-regime topology natively per B.1 item 3.
-- **`src/backends/pgmpy_backend.py`** — direct VE for the posterior; three-clamped-inferences pattern for Bayes factors.
+- **`src/backends/pgmpy_backend.py`** — direct VE for the posterior; three-clamped-inferences pattern for Bayes factors. Plan 1 ships here.
+- **`src/backends/pymc_backend.py`** — handles the latent-regime topology natively per B.1 item 3. **Added by Plan 3 Phase 2, not Plan 1.** Plan 1's pgmpy implementation is the parity reference Phase 2 validates against.
 
 ### B.3 Validation
 
@@ -252,25 +252,26 @@ Three pieces of work, all gated on Plan 3 Phase 2 (`PymcBackend` for discrete ne
 
 - **Synthetic-data calibration.** Sample from the new model under a known true regime $s^\star$, run inference on the simulated evidence, check that the average log-Bayes-factor $\log \Lambda_{s^\star, s}$ in favour of the true regime grows roughly linearly in the number of independent emissions observed. Standard self-consistency check for any latent-variable inference; protects against silent emission-CPT errors.
 
-- **Backend parity.** `PgmpyBackend` (via direct VE or the three-clamped-inferences pattern) and `PymcBackend` produce regime posteriors agreeing within MCMC error on a battery of canonical test evidence configurations.
+- **M7 closure check — point-estimate vs resample-mean gap.** Master-plan §4 maps M7 to this plan on the theoretical argument in §A.2 (the labelling-CPT non-linearity drives the original 1–3pp gap; with labelling removed, only the residual Jensen gap survives). The check operationalises that argument: on a battery of $\geq 20$ canonical evidence configurations spanning the simplex (no-evidence, single-piece-of-evidence per node, escalation sequence, de-escalation sequence, contradictory evidence), compute $P(S \mid E)$ via (a) point-estimate VE on the elicited CPTs and (b) the existing resample-mean path (Dirichlet draws around each CPT). Report the per-scenario gap distribution; gate M7 as closed when the 95th-percentile gap is below the dashboard's display precision (0.5pp at current rendering). If any configuration exceeds the threshold, the diagnostic output identifies which emission CPT is driving the residual non-linearity, and the entropy diagnostic from §A.2 is re-run on that CPT to check for residual labelling-rule structure.
+
+- **Backend parity (deferred to Plan 3 Phase 2).** Once `PymcBackend` lands, it must produce regime posteriors agreeing with `PgmpyBackend` (via direct VE or the three-clamped-inferences pattern) within MCMC error on a battery of canonical test evidence configurations. Until Phase 2 lands, the pgmpy implementation is its own reference and the remaining validation checks above are sufficient.
 
 ### B.4 Dependencies and sequencing
 
-- **Hard dependency on Plan 3 Phases 0–2** (NetworkSpec, PgmpyBackend wrapper, PymcBackend discrete). Without those, the latent-regime model cannot be built.
+- **Hard dependency on Plan 3 Phases 0–1** (NetworkSpec + PgmpyBackend wrapped under the new interface). The pgmpy direct-VE path does not depend on PyMC, and Plan 1 ships on it.
+- **Plan 3 Phase 2 extends Plan 1 to PyMC.** When `PymcBackend` lands, it adds PyMC-native support for the latent regime (per B.1 item 3) and modifies whatever else is needed for the rest of the system to keep working under the new backend; it is validated for parity against the pgmpy reference.
 - **Plan 3 Phases 3–4 depend on this plan.** Continuous emissions (Phase 3) are continuous emissions *of the latent regime*; Oil_Price migration (Phase 4) requires the latent regime to be in place first.
 
 ```
 Plan 3 Phase 0 (NetworkSpec)
   → Plan 3 Phase 1 (PgmpyBackend wrapper)
-    → Plan 3 Phase 2 (PymcBackend, discrete)
-      → Plan 1 engineering implementation (this plan, Section B)
+    → Plan 1 engineering implementation (this plan, Section B; pgmpy)
+      → Plan 3 Phase 2 (PymcBackend, discrete; extends latent regime to PyMC)
         → Plan 3 Phase 3 (continuous variables)
           → Plan 3 Phase 4 (Oil_Price migration)
 ```
 
 **The framework write-up [docs/scenario_bn_framework.md](scenario_bn_framework.md) has no engineering prerequisites.** It is a documentation deliverable and can be drafted at any time. Drafting before engineering starts is recommended so that the engineering work and the cross-cutting touchpoints in §C can reference the framework consistently.
-
-**Note on the engineering gate's tightness.** Technically only Plan 3 Phases 0–1 are *hard* prerequisites: the pgmpy direct-VE path does not depend on PyMC and could ship as a pgmpy-only MVP of the latent regime as soon as `NetworkSpec` and the pgmpy wrapper exist. Plan 1 chooses to gate the implementation on Phase 2 anyway, so that the dual-backend story ships in one piece rather than landing a pgmpy-only latent regime and then having to revisit the inference layer once PyMC arrives. This is a sequencing choice for clean delivery, not a hard mathematical dependency.
 
 ---
 
@@ -284,12 +285,13 @@ One implementation hint: translator routing should target emission nodes ($\math
 
 ### Plan 3 — Inference engine (`03_pymc_integration_plan.md`)
 
-Plan 3 provides the `PymcBackend` substrate and the `NetworkSpec` data structure that Plan 1's engineering work extends. The dependency goes both directions:
+Plan 3 provides the `NetworkSpec` data structure and the backend wrappers that Plan 1's engineering work extends. The dependency goes both directions:
 
-- **Plan 1 depends on Plan 3 Phases 0–2** (NetworkSpec, PgmpyBackend wrapper, PymcBackend discrete). Without those, the latent regime cannot be built.
+- **Plan 1 depends on Plan 3 Phases 0–1** (NetworkSpec + `PgmpyBackend` wrapped under the new interface). Without those, the latent regime cannot be built in the existing backend.
+- **Plan 3 Phase 2 extends Plan 1 to PyMC.** When `PymcBackend` lands, it adds PyMC-native support for the latent regime per Plan 1 §B.1 item 3, and modifies whatever else is needed for the rest of the system to keep working under the new backend. Plan 1's pgmpy implementation is Phase 2's parity reference.
 - **Plan 3 Phases 3–4 depend on Plan 1** (continuous variables, Oil_Price migration). Continuous emissions are emissions of the latent regime; without the latent regime built first, those phases have no scaffolding to extend.
 
-After Plan 1 is implemented, Plan 3 has the latent-regime model available; the rest of Plan 3 layers continuous emissions onto it.
+After Plan 1 is implemented in pgmpy, Plan 3 layers PyMC support (Phase 2) and continuous emissions (Phases 3–4) onto it in sequence.
 
 ### Plan 4 — Elicitation methodology (`04_elicitation_tool_plan.md`)
 
@@ -322,11 +324,11 @@ Bayes factors as first-class outputs change how the dashboard communicates evide
 1. **Framework adoption.** Plan 1 instantiates the scenario-as-latent BN framework specified in [docs/scenario_bn_framework.md](scenario_bn_framework.md). Five node categories ($\mathcal X, \mathcal M, \mathcal O, S, \mathcal D$) and six edge rules (R1–R6). All sections in this plan are framed in framework language.
 2. **Topology.** $S$ is an internal latent. $S \to D, T, P$ replaces $D, T, P \to S$ (R4 restoration). $\text{Pa}(S) = \{M, C\}$ (R5 satisfaction modulo the $U_3$ blind spot).
 3. **Parent set $\text{Pa}(S) = \{M, C\}$ for v1.** Satisfies R5a for $\{U_1, U_2, U_4, A, K\}$. $U_3$ documented as an accepted blind spot (see §A.4 and §E). $\{M\}$-only is rejected on R5b parsimony-exception grounds (closure-evidence sensitivity narrative; see §A.4).
-4. **Backend support: both.** `PymcBackend` builds the latent regime natively; `PgmpyBackend` supports it via direct VE (and the three-clamped-inferences pattern for Bayes factor extraction). The dispatcher routes to either backend for latent-regime specs.
+4. **Backend support: pgmpy ships first, PyMC arrives in Phase 2.** Plan 1 ships on `PgmpyBackend` via direct VE (and the three-clamped-inferences pattern for Bayes factor extraction). `PymcBackend` native support is added by Plan 3 Phase 2 — when PyMC lands, the latent regime is extended to it together with whatever else the rest of the system needs to keep working under the new backend, and validated for parity against the pgmpy reference. After Phase 2, the dispatcher routes to either backend for latent-regime specs.
 5. **Anchor-derivation procedure.** B.1 item 2's deterministic inversion (run current BN, multiply by current labelling CPT, marginalise + divide) produces all four new CPTs as coherent starting values that reflect the modeller's existing beliefs projected onto the new topology. These are bootstrap values that will be replaced by Plan 4 Layer 2 elicitation.
 6. **Per-CPT $\kappa$ values: provisional in Plan 1, elicited in Plan 4 Layer 4.** Plan 1 ships uniform $\kappa = 10$ on the emission CPTs and $P(S \mid M, C)$, matching framework §9 for regime-conditional CPTs. Plan 4 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance`.
-7. **Framework write-up as a Plan 1 deliverable.** [docs/scenario_bn_framework.md](scenario_bn_framework.md) is bundled with Plan 1 rather than spun out as a separate doc plan. The framework is most defensible when paired with its first worked instance.
-8. **Plan 1 ownership: conceptual + engineering + framework write-up all here.** The conceptual decision, the engineering implementation, and the framework write-up are bundled into one plan rather than split across documents.
+7. **Framework write-up as a Plan 1 deliverable.** [docs/scenario_bn_framework.md](scenario_bn_framework.md) is owned by Plan 1 rather than spun out as a separate doc plan. The framework is most defensible when paired with its first worked instance. The write-up lives in its own companion file (this plan's `01_latent_regime_plan.md` references it but does not contain it).
+8. **Plan 1 ownership: conceptual + engineering tracked here; framework write-up in the companion file.** The conceptual decision and the engineering implementation are tracked in this plan; the framework write-up lives in the companion file `docs/scenario_bn_framework.md` per decision 7.
 
 ---
 
@@ -347,7 +349,7 @@ Bayes factors as first-class outputs change how the dashboard communicates evide
 | --- | --- | --- | --- |
 | Done | Conceptual decision (latent regime; $\text{Pa}(S) = \{M, C\}$) | M1 framing | Decision settled; recorded in §A and §D. |
 | 1 (parallel) | Framework write-up [docs/scenario_bn_framework.md](scenario_bn_framework.md) | Reusable IP | No engineering prerequisites; can ship at any time. |
-| 2 | Engineering implementation (Section B) | M1 implementation, M7 dissolution | Gated on Plan 3 Phase 2 shipping. Delivers the latent regime in production; produces Bayes factors as first-class outputs. |
+| 2 | Engineering implementation (Section B) | M1 implementation, M7 dissolution | Gated on Plan 3 Phase 1 shipping (NetworkSpec + `PgmpyBackend` wrapper). Delivers the latent regime in production on pgmpy; produces Bayes factors as first-class outputs. PyMC-native support is added subsequently by Plan 3 Phase 2. |
 
 ---
 
