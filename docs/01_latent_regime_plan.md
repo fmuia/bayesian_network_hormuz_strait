@@ -12,7 +12,7 @@
 
 ## Executive Summary
 
-The current Hormuz Bayesian network treats `Scenario` as a leaf node with three intermediate-outcome parents (`Energy_Infrastructure_Damage`, `Conflict_Duration`, `Diplomatic_Resolution_Path`) — written $(D, T, P)$ in the math notes — via a 27-column CPT $P(S \mid D, T, P)$. The dashboard review (finding M1) showed that this CPT is mathematically a softmax-like *labelling function* of the three parents, not a generative probabilistic model. Scenario probabilities reported by the dashboard are therefore the expectation of a labelling function under the joint posterior of $(D, T, P)$ — not true Bayesian posteriors over a regime variable.
+The current Hormuz Bayesian network treats `Scenario` as a leaf node with three intermediate-outcome parents (`Energy_Infrastructure_Damage`, `Conflict_Duration`, `Diplomatic_Resolution_Path`) — written $(D, T, P)$ in the math notes — via a 27-column CPT $P(S \mid D, T, P)$. The dashboard review (finding M1) showed that this CPT is mathematically a softmax-like *labelling function* of the three parents, not a generative probabilistic model. Scenario probabilities reported by the dashboard are therefore the expectation of a labelling function under the joint posterior of $(D, T, P)$ — a *coarsening* of the outcome posterior (a legitimate posterior over $S$, but a derived view of the outcomes), not a posterior over a latent regime that carries its own prior and emission likelihoods. The distinction is expressiveness, not correctness; §A.2.3 develops it in full.
 
 The fix is to **instantiate the scenario-as-latent BN framework** (the labelling-CPT trap is the framework's prototypical failure mode; see [framework §1](scenario_bn_framework.md#L11) and the §10 pitfalls list). For Hormuz, this means:
 
@@ -57,18 +57,172 @@ This partition is unambiguous: each node passes exactly one of the inclusion tes
 
 Finding M1 — *"Scenario as classifier"* in master-plan §4 — is precisely the **labelling-CPT trap** of framework §10. The original Hormuz network has edges $\{D, T, P\} \to S$: $S$ is a leaf, with $\mathcal O$ as its parents. This is a direct **R4 violation**: under R4, arrows must run $S \to O$, not the reverse.
 
-The structural fingerprint of the violation is visible in the entropy of the original CPT $P(S \mid D, T, P)$. On a 3-state distribution, Shannon entropy ranges in $[0, \log_2 3] \approx [0, 1.585]$ bits. The CPT splits cleanly into two regimes:
+The structural fingerprint of the violation is visible in the **entropy profile** of the original CPT $P(S \mid D, T, P)$ — the 27-column table at [src/network.py:326-361](../src/network.py#L326-L361). On a 3-state distribution, Shannon entropy ranges in $[0, \log_2 3] \approx [0, 1.585]$ bits (§A.2.2 spells out the computation). Computing $H$ for all 27 columns of the live table (verified against the code, not quoted) gives a profile that is decisive only at the two **extreme** corners and diffuse everywhere else:
 
-- **Parent configurations that point cleanly to one scenario** have very low entropy. `none / short / open` (the Stress fingerprint) sits at $H = 0.37$; `severe / long / closed` (the Severe fingerprint) sits at $H = 0.52$. The CPT is near-deterministic on these columns.
-- **Parent configurations where the three variables disagree** about which scenario have high entropy, in the $1.1$–$1.5$ bit range (close to the $1.585$-bit maximum). Examples: `moderate / medium / narrowing` ($H = 1.37$), `severe / short / open` ($H = 1.54$).
+- **Sharp only at the extreme corners.** The two columns where all three outcomes agree on an extreme regime are near one-hot: `none / short / open` (the Stress fingerprint, $[0.94, 0.05, 0.01]$) at $H = 0.37$, and `severe / long / closed` (the Severe fingerprint, $[0.01, 0.09, 0.90]$) at $H = 0.52$. The next two columns — both strongly Stress-leaning $[0.85, 0.13, 0.02]$ — already sit at $H = 0.70$.
+- **Diffuse everywhere else.** The remaining 23 columns are spread: 20 of the 27 sit at $H \ge 1.1$ bits, and the mean over all columns is $1.16$. The most ambiguous approach the ceiling — `moderate / medium / narrowing` ($H = 1.37$), `severe / short / open` ($H = 1.54$).
+- **The middle regime is never sharply identified.** No column points cleanly to Prolonged_Conflict: even its best-supporting configurations — e.g. `moderate / long / closed` $= [0.03, 0.55, 0.42]$ — land at $H \approx 1.15$, because severe-damage mass bleeds across the boundary.
 
-This **bimodality** — near-deterministic when parents agree on a regime, near-maximum entropy when they disagree — is the diagnostic signature of a labelling rule rather than a generative emission. A genuine $P(O \mid S, \ldots)$ emission CPT would not show this pattern: the regime would modulate but never determine the emission, so column entropies would land in a moderate band rather than splitting into "decided" and "ambiguous" clusters.
+This profile is the diagnostic signature of a **soft classifier** — an argmax-with-fuzzy-boundaries over the 27 outcome cells — not a generative emission. Note that it is a *continuum* from $0.37$ to $1.54$, not a clean two-cluster split with an empty middle; the tell is the combination of razor-sharp peaks at the two hand-placed corners with a broad high-entropy mass everywhere else, including the model's own middle category. A genuine emission family $P(O \mid S, \ldots)$ would not produce this table at all — there would be no $P(S \mid \cdots)$ column to inspect — and where a real regime modulates an outcome it shifts the distribution by a consistent amount rather than collapsing to near-certainty at two corners and spreading to near-uniform between them. The structural reason this table can only ever be a classifier, never a generative model, is developed in §A.2.3.
 
 Finding M7 — *"Resample-mean vs point-estimate"* — is closed in practical terms by the reframe as a side-effect. The 1–3pp gap between the dashboard's two computation paths comes mostly from the non-linearity of the labelling CPT: point-estimate inference computes $\text{labelling}(E[D, T, P])$, while the resample-mean computes $E_\theta[E[\text{labelling}(D, T, P) \mid \theta]]$, and these differ whenever labelling is non-linear (sharply, at the corners). Once $P(S \mid E)$ becomes a genuine Bayes-rule posterior over a latent regime variable, the labelling step disappears and the gap shrinks to a much smaller residual (~0.1–0.5pp) from general Bayesian non-linearity — the Jensen's-inequality gap between the point-estimate-of-posterior and the posterior-over-point-estimates. That residual is below the precision at which the dashboard would display percentages, so M7 closes without further Plan 5 UI work.
 
+#### A.2.1 Reading the CPT: columns, hard and soft
+
+The diagnostic above, and the argument in §A.2.3, both describe *columns* of $P(S \mid D, T, P)$ as "hard" or "soft." Precisely:
+
+The CPT is stored (pgmpy convention) as a matrix whose **rows** are the three states of $S$ (Stress_Mitigates, Prolonged_Conflict, Severe_Closure) and whose **columns** are the parent configurations — one per combination of $(D, T, P)$. With $3 \times 3 \times 3$ that is 27 columns. Each column is therefore a single conditional distribution $P(S \mid D{=}d, T{=}t, P{=}p)$: a 3-vector summing to 1, the scenario distribution *for that one outcome combination*.
+
+```
+                    (none,short,open)  (severe,short,open)   (severe,long,closed)
+Stress_Mitigates         0.94                0.30                    0.01
+Prolonged_Conflict       0.05                0.45                    0.09
+Severe_Closure           0.01                0.25                    0.90
+                      └─ hard col ─┘      └─ soft col ─┘          └─ hard col ─┘
+```
+
+- A **hard** column is sharply peaked (near one-hot): the outcome combination points cleanly to one scenario. `(none, short, open)` puts $0.94$ on Stress.
+- A **soft** column is spread out (near-uniform): the three outcome variables *disagree* about the scenario, so none dominates. `(severe, short, open)` — severe damage says "Severe," but short duration and an open path say "Stress" — splits roughly evenly.
+
+"Hard/soft" is just low-entropy (peaked) versus high-entropy (flat), measured per column.
+
+#### A.2.2 How column entropy is computed
+
+"Entropy" here is Shannon entropy in bits, computed on one column's 3-vector $p = (p_{\text{Stress}}, p_{\text{Prolonged}}, p_{\text{Severe}})$:
+
+$$H(p) = -\sum_i p_i \log_2 p_i \qquad \text{(convention } 0\log_2 0 = 0\text{)}.$$
+
+A common shortcut is to remember $\log_2 k$ — but that is the *maximum* entropy (achieved only by the uniform distribution), not the general formula. The actual value depends on how the mass is spread.
+
+**Worked example — the `(none, short, open)` column** $p = (0.94, 0.05, 0.01)$:
+
+$$H = -\big(0.94 \log_2 0.94 + 0.05 \log_2 0.05 + 0.01 \log_2 0.01\big) = -\big(0.94(-0.089) + 0.05(-4.322) + 0.01(-6.644)\big) = 0.084 + 0.216 + 0.066 = 0.37 \text{ bits}.$$
+
+Low — almost all mass on one state. A "hard" / decided column.
+
+**Two reference points** anchor the scale:
+
+- **Uniform** $p = (\tfrac13, \tfrac13, \tfrac13)$: each $\log_2 \tfrac13 = -1.585$, so $H = \log_2 3 = 1.585$ bits — the maximum, and the source of the $\log_2 k$ shortcut.
+- **One-hot** $p = (1, 0, 0)$: $H = 0$ bits — total certainty.
+
+So a 3-state distribution always has $H \in [0, 1.585]$. Entropy measures how *spread* the mass is, not how many states exist: the same three states give $H = 0$ when peaked and $H = 1.585$ when flat.
+
+### A.2.3 Why the reversal is justified: one structural fact, three consequences
+
+> **Map of the rest of §A.2.** §A.2.3 (here) makes the *structural* case for inverting the arrows — one fact, three consequences. §A.2.4 states the *semantic* price (scenarios as modal signatures) and resolves the identifiability cost. §A.2.5–A.2.6 show the inverted model *operating* — on a hard observation, then on soft translator evidence. §A.2.5 deliberately re-derives this section's Bayes-factor contrast as concrete mechanics: reinforcement for the reviewer, not a second argument.
+
+§A.2 shows the current CPT *behaves like* a classifier. This section explains *why* the labelling topology can never deliver what the brief asks for — and states the argument honestly. The honest claim is **not** "the labelling model produces no posterior over $S$." It does: $P(S \mid E)$ is well-defined for any evidence $E$, and the dashboard already computes it. The honest claim is about **expressiveness** — the labelling topology cannot express two objects this product needs: an independently-chosen regime prior, and per-regime evidence likelihoods (clean Bayes factors). The whole argument rests on one structural fact, and three consequences flow from it.
+
+**The one structural fact.** In the labelling DAG, $S$ is a **leaf** whose only parents are $(D, T, P)$. So $S$'s Markov blanket is exactly $\{D, T, P\}$ — no children, no co-parents — and $S$ is conditionally independent of all other evidence once the outcomes are known:
+
+$$S \perp E \mid (D, T, P) \qquad \text{for any evidence } E \text{ placed elsewhere in the network.}$$
+
+This is exact and structural: it holds no matter how sharp or soft the CPT columns are. Everything below is a consequence of just this.
+
+**Consequence 0 — the posterior is a pushforward.** Using that independence,
+
+$$P(S = s \mid E) = \sum_{d,t,p} P(S = s \mid d, t, p)\, P(d, t, p \mid E).$$
+
+Read this as: take the outcome posterior $P(D, T, P \mid E)$ — a distribution over the 27 outcome cells — and push it through the fixed map $P(S \mid D, T, P)$. The scenario posterior is the *image* of the outcome posterior under that map; nothing else enters. In the limiting hard case $P(S = s \mid d, t, p) = \mathbb{1}[f(d,t,p) = s]$ for a labelling function $f$ that buckets the 27 cells into 3 groups, this collapses to
+
+$$P(S = s \mid E) = \sum_{(d,t,p) \in f^{-1}(s)} P(d, t, p \mid E) = P\big((D, T, P) \in f^{-1}(s) \mid E\big).$$
+
+The "scenario probability" is *literally* the posterior mass the outcome distribution puts on the region $f^{-1}(s)$. $S$ is a **coarsening** of $(D, T, P)$ — partition 27 cells into 3 buckets and sum. The soft columns (the actual Hormuz table) make it a *stochastic* coarsening rather than a hard partition, but the substance is unchanged.
+
+**Consequence 1 — $S$ carries no information beyond the outcome posterior.** Because $S$ is a (stochastic) function of $(D, T, P)$, the outcome posterior $P(D, T, P \mid E)$ is a *sufficient statistic* for the scenario posterior: once you have it, you already know $P(S \mid E)$ exactly. $S$ has no degrees of freedom of its own — it is a derived view of the outcomes, not a new variable.
+
+**Consequence 2 — you cannot set the scenario prior independently.** The marginal scenario prior is *induced*, not chosen:
+
+$$P(S = s) = \sum_{d,t,p} P(S = s \mid d, t, p)\, P(d, t, p),$$
+
+with $P(d, t, p)$ fixed by the upstream model. If a domain expert says *"a priori, Severe Closure should sit around 5% in this context,"* the labelling model has **no parameter to turn** — $P(\text{Severe})$ is whatever the outcome marginal and the partition imply. In the inverted model $P(S = \text{Severe} \mid M, C)$ is a primitive you write down, so "5% in this context" is simply a number entered.
+
+**Consequence 3 — you cannot set per-regime likelihoods (Bayes factors) independently.** The governance quantity stakeholders ask for is the Bayes factor
+
+$$\Lambda_{s_1, s_2}(E) = \frac{P(E \mid S = s_1)}{P(E \mid S = s_2)} \qquad \text{— "}E\text{ is }\Lambda\times\text{ more likely under }s_1\text{ than }s_2\text{."}$$
+
+Everything hinges on $P(E \mid S = s)$; deriving it in each model shows the difference.
+
+*Labelling model* ($D, T, P \to S$, $S$ a leaf). Starting from the definition and using $S \perp E \mid (D, T, P)$:
+
+$$P(E \mid S = s) = \frac{P(E, S = s)}{P(S = s)} = \frac{\sum_{d,t,p} P(S = s \mid d, t, p)\, P(E, d, t, p)}{\sum_{d,t,p} P(S = s \mid d, t, p)\, P(d, t, p)}.$$
+
+In the hard case, with $R_s = f^{-1}(s)$ the outcome region for scenario $s$, this is
+
+$$P(E \mid S = s) = \frac{P\big(E,\, (D,T,P) \in R_s\big)}{P\big((D,T,P) \in R_s\big)} = P\big(E \mid (D,T,P) \in R_s\big).$$
+
+This is **forced** — entirely determined by the existing upstream joint $P(E, D, T, P)$ and the partition $R_s$. There is no parameter to elicit; whatever the network already implies about how $E$ co-occurs with the region $R_s$ *is* the likelihood. And it is often **degenerate**: if $E$ is evidence on one of the very variables that define the regions, the ratio breaks. Suppose $R_{\text{Stress}}$ requires $D = \text{none}$ and the evidence is $E = \{D = \text{severe}\}$:
+
+$$P(D = \text{severe} \mid S = \text{Stress}) = \frac{P\big(D = \text{severe},\, (D,T,P) \in R_{\text{Stress}}\big)}{P(R_{\text{Stress}})} = 0,$$
+
+because $R_{\text{Stress}}$ forbids $D = \text{severe}$ — so $\Lambda_{\text{Severe}, \text{Stress}}(D = \text{severe}) = \infty$. "Infinitely more likely" is just the definition talking back, not an evidential statement.
+
+*Latent regime model* ($S \to D, T, P$, $\text{Pa}(S) = \{M, C\}$). Now $P(E \mid S = s)$ is a genuine likelihood. For $E = \{D = d\}$:
+
+$$P(D = d \mid S = s) = \sum_{m,c} P(D = d \mid s, m, c)\, P(m, c \mid s), \qquad P(m, c \mid s) = \frac{P(s \mid m, c)\, P(m, c)}{\sum_{m',c'} P(s \mid m', c')\, P(m', c')}.$$
+
+The decisive difference: $P(D = d \mid s, m, c)$ is a **primitive emission CPT you elicit directly** — a free knob. The Bayes factor is then a clean, parent-averaged ratio of elicited likelihoods,
+
+$$\Lambda_{s_1, s_2}(D = d) = \frac{\sum_{m,c} P(D = d \mid s_1, m, c)\, P(m, c \mid s_1)}{\sum_{m,c} P(D = d \mid s_2, m, c)\, P(m, c \mid s_2)},$$
+
+and for soft evidence $\varepsilon$ (the translator's likelihood vector) it is the version derived in §A.2.6, $\Lambda_{s_1,s_2}(\text{article on } D) = \sum_d \varepsilon_d\, P(D{=}d \mid s_1, \ldots) \big/ \sum_d \varepsilon_d\, P(D{=}d \mid s_2, \ldots)$. No degeneracy: $P(D = \text{severe} \mid S = \text{Stress}, m, c)$ is a small-but-nonzero elicited number (a de-escalating regime *occasionally* still produces severe damage), so the ratio stays finite. And because emissions are conditionally independent given $S$, multiple articles **compose multiplicatively** — $\Lambda(E_1, E_2) = \Lambda(E_1)\,\Lambda(E_2)$ — which the labelling model cannot do, since its "evidence" all couples through the shared outcome regions.
+
+*The same number, side by side.* Evidence $E = \{D = \text{severe}\}$, comparing Severe vs Stress:
+
+| | Labelling model | Regime model |
+|---|---|---|
+| $P(E \mid \text{Severe})$ | $P(D{=}\text{severe} \mid (D,T,P) \in R_{\text{Severe}}) = 1$ (definitional) | $P(D{=}\text{severe} \mid \text{Severe}, m, c) \approx 0.70$ (elicited) |
+| $P(E \mid \text{Stress})$ | $0$ (region forbids it) | $\approx 0.05$ (elicited) |
+| $\Lambda_{\text{Severe},\text{Stress}}$ | $\infty$ — degenerate, restates the partition | $0.70 / 0.05 = 14$ — finite, interpretable |
+
+**The crisp analogy.** Define a medical **syndrome** as "fever ∧ cough." Then $P(\text{syndrome})$ is fixed by $P(\text{fever}, \text{cough})$ — you cannot set its prevalence independently — and $P(\text{lab result} \mid \text{syndrome})$ is whatever the symptom region implies. Now instead model a latent **disease** that *causes* fever and cough: you get an independent disease prevalence *and* per-disease test likelihoods. The labelling model is the syndrome (symptoms → label); the inversion is the disease (cause → symptoms). Same data, different expressiveness.
+
+**Expressiveness, not correctness.** The labelling model is not *wrong*. It coherently answers "what is the probability the outcomes fall in the Severe-Closure region, given the evidence" — a legitimate posterior. What it *cannot express* are the two things this product needs: (1) an independently-specifiable regime prior (Consequence 2), and (2) per-regime evidence likelihoods / clean Bayes factors (Consequence 3). The inversion adds exactly those two knobs. **This — not a "the posterior does not exist" framing — is the honest justification for reversing the arrows, and the one to put in front of a skeptical reviewer.**
+
+**The cost.** The two new knobs are not free: they presuppose a semantic shift — scenarios must be read as *modal signatures*, not definitions — and the regime prior $P(S \mid M, C)$ trades off against the emission tails, so many (prior × emission) factorisations reproduce the same outcome marginals; this elicitation non-identifiability is the deliberate price of the inversion, developed in full (commitment, resolution, downstream consequences) in §A.2.4.
+
+### A.2.4 Scenarios as modal signatures: the semantic commitment the inversion requires
+
+§A.2.3 justified the inversion on expressiveness grounds and named its price: scenarios must be read as *modal signatures*, not *definitions*. That phrase is doing a lot of work, and it is precisely the point where a skeptical reviewer (Alex's objection — *"I can't follow the causal chain if 'conflict mitigates' is a latent variable instead of a prediction"*) is right to push. This section makes the commitment explicit, because it — not the algebra of §A.2.3 — is the thing the client must actually endorse.
+
+**The tension, stated sharply.** There are two incompatible readings of what a "scenario" *is*:
+
+- **Definitional.** A scenario *is* a region of outcome space: $\text{Severe Closure} \equiv (\text{severe} \wedge \text{long} \wedge \text{closed})$. The narrative is a definition; $(D, T, P)$ deterministically pin $S$, so $S = f(D, T, P)$. This is what the client's narratives literally say, and what the framework's own *outcome-sufficiency* test demands ("could you *uniquely* name the scenario from $\mathcal O$?"). It points to $\mathcal O \to S$ — the labelling model.
+- **Generative.** A scenario is a latent regime that *causes/biases* outcomes, with stochastic, overlapping emissions. This is what the inversion $S \to \mathcal O$ needs in order to buy anything — if emissions don't overlap, the "generative model" is just a partition in disguise.
+
+You cannot hold both crisply. The inversion silently assumes the generative reading while the narratives and the sufficiency test assert the definitional one. That unspoken switch is exactly what makes the causal chain unfollowable to a reviewer: as written, the two readings are conflated.
+
+**The resolution.** Commit explicitly to the generative reading, and reinterpret each narrative as the **mode** of that regime's emission distribution — not a definition of it. Formally, the narrative for scenario $s$ is the claim
+
+$$\big(d^\star_s,\, t^\star_s,\, p^\star_s\big) \;=\; \arg\max_{(d,t,p)} P\big(D = d, T = t, P = p \mid S = s,\ \text{context}\big),$$
+
+e.g. $\arg\max P(D, T, P \mid S = \text{Severe}) = (\text{severe}, \text{long}, \text{closed})$. The signature is the **peak** of the emission distribution, and the distribution has nonzero mass **off** the peak: $P(D = \text{moderate} \mid S = \text{Severe}) > 0$. The narrative describes *where each regime's emissions concentrate*, not a wall around them. This single move resolves everything:
+
+- It makes $S \to \mathcal O$ coherent. Emissions are genuine overlapping distributions, so $S$ is a real latent variable with an independent prior and clean Bayes factors — the expressiveness wins of §A.2.3 survive.
+- It reinterprets *outcome sufficiency* correctly: from "outcomes deterministically identify the regime" to "the modal signatures are distinct enough that the regimes are statistically distinguishable from outcomes." The framework's parenthetical "(or near-uniquely)" stops being a hedge and becomes the actual definition.
+- It dissolves the degeneracy. The $P(D = \text{severe} \mid \text{Stress}) = 0 \Rightarrow \Lambda = \infty$ pathology of §A.2.3 disappears, because off-mode mass is nonzero by construction.
+
+**The semantic commitment the client must share.** Adopting modal signatures is not a mathematical fact one can prove — it is a modelling stance the client has to endorse. Concretely they must accept three things a definitional scenario does not require:
+
+1. **Overlap.** A given real-world outcome (say, moderate damage) is consistent with several regimes at different probabilities. There is no longer a crisp "if you observe $X$, you are in scenario $Y$."
+2. **Off-signature realisations.** "Severe Closure" can occasionally manifest with not-fully-severe outcomes, and a benign regime can occasionally throw a severe reading. The label names the *generating regime*, not a guaranteed outcome bundle.
+3. **Permanent latency.** Because $S$ is only probabilistically tied to outcomes, you can *never* point at the world and certify "that was Severe Closure" — you only ever report a posterior. A definitional scenario is checkable in principle (did outcomes land in the region?); a regime is not.
+
+**The licensing test.** There is a test for whether the commitment is even warranted: do these scenarios correspond to genuinely distinct underlying states of the world — an escalation dynamic, an Iranian decision posture — that drive many outcomes *together*? If yes, treating them as latent causes is natural and the inversion is right. If the scenarios are merely convenient descriptive buckets with no common underlying cause, then the generative story is causal lipstick on a taxonomy, and the honest model is the labelling one (reported plainly as a region-probability). The client/expert affirming *"these are real regimes, not just outcome buckets"* is the thing that licenses the inversion. **That affirmation belongs in the plan as an explicit precondition, not an assumption.**
+
+**What it forces downstream (and why that's healthy).**
+
+- **Elicitation (Plan 4).** The expert is now asked, per regime: *"If the world were truly in regime $s$ given context $(m, c)$, what is the distribution over damage / duration / path?"* — including the **off-mode tails**, brand-new judgments the labelling CPT never required. The modal cell is anchored to the narrative; the tails carry the regime's real informational content. Plan 1 §B already calls these "**anchor-derived** emission CPTs" — that construction *is* modal-signature thinking; it simply never names the commitment, which is why it currently reads as hand-wavy.
+- **Validation.** A concrete QA check falls out: verify that the $\arg\max$ of each elicited emission distribution equals the client's stated narrative signature. Narrative-vs-CPT consistency becomes a *testable invariant*.
+- **Dashboard communication (Plan 5).** The UI must not let stakeholders read "$P(\text{Severe Closure}) = 42\%$" as "42% chance outcomes will be severe / long / closed." It has to read as "42% posterior that the underlying *regime* is Severe Closure," ideally with the modal signature shown alongside ("Severe Closure typically looks like: severe / long / closed"). Otherwise stakeholders silently re-import the definitional reading and get confused when a "Severe Closure" forecast coexists with a non-severe damage forecast — the exact confusion the reviewer is voicing, now surfacing for the end user.
+
+**Residual caveat.** Modal signatures fix the *coherence* but not the *identifiability* flagged in §A.2.3's "cost": narratives only pin the mode, leaving the prior $P(S \mid M, C)$ and the off-mode emission mass jointly under-determined. The semantic commitment is necessary but not sufficient; Plan 4 still needs an elicitation *order* (emissions anchored to modes first, prior from base rates second) to break the degeneracy.
+
+**One-paragraph version (for the executive summary / client-facing doc).** Scenarios in this model are latent regimes, not outcome definitions. Each scenario's narrative specifies the modal (most-probable) outcome signature its regime generates, not a region that defines it: a regime concentrates probability on its signature but retains nonzero mass on off-signature outcomes, so outcomes identify the regime only probabilistically. This is a deliberate semantic commitment — it presumes the scenarios name real underlying states of the world that co-drive outcomes, and it must be one the client endorses. It is what licenses the $S \to \{D, T, P\}$ topology, and it is the reading the dashboard must reinforce, lest stakeholders silently revert to reading scenario probabilities as outcome-region probabilities.
+
 ### A.2.5 Why the reversal is necessary: what happens when the client observes an outcome
 
-The §A.2 entropy diagnostic shows the original CPT *behaves like* a labelling rule. The operational consequence of that — and the cleanest demonstration of why the arrows must reverse — comes from walking through a single observation under each topology. Take the concrete case *"the client observes $D = \text{severe}$ — energy infrastructure damage was severe."*
+§A.2.3 made the structural case and §A.2.4 named its price; this section shows the inverted model *operating*, by walking a single concrete observation through both topologies. It is the cleanest demonstration of the difference, and the setup the soft-evidence case (§A.2.6) builds on. Take the concrete case *"the client observes $D = \text{severe}$ — energy infrastructure damage was severe."*
 
 **Under the original $\mathcal O \to S$ topology** — $S$ is a leaf with parents $(D, T, P)$ — the only way to update beliefs about $S$ given $D$ alone is to marginalise the labelling CPT over what the network currently believes about $T$ and $P$:
 
@@ -85,13 +239,45 @@ $$P(S = s \mid D = \text{severe}) \;\propto\; \sum_{m, c} P(M = m, C = c) \cdot 
 
 Here $P(M, C)$ is the joint marginal of $(M, C)$ produced by the upstream chain, $P(S \mid m, c)$ is the regime CPT, and $P(D \mid s, m, c)$ is the emission CPT — the standard Bayesian-network posterior factorisation for a latent variable with both upstream parents and downstream emissions. Three things now work:
 
-1. **Genuine Bayesian posterior on the regime**, derived by Bayes' rule. The answer no longer depends on what the network "currently believes" about other outcomes — those marginalise out cleanly because each unobserved-emission CPT is normalised. The observation $D = \text{severe}$ stands on its own as evidence about $S$.
+1. **Genuine Bayesian posterior on the regime**, derived by Bayes' rule. The answer no longer depends on what the network "currently believes" about the *sibling outcomes* $T, P$ — those marginalise out cleanly because each unobserved-emission CPT is normalised. (It does still depend on beliefs about the *upstream context* $(M, C)$, through the prior $P(S \mid M, C)$ and the weights $P(m, c)$ — but that is correct: the regime posterior should be weighted by how likely each context is. Context-dependence is relocated upstream, not eliminated.) The observation $D = \text{severe}$ thus stands on its own *relative to the other outcomes* as evidence about $S$.
 2. **Multiple emissions compose multiplicatively** by independence given $S$. Observing all of $D, T, P$ together gives
    $$P(S = s \mid d, t, p) \;\propto\; \sum_{m, c, \ldots} P(\text{Pa}) \cdot P(s \mid m, c) \cdot P(D = d \mid s, m, c) \cdot P(T = t \mid s, \ldots) \cdot P(P = p \mid s, \ldots),$$
    each observed emission contributing its own likelihood factor. This is the evidence accumulation the client brief calls for, and it composes by independence rather than by labelling-table lookup.
 3. **Bayes factors are first-class outputs.** $\Lambda_{s_1, s_2}(D = \text{severe})$ reduces to a parent-averaged column ratio of the emission CPT — directly interpretable as "evidence strength against a regime hypothesis", exactly the governance quantity stakeholders want.
 
-**The load-bearing point.** The client's brief asks for *posterior probabilities over scenarios*. A Bayesian posterior on $S$ is a mathematically well-defined object only when $S$ has a prior (a distribution over its own states) and a likelihood (a way of generating observations given each of its states). Under $\mathcal O \to S$, $S$ has neither: no prior of its own (it is deterministically labelled from its parents) and no likelihood (it is a leaf and cannot generate observations). What the original network produces *can be plotted as a probability* but is mathematically the expectation of a labelling function under the joint posterior of intermediates. Reversing the $S$-arrows is therefore not a stylistic preference: it is the structural prerequisite for the object the client asked for to exist at all.
+**The load-bearing point** is the one §A.2.3 makes structurally, now visible in the mechanics: under $\mathcal O \to S$ the single observation $D = \text{severe}$ can only move $S$ through context-dependent re-weighting of sibling outcomes — $S$ has no prior of its own (Consequence 2) and no per-state likelihood to elicit (Consequence 3), so the governance Bayes factor is either forced by the outcome partition or diverges when evidence touches a defining variable. Under $S \to \mathcal O$ the same observation enters as a genuine likelihood on a latent regime carrying its own prior. That — not any failure of the labelling model to produce *a* posterior — is what reversing the arrows buys.
+
+### A.2.6 The soft-observation case: the translator-injected likelihood-ratio interface
+
+§A.2.5 walked through a *hard* observation — the client states "$D = \text{severe}$" with certainty. In production the analyst rarely has that luxury: observations arrive as headlines that the translator (Plan 2) parses into *soft* evidence on emission nodes. Under the latent-regime topology the same Bayes-rule machinery handles this case, but only if the translator's output is shaped correctly. The fix is the M2/C5 finding addressed in Plan 2 §A1; this section restates it in the language of the latent-regime topology so the math is visible in one place.
+
+**How pgmpy injects soft evidence — Pearl's virtual child.** pgmpy's `virtual_evidence` parameter implements a bookkeeping device from Pearl 1988: it bolts a fictional leaf node $V$ onto the emission node $N$ (no real-world referent), declares $V$ observed at some value $v$, and fills $V$'s CPT column $P(V = v \mid N = s_i)$ with the per-state vector you supply. That column is, by construction, a **likelihood** — a function of $s_i$ in $[0, \infty)$, not summing to 1. Conditioning on $V = v$ multiplies the likelihood into the joint via plain Bayes' rule:
+
+$$P(N = s_i \mid V = v) \;\propto\; P(V = v \mid N = s_i) \cdot P(N = s_i).$$
+
+You never see the phantom child — pgmpy adds, marks-observed, queries, and drops it silently — but the multiplication into the joint is real. **Whatever vector the translator produces is interpreted by pgmpy as a likelihood**, regardless of whether the translator was written with that contract in mind.
+
+**The current (broken) interface — finding M2/C5.** The translator's system prompt asks for a sum-to-1 distribution over the node's states, which is *posterior-shaped*: it is the LLM's best estimate of $P(N = s_i \mid \text{article})$. Feeding a posterior $T_i = P(s_i \mid \text{article})$ to pgmpy as if it were a likelihood, then letting pgmpy multiply by the BN's prior $P(s_i)$, expands by Bayes' rule into:
+
+$$P(N = s_i \mid V = v) \;\propto\; T_i \cdot P(s_i) \;=\; \frac{P(\text{article} \mid s_i) \cdot P(s_i)}{P(\text{article})} \cdot P(s_i) \;\propto\; P(\text{article} \mid s_i) \cdot P(s_i)^2.$$
+
+The prior is squared. Every soft observation on an emission node currently enters the BN through a prior-squared interface. Plan 2 §A1 has the full numerical example on `Tanker_Incidents`; the bug is reproducible in three lines of pgmpy with an artificial network.
+
+**The fix — Plan 2 A1's likelihood-ratio output.** The translator is re-prompted to emit max-pinned likelihood ratios
+
+$$\varepsilon_i \;=\; \frac{P(\text{article} \mid N = s_i)}{\max_{i'} P(\text{article} \mid N = s_{i'})} \;\in\; (0, 1],$$
+
+with the best-supported state pinned at $\varepsilon = 1$ and others fractions. Feeding $\varepsilon$ to pgmpy now gives a single multiplication by the prior, exactly as Bayes prescribes:
+
+$$P(N = s_i \mid V = v) \;\propto\; \varepsilon_i \cdot P(s_i) \;\propto\; P(\text{article} \mid s_i) \cdot P(s_i) \;\propto\; P(s_i \mid \text{article}).$$
+
+**Why the switch matters specifically under the latent-regime topology.** With $S$ generative and emissions $\{D, T, P\}$ as the regime's observable signals, soft evidence on any emission is the central evidence channel from the translator to the regime posterior. The hard-observation walkthrough in §A.2.5 already shows the Bayesian update at the emission node propagating through $P(D \mid S, M, C)$ back to $S$ via collider-opening — *the soft case is identical mechanics*, with the certain $\mathbb{1}[D = \text{severe}]$ replaced by the soft vector $\varepsilon$. Composing the emission CPT with the $\varepsilon$ vector and the regime prior gives the regime-level Bayes factor that decomposes a soft article into "how much does this evidence favour each scenario":
+
+$$\Lambda_{s_1, s_2}(\text{article on } D) \;=\; \frac{\sum_d \varepsilon_d \cdot P(D = d \mid S = s_1, \ldots)}{\sum_d \varepsilon_d \cdot P(D = d \mid S = s_2, \ldots)},$$
+
+with the emission likelihood appropriately parent-marginalised. Posterior-shaped translator output silently bakes the BN's emission prior into this ratio twice; likelihood-shaped output gives a clean Bayes factor that composes by multiplication across independent articles.
+
+**The interfaces are co-designed.** Plan 1 needs likelihood-ratio inputs on emission nodes to deliver Bayes-factor outputs at the regime; Plan 2 A1 produces exactly those inputs. Until A1 ships, every translator-injected observation on $\{D, T, P\}$ enters the latent-regime machinery through a prior-squared interface, biasing the regime posterior by the same mechanism A1 fixes at the emission node. This is the substance behind §C's claim that *"Plan 2 A1's contract is already the right shape"* — that one-line summary collapses what this section has just unpacked.
 
 ### A.3 The reframe — what changes structurally
 
@@ -162,7 +348,7 @@ Three triage options exist per the framework:
                                      O              ← 𝓓 (unchanged: child of C and D)
 ```
 
-Five structural deltas vs the current network, all enumerated:
+The same three deltas of §A.3, decomposed to the atomic per-edge level for the implementation diff (§B.1):
 
 1. Remove the three arrows $\{D, T, P\} \to S$.
 2. Add three arrows $S \to \{D, T, P\}$.
@@ -213,7 +399,7 @@ Glide-path consequence: a future workstream layering temporal dynamics onto the 
 ### A.8 Math summary
 
 - **BN factorisation and inference.** A Bayesian network expresses the joint $P(X_1, \ldots, X_n) = \prod_i P(X_i \mid \text{Pa}(X_i))$. Arrows encode the *factorisation*, not data flow; inference is direction-agnostic. The reframe changes which CPTs appear in the product — the labelling CPT $P(S \mid D, T, P)$ is replaced by the regime CPT $P(S \mid M, C)$ plus three emission CPTs with $S$ as an additional parent — but the factorisation framework is identical.
-- **Entropy diagnostic for M1.** Shannon entropy $H(P) = -\sum_i p_i \log_2 p_i$ on a 3-state distribution ranges in $[0, \log_2 3] \approx [0, 1.585]$ bits. The current $P(S \mid D, T, P)$ has $H \in [0.37, 0.52]$ at corner columns and $H \approx 1.37$ at interior columns — the U-shape of a labelling function (framework §10, "labelling-CPT trap").
+- **Entropy diagnostic for M1.** Shannon entropy $H(p) = -\sum_i p_i \log_2 p_i$ on a 3-state distribution ranges in $[0, \log_2 3] \approx [0, 1.585]$ bits. Computed over all 27 columns of the current $P(S \mid D, T, P)$, only the two *extreme* corners are sharp ($H = 0.37$ at `none/short/open`, $H = 0.52$ at `severe/long/closed`); the rest is diffuse (20 of 27 columns at $H \ge 1.1$, mean $1.16$, max $1.54$ at `severe/short/open`), and the middle regime is never sharply identified. Two razor-sharp peaks over a broad high-entropy mass — a *continuum*, not a clean two-cluster split — is the diffuse-classifier signature of the labelling-CPT trap (framework §10). Full diagnostic in §A.2.
 - **Regime posterior factorisation.** With $\text{Pa}(S) = \{M, C\}$:
 
   $$P(S = s \mid E) \;\propto\; \sum_{m, c} P(M = m, C = c \mid E_{\text{up}}) \cdot P(S = s \mid m, c) \cdot P(E_{\text{down}} \mid S = s, m, c, \ldots).$$
@@ -250,7 +436,7 @@ Three pieces of work, with **no engineering prerequisites**. Plan 1 ships before
       - $P(P \mid S, U_1, U_3, U_2) = \tilde P(P, S, U_1, U_3, U_2) / \tilde P(S, U_1, U_3, U_2)$.
    4. **Regime CPT.** $P(S \mid M, C) = \tilde P(S, M, C) / \tilde P(M, C)$.
 
-   This procedure is reproducible from the current `src/network.py`. It produces **coherent starting CPTs** that reflect the modeller's existing elicited beliefs projected onto the new topology — a defensible bootstrap that lets Plan 1 ship without waiting for Plan 4 Layer 2 elicitation, and that will be replaced by elicited values once Plan 4 Layer 2 lands. The procedure is implemented as a one-off offline script at `scripts/derive_latent_regime_anchors.py`; its outputs are committed as literal CPT values in `src/cpt_data.py` and consumed at inference time without re-deriving. The script itself is committed alongside its outputs to provide reproducibility and an audit trail for how the v1 CPTs were derived.
+   This procedure is reproducible from the current `src/network.py`, and it is a principled bootstrap — but its two halves carry very different epistemic weight, and §A.2.4 is the reason. The **modes** transfer faithfully: $\arg\max_d P(D \mid S{=}s, M, C)$ inherits the dominant outcome region the old classifier already associated with each scenario, so the emission peaks should line up with the client's narrative signatures (checked, not assumed — see §B.3). The **off-mode tails**, by contrast, are an *artifact of the inversion*, not a belief about regime behaviour: the old labelling CPT was never elicited as a set of regime emissions, so $P(D{=}\text{moderate} \mid S{=}\text{Severe}, M, C)$ falls out as whatever mass the upstream joint happens to leave in cells the classifier still attributes partly to Severe — i.e. *classifier-boundary fuzziness*, not "how often a Severe regime produces moderate damage." Since §A.2.4 makes precisely those tails the regime's real informational content (they are what dissolve the $\Lambda = \infty$ degeneracy and carry each regime's distinguishing signal), the honest statement is: **the bootstrap pins the modes and supplies degeneracy-safe non-zero tails, but the tail *magnitudes* carry no genuine regime information until Plan 4 Layer 2 re-elicits them.** This is an acceptable v1 — it ships a coherent, non-degenerate model whose peaks match the narratives and whose Bayes factors are finite — *provided the plan says exactly this* rather than overselling the tails as elicited belief. The procedure is implemented as a one-off offline script at `scripts/derive_latent_regime_anchors.py`; its outputs are committed as literal CPT values in `src/cpt_data.py` and consumed at inference time without re-deriving. The script itself is committed alongside its outputs to provide reproducibility and an audit trail for how the v1 CPTs were derived.
 
    **Concentrations.** Provisional $\kappa = 10$ on every emission CPT and on $P(S \mid M, C)$ — the framework §9 default for regime-conditional CPTs whose epistemic basis is genuinely uncertain rather than empirical historical pattern-matching. Plan 4 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance` and `PymcBackend` consumes them from there. Plan 1 is therefore correct-but-provisional on the new CPT parameters; Plan 4 produces the defensible elicited replacements.
 
@@ -275,6 +461,10 @@ Subsequent Plan 3 phases lift these deliverables into the dual-backend architect
 - **Qualitative posteriors.** The latent-regime model produces qualitatively-sensible posteriors on canonical test evidence: escalation sequence (sanctions tightening → high militia → major military → full closure) pushes Severe up; de-escalation sequence (negotiations success → low militia → none military → no closure) pushes Stress up.
 
 - **Bayes factors.** $\Lambda_{s_1, s_2}$ computable on the canonical evidence configurations and consistent with the regime posterior shift implied by Bayes' rule.
+
+- **Anchor-CPT mode check (the §A.2.4 narrative invariant, applied to the bootstrap).** For each emission CPT produced by `derive_latent_regime_anchors.py`, confirm that $\arg\max$ over the emitted variable, at that scenario's modal parent context, equals the client's stated narrative signature — e.g. $\arg\max_d P(D \mid S{=}\text{Severe}, M{=}\text{major}, C{=}\text{closed}) = \text{severe}$. This applies §A.2.4's validation invariant to *Plan 1's bootstrap*, not only to Plan 4's elicitation: if the inverted labelling CPT misplaces a mode, that is the signal the old classifier was too soft to bootstrap from, and the offending CPT is hand-corrected (or the narrative re-examined) before ship. Reported per (scenario, context) cell, so a miss is localised rather than hidden in an aggregate.
+
+- **Non-degeneracy floor (preserve finite Bayes factors).** Confirm every emission-CPT cell is strictly positive — no exact zeros — so the $\Lambda = \infty$ degeneracy that §A.2.3 / §A.2.4 dissolve cannot re-enter through a bootstrapped zero tail. The inversion already yields non-zero tails wherever the labelling CPT assigns non-zero off-mode mass (verified: e.g. the `severe/long/closed` column is $[0.01, 0.09, 0.90]$ — no zeros), but the check enforces a small floor $\varepsilon_{\min}$ and renormalises if any derived cell rounds to zero, guaranteeing finite, composable Bayes factors from the gate. This is the engineering guarantee behind §A.2.4's claim that off-mode mass is "non-zero by construction."
 
 - **Synthetic-data calibration.** Sample from the new model under a known true regime $s^\star$, run inference on the simulated evidence, check that the average log-Bayes-factor $\log \Lambda_{s^\star, s}$ in favour of the true regime grows roughly linearly in the number of independent emissions observed. Standard self-consistency check for any latent-variable inference; protects against silent emission-CPT errors.
 
@@ -325,17 +515,11 @@ Plan 1 has no dependency on Plan 3. The pgmpy `BNInferenceEngine` already suppor
 
 ### Plan 4 — Elicitation methodology (`04_elicitation_tool_plan.md`)
 
-Plan 4 Layer 2 (protocol implementations) elicits the new CPTs introduced by Plan 1. The CPTs that experts elicit change shape entirely:
+Plan 4 Layer 2 elicits the four new CPTs — three emissions $P(D \mid S, \ldots)$, $P(T \mid S, \ldots)$, $P(P \mid S, \ldots)$ and the regime CPT $P(S \mid M, C)$ — that replace the deleted labelling CPT $P(S \mid D, T, P)$. *Why* the questions invert (from labelling "given outcomes, which regime?" to generative-and-context-conditional "given the regime and context, what do outcomes look like?"), why the off-mode tails carry the regime's real content, and why emissions must be anchored before the prior to break the identifiability degeneracy — all of that is the canonical treatment in §A.2.4 and is not restated here. What is genuinely Plan 4's concern:
 
-- The old labelling CPT $P(S \mid D, T, P)$ is gone.
-- New emission CPTs $P(D \mid S, \ldots)$, $P(T \mid S, \ldots)$, $P(P \mid S, \ldots)$ are elicited from scratch with $S$ as an additional parent.
-- A new regime CPT $P(S \mid M, C)$ is elicited.
-
-The elicitation questions become **generative** ("given the regime, what does damage look like?") and **context-conditional** ("given military response and closure status, what's the regime prior?") rather than labelling ("given outcomes, which regime?"). The framework's §6 recipe is the elicitor's playbook.
-
-**Open question for Plan 4 Layer 2:** does expert opinion support a defensible direct $U_3 \to S$ effect that would justify upgrading $\text{Pa}(S)$ from $\{M, C\}$ to $\{U_3, M, C\}$? This is the v2 question the §A.4 blind-spot triage leaves open. If yes, the CPT becomes $P(S \mid U_3, M, C)$ — 18 columns instead of 9. If no, Plan 1's $\{M, C\}$ choice ships unchanged.
-
-Plan 4 Layer 4 (integration) round-trips the elicited CPTs back into `NetworkSpec` and the per-CPT $\kappa$ values become elicited outputs that `PymcBackend` consumes via the provenance pathway.
+- **Protocol mapping.** The framework's §6 elicitation recipe is the elicitor's playbook; Layer 2 maps it onto a concrete expert-elicitation protocol (Cooke's classical model / SHELF / IDEA) for these four CPTs, and supplies the §A.2.4 validation invariant ($\arg\max$ of each elicited emission must equal the client's stated narrative signature) as an acceptance check.
+- **κ routing.** Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance`, which `PymcBackend` consumes via the provenance pathway — replacing Plan 1's provisional uniform $\kappa = 10$.
+- **Open question — does $U_3$ join $\text{Pa}(S)$?** Layer 2 decides whether expert opinion supports a defensible direct $U_3 \to S$ effect justifying $\text{Pa}(S) = \{U_3, M, C\}$ ($P(S \mid U_3, M, C)$, 18 columns instead of 9). The §A.4 blind-spot triage leaves this open; if no, Plan 1's $\{M, C\}$ ships unchanged.
 
 ### Plan 5 — Dashboard UI (`05_dashboard_ui_plan.md`)
 
@@ -355,7 +539,7 @@ Bayes factors as first-class outputs change how the dashboard communicates evide
 2. **Topology.** $S$ is an internal latent. $S \to D, T, P$ replaces $D, T, P \to S$ (R4 restoration). $\text{Pa}(S) = \{M, C\}$ (R5 satisfaction modulo the $U_3$ blind spot).
 3. **Parent set $\text{Pa}(S) = \{M, C\}$ for v1.** Satisfies R5a for $\{U_1, U_2, U_4, A, K\}$. $U_3$ documented as an accepted blind spot (see §A.4 and §E). $\{M\}$-only is rejected on R5b parsimony-exception grounds (closure-evidence sensitivity narrative; see §A.4).
 4. **Backend approach: Plan 1 ships on the existing pgmpy code path; Plan 3 lifts it into the dual-backend architecture later.** Plan 1 edits `src/network.py`, `src/cpt_data.py`, and `src/inference.py` directly — no `NetworkSpec`, no `PgmpyBackend`, no `PymcBackend`. The three-clamped-inferences pattern for Bayes-factor extraction is a helper alongside the existing `BNInferenceEngine`. Plan 3 Phase 0 lifts the modified `src/network.py` into a `NetworkSpec`; Phase 1 wraps `BNInferenceEngine` and the Bayes-factor helper inside `PgmpyBackend`; Phase 2 adds `PymcBackend` with PyMC-native latent-regime support, validated for parity against Plan 1's pgmpy implementation. After Phase 2, the dispatcher routes to either backend for latent-regime specs.
-5. **Anchor-derivation procedure.** B.1 item 2's deterministic inversion (run current BN, multiply by current labelling CPT, marginalise + divide) produces all four new CPTs as coherent starting values that reflect the modeller's existing beliefs projected onto the new topology. These are bootstrap values that will be replaced by Plan 4 Layer 2 elicitation.
+5. **Anchor-derivation procedure.** B.1 item 2's deterministic inversion (run current BN, multiply by current labelling CPT, marginalise + divide) produces all four new CPTs as a v1 bootstrap. Honest scope (per §B.1 and §A.2.4): the inversion transfers the emission **modes** faithfully (peaks match the narratives, checked in §B.3) and yields degeneracy-safe non-zero **tails**, but the tail magnitudes are classifier-boundary fuzziness, not regime-emission belief, and carry no genuine regime information until Plan 4 Layer 2 re-elicits them.
 6. **Per-CPT $\kappa$ values: provisional in Plan 1, elicited in Plan 4 Layer 4.** Plan 1 ships uniform $\kappa = 10$ on the emission CPTs and $P(S \mid M, C)$, matching framework §9 for regime-conditional CPTs. Plan 4 Layer 4 round-trips elicited per-CPT $\kappa$ values into `cpt_provenance`.
 7. **Framework write-up as a Plan 1 deliverable.** [docs/scenario_bn_framework.md](scenario_bn_framework.md) is owned by Plan 1 rather than spun out as a separate doc plan. The framework is most defensible when paired with its first worked instance. The write-up lives in its own companion file (this plan's `01_latent_regime_plan.md` references it but does not contain it).
 8. **Plan 1 ownership: conceptual + engineering tracked here; framework write-up in the companion file.** The conceptual decision and the engineering implementation are tracked in this plan; the framework write-up lives in the companion file `docs/scenario_bn_framework.md` per decision 7.
