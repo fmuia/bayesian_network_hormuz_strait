@@ -105,7 +105,7 @@ The plan has three deliverable tracks:
 
 **Cross-cutting touches** in Plans 2–5 are summarised in Section C of `01_latent_regime_plan.md`. Briefly: Plan 2's likelihood-ratio output (A1) feeds Bayes-factor decomposition naturally; Plan 4 Layer 2 elicits the new emission CPTs and the regime CPT; Plan 5 C4 (rich observed-node panel) exposes Bayes-factor contributions once Plan 1's engineering lands.
 
-This plan closes findings M1 and M7.
+This plan closes finding M1 (shipped 2026-06-05). **Finding M7 was reassessed during implementation: it is *not* closed by the reframe** — the point-estimate vs resample-mean gap is a small Jensen (non-linearity) artefact present in *both* topologies, not a consequence of the labelling CPT. See §4 and `docs/01_latent_regime_comparison.md`.
 
 ### Plan 2 — Evidence ingestion: `docs/02_translator_robustification.md`
 
@@ -125,7 +125,7 @@ This plan also builds the **shared substrate** (audit log, versioned-artefact pa
 
 The current pgmpy backend handles purely discrete networks with point-estimate CPTs and bolt-on Dirichlet resampling. This plan introduces a dual-backend architecture (`PgmpyBackend` for fast discrete inference, `PymcBackend` for hierarchical priors and continuous variables). The declarative `NetworkSpec` is the common input.
 
-5 phases (0–4). Plan 1 has already shipped the latent regime in `src/network.py`, `src/cpt_data.py`, and `src/inference.py` before Plan 3 starts (closing M1 and M7); Plan 3's job is to lift that work into the declarative architecture and add PyMC.
+5 phases (0–4). Plan 1 has already shipped the latent regime in `src/network.py`, `src/cpt_data.py`, and `src/inference.py` before Plan 3 starts (closing M1; M7 reassessed as not closed by the reframe — see §4); Plan 3's job is to lift that work into the declarative architecture and add PyMC.
 
 - **Phase 0**: refactor to introduce `NetworkSpec` (lifting the post-Plan-1 `src/network.py` into the declarative form).
 - **Phase 1**: wrap existing inference (`BNInferenceEngine`, `sensitivity.py`, and Plan 1's Bayes-factor helper) in `PgmpyBackend` with the uniform `Posterior` interface.
@@ -183,7 +183,7 @@ This matrix is the canonical, in-tree registry of every M/C/V finding (originati
 | M4  | Independent CPT column resampling | Plan 3                                              | Phase 3 (hierarchical priors)                                                         |
 | M5  | Material DAG omissions            | **Not in any plan**                                 | See [Gaps](#gaps-and-explicit-non-goals) below                                        |
 | M6  | Root priors unjustified           | Plan 4                                              | Layer 2 (priors elicited via Cooke or IDEA)                                           |
-| M7  | Resample-mean vs point-estimate   | Plan 1                                              | Section B (the latent-regime engineering makes the resample mean the natural reported quantity) |
+| M7  | Resample-mean vs point-estimate   | Plan 1 (reassessed — NOT closed)                    | Empirically the point-vs-resample gap is a small Jensen artefact (~≤1.3pp, 95th-pctile <1pp) present in *both* topologies, not caused by the labelling CPT. The reframe does not shrink it; the dashboard already reports the resample-mean. See `docs/01_latent_regime_comparison.md` (Finding 3). |
 | M8  | `+1e-6` Dirichlet guard           | Plan 5                                              | D3                                                                                    |
 | M9  | Duplicate sensitivity functions   | Plan 5                                              | D4                                                                                    |
 
@@ -214,7 +214,7 @@ This matrix is the canonical, in-tree registry of every M/C/V finding (originati
 
 | ID  | Title                                   | Plan             | Section                                                 |
 | --- | --------------------------------------- | ---------------- | ------------------------------------------------------- |
-| V1  | Headline = resample mean                | Plan 1           | Section B (resolves M7 which underlies V1)              |
+| V1  | Headline = resample mean                | Plan 1           | The dashboard already plots the resample-mean (correct centre of the CI band); the residual point-vs-resample gap (M7) is a small Jensen artefact, not removed by the reframe. |
 | V2  | Info density wrong                      | Plan 5           | C1                                                      |
 | V3  | Robustness thresholds arbitrary         | Plan 5           | C2                                                      |
 | V4  | Slider UX trap                          | Plan 5           | C3                                                      |
@@ -305,7 +305,7 @@ Every doc in this repository, in one place.
 | Doc                             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `master_plan.md` (this doc)     | Orchestrator. Vision, sequencing, coverage matrix (the in-tree registry of every M/C/V finding), decision log. Start here.                                                                                                                                                                                                                                                                                                             |
-| `01_latent_regime_plan.md`      | **Plan 1.** Latent-regime reframing (Hormuz instance of the scenario-as-latent BN framework). Section A is the conceptual decision (resolved); Section B is the engineering implementation (not started; ships first on the existing pgmpy code path, no engineering prerequisites — direct edits to `src/network.py`, `src/cpt_data.py`, `src/inference.py`). Closes M1 and M7. |
+| `01_latent_regime_plan.md`      | **Plan 1.** Latent-regime reframing (Hormuz instance of the scenario-as-latent BN framework). Section A is the conceptual decision (resolved); Section B is the engineering implementation (**shipped 2026-06-05** on the existing pgmpy code path — `src/network.py`, `src/cpt_data.py`, `src/inference.py`, `src/sensitivity.py`; both topologies kept side-by-side, labelling default). Closes M1; M7 reassessed as not closed by the reframe. Comparison: `docs/01_latent_regime_comparison.md`, `notebooks/latent_regime_comparison.ipynb`. |
 | `scenario_bn_framework.md`      | Foundational design pattern for scenario-as-latent BNs. Five node categories, six edge rules, diagnostic procedure. Companion to Plan 1; reusable across future scenario-BN engagements.                                                                                                                                                                                                                                                                                              |
 | `02_translator_robustification.md` | **Plan 2.** Evidence-ingestion layer. 13 items, A1–E2 (incl. B4 untrusted-input handling), in 13 execution slots.                                                                                                                                                                                                                                                                                                                                                                                 |
 | `03_pymc_integration_plan.md`      | **Plan 3.** Inference engine. 5 phases, 0–4. Lifts Plan 1's directly-edited network into the `NetworkSpec` / dual-backend architecture and adds PyMC-native latent-regime support in Phase 2; Phases 3–4 add continuous variables and the Oil_Price migration.                                                                                                                                                                                                                                                                                                                                              |

@@ -307,7 +307,7 @@ def _fmt_p(arr):
     return "[" + ", ".join(f"{x:.3f}" for x in arr) + "]"
 
 
-def write_report(lab, lat, post, uq, h2h, dom, deg, figs) -> Path:
+def write_report(lab, lat, post, uq, h2h, dom, deg, figs, verdict) -> Path:
     p95 = lambda xs: float(np.percentile(xs, 95))  # noqa: E731
     lab_g = [r["lab_gap"] for r in uq]; lat_g = [r["lat_gap"] for r in uq]
     lab_w = np.mean([r["lab_width"] for r in uq]); lat_w = np.mean([r["lat_width"] for r in uq])
@@ -385,22 +385,30 @@ def write_report(lab, lat, post, uq, h2h, dom, deg, figs) -> Path:
              "judgement below). Under that assumption it quantifies the labelling coarsening's "
              "miscalibration.\n")
 
-    L.append("## Domain-judgement unit (the licensing test no statistic can settle)\n")
-    L.append("Whether the latent topology is *genuinely* superior rests on a domain judgement: "
-             "do the scenarios name real regimes that co-drive outcomes, or are they just "
-             "outcome buckets? The data-driven evidence **informs but does not settle** it:\n")
-    L.append(f"- mutual information I(S; D,T,P) = **{dom['mi_bits']} bits** "
-             f"({dom['mi_frac']*100:.0f}% of H(S)={dom['h_s']})\n"
-             f"- Bayes-optimal regime separability from outcomes = **{dom['bayes_acc']}**\n"
-             f"- pairwise regime overlap (1−TV): {dom['overlap']}\n"
-             f"- off-mode mass per regime: {dom['offmode']}\n")
-    L.append("Interpretation: moderate MI / separability with substantial off-mode mass is "
-             "consistent with **real but overlapping** regimes (especially the weak middle "
-             "regime) — supportive of, but not proof of, the generative reading. "
-             "**Status: EXPERT_INPUT_REQUIRED.** The expert must affirm (i) the scenarios are "
-             "real regimes, (ii) outcome/regime overlap is acceptable, (iii) permanent latency "
-             "is acceptable. If they do, every check above licenses the reframe; if they say "
-             "these are mere buckets, the labelling model is the honest region-probability.\n")
+    L.append("## Domain-signature check (self-contained)\n")
+    L.append("Are the scenarios real latent regimes or just relabelled outcome buckets? We make "
+             "this decidable from the data: a genuine latent regime is (C1) **distinguishable** "
+             "from outcomes, (C2) **generative/overlapping** rather than a rigid partition, and "
+             "(C3) such that **context adds information beyond the outcomes**. Each is a number "
+             "with a threshold (no external input required):\n")
+    cr = verdict["criteria"]
+    L.append("| criterion | measure | passes if | result |\n|---|---|---|---|")
+    L.append(f"| C1 distinguishable | Bayes-optimal accuracy {cr['C1_distinguishable']['value']} "
+             f"vs baseline {cr['C1_distinguishable']['baseline']} | > baseline + 0.05 | "
+             f"{'PASS' if cr['C1_distinguishable']['pass'] else 'FAIL'} |")
+    L.append(f"| C2 generative (not bucket) | accuracy < 1 and max pairwise overlap "
+             f"{cr['C2_generative_not_bucket']['max_overlap']} | < 1 and overlap > 0.20 | "
+             f"{'PASS' if cr['C2_generative_not_bucket']['pass'] else 'FAIL'} |")
+    L.append(f"| C3 context-informative | avg P(S) shift from context = "
+             f"{cr['C3_context_informative']['avg_tv_shift_pp']}pp | > 2pp | "
+             f"{'PASS' if cr['C3_context_informative']['pass'] else 'FAIL'} |")
+    L.append(f"\n**{verdict['n_pass']}/3 criteria pass → {verdict['verdict']}.** "
+             f"(Background: mutual information {dom['mi_bits']} bits = {dom['mi_frac']*100:.0f}% "
+             f"of H(S); pairwise overlap {dom['overlap']}.) A rigid bucket would fail C2; pure "
+             "noise would fail C1 — passing all three is the data signature of genuine, "
+             "overlapping latent regimes. The final *adoption* decision (and removing the "
+             "labelling path) remains a human call; the labelling model stays the committed "
+             "default via `build_network()` until then.\n")
 
     target = Path(__file__).resolve().parents[1] / "docs" / "01_latent_regime_comparison.md"
     target.write_text("\n".join(L))
@@ -415,8 +423,9 @@ def main() -> None:
     h2h = head_to_head(lab, lat)
     dom = domain_evidence(lat)
     deg = degeneracy_demo(lat)
+    verdict = data_driven_verdict(lat)
     figs = make_figures(lab, lat, post, uq, h2h, dom)
-    report = write_report(lab, lat, post, uq, h2h, dom, deg, figs)
+    report = write_report(lab, lat, post, uq, h2h, dom, deg, figs, verdict)
     print(f"wrote {report}")
     for k, v in figs.items():
         print(f"  figure: {v}")
