@@ -14,6 +14,8 @@ This plan delivers the **elicitation methodology layer** for the platform: a mul
 
 The plan is structured as **six layers in scope** (Layers 0 through 5) plus a deferred commercial Layer 6 (billing, onboarding, support) that ships only when paying customers exist. Layer 0 is the data model and storage substrate that extends Plan 2's audit log; Layer 1 is the mathematical engine (aggregation primitives, ranked nodes, sensitivity analysis); Layer 2 implements three elicitation protocols (Cooke's classical model, IDEA, SHELF) as configurable workflows; Layer 3 is the Streamlit UI; Layer 4 integrates with Plan 3's inference engine; Layer 5 adds advanced features (LLM-proposed CPTs, calibration tracking, ranked-node UI).
 
+An optional extension, **Layer 5.5 (agentic AI experts)**, lets LLM agents *participate in the protocols as contributors* — but only as **calibration-validated** ones: scored on the same seed questions as human experts (reusing the Cooke machinery), weighted by measured performance, composed across diverse base models to control correlated error, and always attributable in provenance with human sign-off for high-stakes work. The positioning is **calibration-validated AI elicitation**, not "AI replaces experts." The peer-reviewed methodology this rests on — structured expert judgment, LLM forecasting/calibration, multi-agent aggregation, and LLM-elicited priors — is catalogued with primary sources in **Section E**, each annotated with how it supports the design and where further research or stronger validation is warranted.
+
 The platform is positioned as **methodology-as-product** with an **open-core licensing model**: the inference engine, mathematical primitives, and protocol implementations are open-source; the commercial layer (deployment automation, support, hosted version, premium integrations) is closed. Deployment shape is **multi-deployment, single-tenant per deployment** — each customer engagement gets its own isolated stack rather than sharing infrastructure SaaS-style. This matches the high-stakes regulatory and consulting-led nature of the use cases.
 
 ## Context
@@ -329,6 +331,38 @@ Subsystem 4 also feeds back into the Cooke protocol from Layer 2: experts who pa
 - Tier 3 historical replays produce Bayes-factor trajectories that match expert-judged "true" trajectories on the historical analog events (within calibrated noise).
 - Cooke weights for experts update sensibly as their accrued predictions are scored against outcomes.
 
+### Layer 5.5 — Agentic AI experts (calibration-validated)
+
+**Status.** ⬜ not started — extension of Layer 5; optional. Ships only after the human protocols (Layer 2) and the calibration substrate (Layers 0 and 5) exist, because it *reuses* them.
+**Resolves.** Extends diagnosis items 1, 2, 3, 10 to the case where some or all "experts" are LLM agents — to accelerate and scale elicitation **without** sacrificing defensibility.
+
+**Positioning — "calibration-validated AI elicitation," not "AI replaces experts."** Layer 5.1 already uses an LLM as a *proposer*. This layer lets LLM agents act as *experts inside the protocols*, but strictly as far as their **measured calibration** licenses. The enabler is that Cooke's seed-question scoring (Layer 2) is itself a calibration test: an LLM "expert" answers the same known-answer seeds a human would, is scored identically (statistical accuracy × information), and is weighted — or zeroed below the cutoff — on that evidence. This turns "should we trust the AI's numbers?" from faith into a measured, auditable quantity. (Evidence base in Section E.2.)
+
+**Three modes (increasing autonomy, decreasing stakes-appropriateness):**
+
+1. **Proposer** (already Layer 5.1). LLM drafts CPTs via RAG; humans are the experts and sign off. Any stakes.
+2. **One scored voting member.** An LLM agent joins a human IDEA/Cooke panel as one more `expert` row with its own `expert_calibration` record from the seeds; its weight is its measured performance. Humans retain sign-off. Mid-stakes, or high-stakes as an adjunct.
+3. **Fully automated panel** (fast/cheap tier + red-team). A panel of *diverse* LLM agents runs an entire IDEA or Cooke workflow end-to-end (estimate → discuss → revise → aggregate, or seed-score → weight → pool), emitting a CPT plus a calibration report with no human in the loop. For low/medium-stakes bulk CPT generation and as an adversarial red-team that widens human panels' blind spots — **not** for regulatory high-stakes without human review.
+
+**The correlation problem (handled, not hidden).** LLM agents off the *same* base model are not independent — they share training data and biases, so naive pooling overstates confidence. Mitigations, all recorded in provenance: (i) compose panels from **genuinely different base models** (e.g., Claude + GPT + open-weights), not just personas/temperatures of one; (ii) estimate and report inter-agent correlation; (iii) shrink the effective sample size / down-weight accordingly. The empirical backbone: a *diverse 12-model ensemble* matched human crowds (Schoenegger et al. 2024) whereas a *single* GPT-4 did not (Schoenegger & Park 2023) — diversity is doing the work (Section E.2).
+
+**Why the existing abstractions already fit.** An LLM agent is just another `expert` (Layer 0) with an `expert_calibration` record, driven through the same `ElicitationProtocol` state machine and `CookeProtocol` seed-scoring (Layer 2). No restructuring — this layer is purely additive.
+
+**Deliverables.**
+
+- `src/elicitation/agents/llm_expert.py` — `LLMExpert` adapter implementing the *same* per-step interface a human uses (answer a quantile question, revise after discussion, etc.).
+- `src/elicitation/agents/panel.py` — multi-model panel orchestration (diverse providers); IDEA/Cooke runners over LLM experts.
+- `src/elicitation/agents/decorrelation.py` — inter-agent correlation estimation and effective-weight adjustment.
+- `src/elicitation/agents/calibration_report.py` — per-agent seed-calibration scores + panel-level report, written to `cpt_provenance`.
+- `tests/elicitation/test_llm_experts.py` — seed-scoring on a known-answer set; a poorly-calibrated agent is down-weighted/zeroed; same-model correlation is detected.
+
+**Validation.**
+
+- An LLM expert scored on the deployment's seed set yields a calibration score; under **leave-one-seed-out cross-validation** its weighted contribution does not degrade the Decision Maker versus equal weight — the Clemen (2008) test (Section E.1), applied to AI experts.
+- Same-model agents show high measured correlation; cross-model agents lower — and the effective weight adjusts accordingly.
+- A fully-automated panel's CPT lands within a stated tolerance of a human-elicited reference CPT on a back-test set, with calibration reported.
+- Every AI-sourced CPT is flagged in `cpt_provenance` with its calibration score, model set, and correlation note — a hard defensibility requirement.
+
 ### Layer 6 — Commercial layer (deferred)
 
 **Status.** ⬜ not started — deferred until paying customers exist.
@@ -354,6 +388,7 @@ The decisions below are resolved.
 8. **Calibration tiers — Decided: three tiers with phased introduction.** Tier 1 (translator-level) shipped via Plan 2's D2. Tier 2 (intermediate-node) infrastructure in Layer 5 from day one; signal accumulates over months. Tier 3 (Bayes factor / regime trajectory) deferred until the latent regime (Plan 1) is in production.
 9. **Translator coupling — Decided: deep.** The translator's audit log (Plan 2 D3) is the source of analog historical events for anchored elicitation; the translator's RAG memory (Plan 2 E2) feeds LLM-proposed CPT values; the translator's HITL queue (Plan 2 E1) serves elicitation proposals.
 10. **Cooke calibration question set — Decided: per-deployment.** Each customer engagement constructs its own domain-relevant calibration question set during onboarding. Re-used across all Cooke protocol runs in that deployment. Mostly relevant for the Hormuz reference deployment in the near term; corporate deployments using IDEA or SHELF do not require it.
+11. **Agentic AI experts — Decided: calibration-validated, additive, attributable (Layer 5.5).** LLM agents may act as experts *only* via the same seed-scoring as humans; panels must be **multi-model** (decorrelation), every AI-sourced CPT is flagged in `cpt_provenance` with its calibration score, model set, and correlation note, and **human sign-off is required for high-stakes** work. Positioning is "calibration-validated AI elicitation," not replacement. The methodology rests on the peer-reviewed work catalogued in Section E.
 
 ## Section C — Open questions
 
@@ -364,6 +399,8 @@ These do not block Layer 0 but should be resolved before the corresponding layer
 | Per-deployment Postgres setup automation | Layer 0 | Docker Compose for the engineering MVP; Terraform / Helm for production. Choose toolchain. |
 | Auth provider for SSO integration | Layer 0 | Self-hosted (Keycloak, Authentik) vs hosted (Auth0, Clerk). Recommend hosted for v1 to ship faster. |
 | LLM model for proposal generation | Layer 5 | Anthropic API (Claude) or OpenAI? Coupled to Plan 2's translator provider choice. |
+| AI-panel model diversity & correlation handling | Layer 5.5 | How many distinct base models, and how to estimate/adjust for inter-agent correlation. Backed by Schoenegger et al. 2024 vs Schoenegger & Park 2023 (Section E.2). |
+| Leakage-free seed set for AI calibration | Layer 5.5 / Layer 2 | LLM training-data contamination can inflate seed scores; need rolling, post-cutoff seeds (ForecastBench-style; Section E.2) so AI-expert calibration can't be gamed. |
 | Cooke calibration question set design | Layer 2 | Hormuz-specific seed questions need authoring with domain experts. Bootstrapping cost. Defer until Layer 2 ships and the first Cooke deployment is concrete. |
 | UI upgrade trigger | Layer 3 | When does Streamlit stop being sufficient? Define the criterion (e.g., > N concurrent users per deployment, > M custom UI components needed). |
 | Open-source license choice | Layer 0 | MIT, Apache 2.0, BSD-3? Recommend Apache 2.0 for patent grant; compatible with open-core commercial layer. |
@@ -380,8 +417,67 @@ For coherence with the format used in Plans 2 and 3:
 | 4 | 3 — UI layer (Streamlit) | Usability | Makes Layers 0–2 accessible to analysts and domain experts. v1 milestone: end-to-end elicitation usable by non-engineers. |
 | 5 | 4 — Integration with inference | Diagnosis item 9 | Elicited CPTs → `NetworkSpec` → `PgmpyBackend` / `PymcBackend`. Round-trip with Plan 3's inference layer. |
 | 6 | 5 — Advanced features | Diagnosis items 1, 2, 3, 10 | LLM-proposed CPTs, ranked-node UI, sensitivity prioritization, calibration tiers 2 and 3, Cooke weight updates from outcomes. |
+| 6b | 5.5 — Agentic AI experts (extension, optional) | Items 1, 2, 3, 10 (AI-assisted) | LLM agents as calibration-scored experts; multi-model panels with decorrelation; provenance-flagged; human sign-off for high-stakes. Additive to Layer 5. |
 | 7 | 6 — Commercial layer | Productisation | Deferred until paying customers exist. Billing, onboarding, support, tenant config UI. |
+
+## Section E — Related work and methodology provenance
+
+All references below were verified against primary sources (focused search, June 2026). Each entry states what the work is, **how it supports** this plan's methodology, and **where it points to further research or stronger validation**. This section is the evidence base for Layers 2 (protocols), 5 (calibration), and 5.5 (agentic AI experts).
+
+### E.1 Structured expert judgment — the human protocols and their validity debate
+
+- **Aspinall (2010), *A route to more tractable expert advice*, Nature 463:294–295.** Opinion piece arguing for Cooke's performance-weighted ("classical model") elicitation; documents the Montserrat volcano crisis where a weighted expert panel produced usable guidance within ~2 hours.
+  - *Supports:* the case that structured, performance-weighted elicitation is decision-grade in high-stakes settings — the rationale for Cooke being Layer 2's regulatory-tier protocol.
+  - *Research/validation:* instrument our tooling to measure wall-clock from question to defensible CPT, and reproduce the "fast, usable guidance" property as a product metric.
+
+- **Hemming, Burgman, Hanea, McBride & Wintle (2018), *A practical guide to structured expert elicitation using the IDEA protocol*, Methods in Ecology and Evolution 9(1):169–180.** Step-by-step IDEA: investigate → individual estimates **with credible intervals** → feedback vs other experts → discuss → private revision → aggregate.
+  - *Supports:* the concrete IDEA state machine in Layer 2, including the interval-feedback step.
+  - *Research/validation:* adopt their interval-rescaling (extrapolate each expert's stated interval to a fixed 90% interval) as an explicit Layer 1 debiasing primitive, and A/B test its effect on our elicited CPTs.
+
+- **SHELF — Gosling (2018), *SHELF: The Sheffield Elicitation Framework* (in *Elicitation*, Springer); O'Hagan & Oakley, `SHELF` R package (CRAN).** Behavioural aggregation: a facilitator guides the group to a single consensus ("rational impartial observer") distribution; roulette and quantile elicitation modes.
+  - *Supports:* the SHELF protocol and its roulette/quantile UIs in Layers 2–3.
+  - *Research/validation:* use the CRAN `SHELF` distribution-fitting routines as a reference oracle to cross-check our Layer 1 fitters.
+
+- **Clemen (2008), *Comment on Cooke's classical method*, Reliability Engineering & System Safety 93(5):760–765**, with the defense in **Colson & Cooke (2018), *Expert Elicitation: Using the Classical Model to Validate Experts' Judgments*, Review of Environmental Economics and Policy 12(1):113–132.** The active cross-validation debate: does performance-weighting actually beat equal-weighting *out of sample*?
+  - *Supports:* makes leave-one-seed-out **cross-validation a first-class acceptance test** in our calibration layer, not an afterthought — and tells us to report performance-weight vs equal-weight head-to-head per deployment.
+  - *Research/validation:* implement leave-one-seed-out scoring (Layer 5) for both human and (Layer 5.5) AI panels; this is exactly the test Layer 5.5's validation invokes.
+
+### E.2 LLM forecasting and calibration — the basis for AI experts
+
+- **Kadavath et al. (2022), *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 (Anthropic).** Larger LMs are reasonably calibrated on multiple-choice / true-false when formatted correctly, and can partly self-predict whether they know an answer.
+  - *Supports:* the premise that an LLM's probabilities are *measurable and sometimes usable* — the precondition for seed-scoring an LLM expert (Layer 5.5).
+  - *Research/validation:* the "mostly" is the catch — measure our agents' calibration on **domain** seeds, not generic benchmarks, before granting them any weight.
+
+- **Lin, Hilton & Evans (2022), *Teaching Models to Express Their Uncertainty in Words*, arXiv:2205.14334.** Proof of concept that a model can emit **calibrated verbalized confidence** (e.g. "90% confident") on a task (CalibratedMath).
+  - *Supports:* lets an LLM expert answer the *same* verbalized-quantile questions a human does in SHELF/IDEA/Cooke.
+  - *Research/validation:* compare verbalized vs logit-derived confidence for our categorical CPT columns; fit and recalibrate the agent's stated quantiles.
+
+- **Halawi, Zhang, Yueh-Han & Steinhardt (2024), *Approaching Human-Level Forecasting with Language Models*, arXiv:2402.18563.** A retrieval-augmented LM forecasting system that, on post-cutoff questions, **nears (and sometimes beats) the competitive-human crowd aggregate**.
+  - *Supports:* the RAG-augmented proposer (Layer 5.1) and the viability of LLM experts — *provided they retrieve, not merely recall*.
+  - *Research/validation:* wire agent elicitation to Plan 2's RAG memory (E2) and test whether retrieval measurably improves seed-calibration.
+
+- **Schoenegger et al. (2024), *Wisdom of the Silicon Crowd*, Science Advances (arXiv:2402.19379)** and **Schoenegger & Park (2023), *Large Language Model Prediction Capabilities*, arXiv:2310.13014.** A **diverse 12-model ensemble** matched a 925-person human crowd; a **single GPT-4** was no better than chance (50%-everything).
+  - *Supports:* the **multi-model-diversity requirement** for AI panels (Layer 5.5) — the empirical backbone of the correlated-error argument.
+  - *Research/validation:* quantify the diversity↔accuracy trade-off on our domain; find the minimum viable model-diversity for a calibrated panel.
+
+- **Karger et al. (2024), *ForecastBench: A Dynamic Benchmark of AI Forecasting Capabilities*, arXiv:2409.19839 (ICLR 2025).** Leakage-free, continuously-updated forecasting benchmark; on a held-out subset **expert humans still beat the best LLM (p = 0.01)**.
+  - *Supports:* honest positioning — AI experts are an **adjunct, not a replacement**, especially high-stakes (Layer 5.5 mode limits).
+  - *Research/validation:* adopt a ForecastBench-style **rolling, post-cutoff seed set** per deployment so AI-expert calibration cannot be inflated by training-data contamination.
+
+### E.3 Multi-agent LLMs and LLM-elicited priors
+
+- **Du, Li, Torralba, Tenenbaum & Mordatch (2023), *Improving Factuality and Reasoning in Language Models through Multiagent Debate*, arXiv:2305.14325 (ICML 2024).** Multiple LLM instances propose and **debate over rounds**, improving reasoning/factuality and reducing hallucination.
+  - *Supports:* the "discuss" phase of an automated IDEA panel (Layer 5.5 mode 3).
+  - *Research/validation:* test whether debate genuinely *adds information* or merely amplifies the shared-prior (correlation) failure — measure post-debate calibration against round-1. (This paper reports gains; the correlation risk is our open question, not its finding.)
+
+- **Capstick, Krishnan & Barnaghi (2024), *AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling*, arXiv:2411.17284 (ICML 2025).** LLMs produce **Gaussian priors (mean + sd) for linear-model parameters**; priors are informative, natural-language-refinable, and beat in-context learning (case study saved ~6 months of labelling).
+  - *Supports:* the closest published precedent for "LLM → Bayesian prior"; validates both the proposer (Layer 5.1) and the (θ̂, κ) → Dirichlet-prior path (Layer 4).
+  - *Research/validation:* **extend AutoElicit's linear-Gaussian result to categorical CPT columns / Dirichlet priors** — our actual target, and an open, publishable step.
+
+### E.4 The gap this plan occupies
+
+A focused June 2026 search did not surface a standardized, published method that **marries Cooke's classical model (seed-validated, performance-weighted, poor experts zeroed) to an *LLM* expert panel feeding a Bayesian network's CPTs.** The components above are validated *separately* — structured expert judgment (E.1), LLM forecasting/calibration (E.2), multi-agent aggregation and LLM-elicited priors (E.3). Layer 5.5 assembles them. This is both the **differentiation** (a defensible, calibration-validated AI-elicitation product) and a genuine **research contribution** (we cannot prove the negative, but the configuration appears under-occupied). It should be validated with the same rigour the SEJ literature demands: domain seed sets, leave-one-seed-out cross-validation, and explicit correlation accounting.
 
 ---
 
-**End of plan.** Companion plans: `docs/02_translator_robustification.md` (Plan 2, evidence ingestion) and `docs/03_pymc_integration_plan.md` (Plan 3, inference engine). Math context: `docs/01_latent_regime_plan.md` Section A.8.
+**End of plan.** Companion plans: `docs/02_translator_robustification.md` (Plan 2, evidence ingestion) and `docs/03_pymc_integration_plan.md` (Plan 3, inference engine). Math context: `docs/01_latent_regime_plan.md` Section A.8. Methodology provenance: Section E above.
