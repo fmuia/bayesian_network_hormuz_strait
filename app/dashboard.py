@@ -47,7 +47,7 @@ from src.translator import (
     is_available as translator_available,
     translate_headline,
 )
-from src.viz import build_agraph_payload, render_network_png
+from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -444,26 +444,41 @@ st.markdown(
 
 
 # ---------------------------------------------------------------------------
+# Topology
+# ---------------------------------------------------------------------------
+# The dashboard runs on the Plan 1 latent-regime topology (Scenario is a latent
+# cause generating the outcomes). The labelling model remains available via
+# build_network("labelling") for the comparison notebook/scripts, but is not
+# surfaced here.
+TOPOLOGY = "latent_regime"
+
+
+# ---------------------------------------------------------------------------
 # Cached resources
 # ---------------------------------------------------------------------------
 
 
 @st.cache_resource
-def get_engine() -> BNInferenceEngine:
-    return BNInferenceEngine(build_network())
+def get_engine(topology: str = "labelling") -> BNInferenceEngine:
+    return BNInferenceEngine(build_network(topology))
 
 
 @st.cache_data(show_spinner=False)
 def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
+    topology: str = "labelling",
 ) -> Dict[str, Tuple[float, float, float]]:
-    return scenario_credible_intervals(dict(evidence_items), m=200, concentration=20.0)
+    return scenario_credible_intervals(
+        dict(evidence_items), m=200, concentration=20.0,
+        base_network=build_network(topology),
+    )
 
 
 @st.cache_data(show_spinner="Computing node uncertainty…")
 def cached_node_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
+    topology: str = "labelling",
 ) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
     soft = {node: dict(dist) for node, dist in soft_evidence_items}
     return node_credible_intervals(
@@ -471,6 +486,7 @@ def cached_node_credible_intervals(
         soft_evidence=soft,
         m=200,
         concentration=20.0,
+        base_network=build_network(topology),
     )
 
 
@@ -582,7 +598,18 @@ def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     return hard_merged, soft_merged
 
 
-def _render_model_overview() -> None:
+def _render_model_overview(topology: str = "labelling") -> None:
+    if topology == "latent_regime":
+        scenario_clause = (
+            "a latent <b>Scenario</b> regime that <i>generates</i> the damage, "
+            "duration, and diplomatic-path outcomes (with context parents US "
+            "military response and strait closure)"
+        )
+    else:
+        scenario_clause = (
+            "a terminal <b>Scenario</b> node classified from the damage, "
+            "duration, and diplomatic-path outcomes"
+        )
     st.markdown(
         "<div class='explain'>"
         "<p>The Bayesian network encodes qualitative causal structure "
@@ -591,7 +618,7 @@ def _render_model_overview() -> None:
         "<b>eight intermediate nodes</b> (Iran-aligned militia attacks, tanker "
         "incidents, US military response, strait closure, energy "
         "infrastructure damage, conflict duration, diplomatic path, "
-        "oil price regime), and a terminal <b>Scenario</b> node "
+        f"oil price regime), and {scenario_clause} "
         "whose three states correspond to the client's strategic "
         "scenarios.</p>"
         "<h4>Two layers</h4>"
@@ -892,7 +919,7 @@ with st.sidebar:
 # MAIN COMPUTATION
 # ===========================================================================
 
-engine = get_engine()
+engine = get_engine(TOPOLOGY)
 engine.clear_evidence()
 evidence, soft_evidence = _merged_evidence()
 if evidence:
@@ -905,7 +932,7 @@ ci_evidence = dict(evidence)
 for node, dist in soft_evidence.items():
     ci_evidence[node] = max(dist, key=dist.get)
 with st.spinner("Quantifying parameter uncertainty…"):
-    ci_table = cached_credible_intervals(tuple(sorted(ci_evidence.items())))
+    ci_table = cached_credible_intervals(tuple(sorted(ci_evidence.items())), TOPOLOGY)
 
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
@@ -916,6 +943,7 @@ soft_evidence_ci_items = tuple(
 node_ci_table = cached_node_credible_intervals(
     tuple(sorted(evidence.items())),
     soft_evidence_ci_items,
+    TOPOLOGY,
 )
 
 # Map each observed node to the latest day it was set.
@@ -936,7 +964,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 with st.expander("How this model works", expanded=False):
-    _render_model_overview()
+    _render_model_overview(TOPOLOGY)
 
 
 # ===========================================================================
@@ -1040,10 +1068,10 @@ with st.container(border=True):
         )
     else:
         history_rows: List[Dict] = []
-        engine_h = get_engine()
+        engine_h = get_engine(TOPOLOGY)
         engine_h.clear_evidence()
         priors = engine_h.get_prior_probabilities()
-        prior_ci = cached_credible_intervals(tuple())
+        prior_ci = cached_credible_intervals(tuple(), TOPOLOGY)
         history_rows.append({
             "Day": 0, "HeadlinesOnDay": "(prior)", "n_obs": 0,
             "ci": prior_ci, **priors,
@@ -1077,7 +1105,7 @@ with st.container(border=True):
                 for node, dist in cum_soft.items():
                     day_ci_evidence[node] = max(dist, key=dist.get)
                 day_ci = cached_credible_intervals(
-                    tuple(sorted(day_ci_evidence.items()))
+                    tuple(sorted(day_ci_evidence.items())), TOPOLOGY
                 )
                 history_rows.append({
                     "Day": day,
@@ -1342,10 +1370,13 @@ with tab_net:
                 unsafe_allow_html=True,
             )
             st.markdown("<div style='height:0.25rem;'></div>", unsafe_allow_html=True)
+            _topo_edges, _topo_levels = TOPOLOGY_LAYOUT[TOPOLOGY]
             nodes, edges, config = build_agraph_payload(
                 all_marginals,
                 observed=evidence,
                 observed_day=observed_day_map,
+                edges=_topo_edges,
+                node_level=_topo_levels,
             )
             clicked = agraph(nodes=nodes, edges=edges, config=config)
             st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
@@ -1603,6 +1634,44 @@ _EDGE_OMISSIONS: list[tuple[str, str, str]] = [
      "directly."),
 ]
 
+# --- Latent-regime topology (Plan 1) -----------------------------------------
+# The three {D,T,P} -> Scenario classifier edges reverse into emissions, and
+# Scenario gains the context parents {US_Military_Response, Strait_Operationally_Closed}.
+_LATENT_SCENARIO_EDGES: list[tuple[str, str, str]] = [
+    ("US_Military_Response", "Scenario",
+     "Context parent of the regime: a major US military response raises the prior "
+     "for the Severe/Prolonged regimes before any outcome is observed."),
+    ("Strait_Operationally_Closed", "Scenario",
+     "Context parent of the regime: observed strait closure is a strong prior signal "
+     "for the Severe regime. Retained alongside military response (partly redundant) "
+     "for closure-evidence sensitivity — a deliberate parsimony exception."),
+    ("Scenario", "Energy_Infrastructure_Damage",
+     "Emission: the regime generates damage. The Severe regime concentrates mass on "
+     "severe damage but keeps nonzero off-mode mass (overlap is by design)."),
+    ("Scenario", "Conflict_Duration",
+     "Emission: the regime generates conflict duration (Prolonged/Severe lean long)."),
+    ("Scenario", "Diplomatic_Resolution_Path",
+     "Emission: the regime generates the diplomatic path (Stress leans open, "
+     "Severe leans closed)."),
+]
+_EDGE_RATIONALE_LATENT: list[tuple[str, str, str]] = (
+    [e for e in _EDGE_RATIONALE if e[1] != "Scenario"] + _LATENT_SCENARIO_EDGES
+)
+_EDGE_OMISSIONS_LATENT: list[tuple[str, str, str]] = (
+    [e for e in _EDGE_OMISSIONS if e[1] != "Scenario"] + [
+        ("Third_Party_Mediation", "Scenario",
+         "Documented blind spot (Plan 1 §A.4): mediation has no direct path to the "
+         "regime in v1 — it reaches Scenario only indirectly, through the diplomatic-"
+         "path and duration emissions. Accepted for v1; candidate direct parent in "
+         "Plan 4."),
+    ]
+)
+
+_RATIONALE_BY_TOPOLOGY = {
+    "labelling": (_EDGE_RATIONALE, _EDGE_OMISSIONS),
+    "latent_regime": (_EDGE_RATIONALE_LATENT, _EDGE_OMISSIONS_LATENT),
+}
+
 
 def _fmt_node(name: str) -> str:
     return name.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
@@ -1621,8 +1690,10 @@ with tab_edges:
         "as the assumptions behind the current CPTs."
     )
 
+    _rationale, _omissions = _RATIONALE_BY_TOPOLOGY[TOPOLOGY]
+
     st.markdown("#### Edges present in the model")
-    for parent, child, reason in _EDGE_RATIONALE:
+    for parent, child, reason in _rationale:
         st.markdown(
             f"**{_fmt_node(parent)}** → **{_fmt_node(child)}**  \n"
             f"<span style='color:#475569'>{reason}</span>",
@@ -1635,7 +1706,7 @@ with tab_edges:
         "the DAG — either because they're mediated by another node or "
         "because they were dropped for parsimony."
     )
-    for parent, child, reason in _EDGE_OMISSIONS:
+    for parent, child, reason in _omissions:
         st.markdown(
             f"**{_fmt_node(parent)}** ⇢ **{_fmt_node(child)}** "
             f"<span style='color:#b45309'>(omitted)</span>  \n"

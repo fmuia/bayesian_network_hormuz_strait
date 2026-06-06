@@ -8,7 +8,7 @@ on each, and report the central probability plus a credible interval.
 
 from __future__ import annotations
 
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from pgmpy.factors.discrete import TabularCPD
@@ -17,14 +17,41 @@ from pgmpy.models import DiscreteBayesianNetwork
 
 from .network import STATES, build_network
 
+# A concentration can be a single float (applied to every CPT) or a per-variable map.
+Concentration = Union[float, Mapping[str, float]]
 
-def _resample_cpd(cpd: TabularCPD, concentration: float, rng: np.random.Generator) -> TabularCPD:
-    """Return a new TabularCPD whose columns are Dirichlet-resampled."""
+# The scenario-coupling layer is genuinely uncertain; the upstream chain is moderate.
+_COUPLING_LAYER = {
+    "Energy_Infrastructure_Damage",
+    "Conflict_Duration",
+    "Diplomatic_Resolution_Path",
+    "Scenario",
+}
+
+
+def default_concentrations(network: DiscreteBayesianNetwork) -> Dict[str, float]:
+    """Per-CPT Dirichlet concentration (framework §9): kappa=10 for the scenario-coupling
+    layer {D, T, P, S}, kappa=20 for the upstream chain. Applies to either topology."""
+    return {v: (10.0 if v in _COUPLING_LAYER else 20.0) for v in network.nodes()}
+
+
+def _kappa_for(var: str, concentration: Concentration) -> float:
+    if isinstance(concentration, Mapping):
+        return float(concentration[var])
+    return float(concentration)
+
+
+def _resample_cpd(cpd: TabularCPD, concentration: Concentration, rng: np.random.Generator) -> TabularCPD:
+    """Return a new TabularCPD whose columns are Dirichlet-resampled.
+
+    ``concentration`` may be a float (global) or a ``{variable: kappa}`` map.
+    """
+    kappa = _kappa_for(cpd.variable, concentration)
     values = np.asarray(cpd.get_values(), dtype=float)
     n_states, n_cols = values.shape
     new_values = np.empty_like(values)
     for col in range(n_cols):
-        alpha = concentration * values[:, col] + 1e-6  # avoid zero-alpha
+        alpha = kappa * values[:, col] + 1e-6  # avoid zero-alpha
         new_values[:, col] = rng.dirichlet(alpha)
     return TabularCPD(
         variable=cpd.variable,
@@ -37,7 +64,7 @@ def _resample_cpd(cpd: TabularCPD, concentration: float, rng: np.random.Generato
 
 
 def _resampled_network(
-    base: DiscreteBayesianNetwork, concentration: float, rng: np.random.Generator
+    base: DiscreteBayesianNetwork, concentration: Concentration, rng: np.random.Generator
 ) -> DiscreteBayesianNetwork:
     net = DiscreteBayesianNetwork(list(base.edges()))
     new_cpds = [_resample_cpd(cpd, concentration, rng) for cpd in base.get_cpds()]
@@ -49,7 +76,7 @@ def scenario_credible_intervals(
     evidence: Mapping[str, str],
     *,
     m: int = 200,
-    concentration: float = 20.0,
+    concentration: Concentration = 20.0,
     ci: float = 0.80,
     seed: int = 0,
     base_network: DiscreteBayesianNetwork | None = None,
@@ -107,7 +134,7 @@ def node_credible_intervals(
     nodes: Optional[Sequence[str]] = None,
     soft_evidence: Optional[Mapping[str, Mapping[str, float]]] = None,
     m: int = 200,
-    concentration: float = 20.0,
+    concentration: Concentration = 20.0,
     ci: float = 0.80,
     seed: int = 0,
     base_network: Optional[DiscreteBayesianNetwork] = None,
@@ -181,4 +208,8 @@ def node_credible_intervals(
     return out
 
 
-__all__ = ["scenario_credible_intervals", "node_credible_intervals"]
+__all__ = [
+    "scenario_credible_intervals",
+    "node_credible_intervals",
+    "default_concentrations",
+]
