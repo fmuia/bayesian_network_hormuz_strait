@@ -1,6 +1,8 @@
 # PyMC Integration and Continuous-Variable Migration Plan
 
-> **Status.** Draft. No phases started.
+> **🅿️ SHELVED (executive decision, 2026-06-07) — not on the current roadmap.** This entire plan (dual backend, `NetworkSpec`, hierarchical priors, continuous variables, the `Oil_Price` migration, operative per-CPT κ) is **parked** to streamline the first implementation; see [`docs/06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §2 for the deferral rationale and the re-introduction trigger. The first implementation stays on the existing **pgmpy discrete** path. This document is preserved verbatim as the design to lift back out when a continuous variable or hierarchical-prior calibration becomes necessary. While parked, findings **M2 (continuous-node facet), M3, and M4 are not closed** — see `master_plan.md` §4.
+>
+> **Status.** Draft, shelved. No phases started.
 >
 > **Related docs.** `docs/master_plan.md` §4 is the in-tree registry of finding IDs and lists the findings this plan closes (M2, M3, M4). M1 and M7 (latent regime) used to be in this plan as Phase 3; they have been consolidated into `docs/01_latent_regime_plan.md` (Plan 1) so the conceptual decision and the engineering implementation live together. **Plan 1 ships before Plan 3 begins**, editing `src/network.py`, `src/cpt_data.py`, and `src/inference.py` directly on the existing pgmpy code path. Plan 3's job is to lift that work into the declarative `NetworkSpec` / dual-backend architecture and add PyMC-native latent-regime support in Phase 2; Phases 3–4 (continuous variables, Oil_Price migration) then build on Plan 1's regime topology. `docs/bn_hmm_integration.md` describes the longer-horizon BN↔HMM story, **out of scope for this plan** — it requires a separately-trained inflation HMM that does not exist in this repo.
 >
