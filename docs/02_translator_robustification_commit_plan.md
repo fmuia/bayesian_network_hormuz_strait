@@ -225,7 +225,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** with two providers available (or two `fake` profiles that deliberately disagree), enable the cross-model toggle → translate → a "cross-model disagreement" flag appears with both translations shown side by side; agreeing inputs pass through with no flag.
 **Out of scope:** R-pair (separate rider).
 
-### ⬜ T12 — E1 HITL review queue (SLIM, in-session) *(slot 12 · closes (4), part of (3))*
+### ✅ T12 — E1 HITL review queue (SLIM, in-session) *(slot 12 · closes (4), part of (3))*
 **Re-scoped 2026-06-08 for the POC:** in-session only — no sqlite (T09), no confidence ensemble (T07), no cross-model (T11). This is the one remaining stakeholder-facing item: it makes the "analyst stays in control" / defensible-workflow story concrete and closes the loop on acting on a flagged translation (the gap raised at T05).
 **Depends on:** T05 (`relevance` flag), T06 (the translate path it gates). No T07/T09/T11.
 **Touches:** `app/dashboard.py` (a Triage view + a "require review before inject" toggle), session state.

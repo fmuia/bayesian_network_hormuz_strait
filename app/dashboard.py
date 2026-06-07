@@ -508,6 +508,7 @@ _SS_DEFAULTS = {
     "translator_raw": "",
     "pending_article": None,
     "selected_node": None,
+    "review_queue": [],          # T12: translations awaiting analyst review
 }
 for _k, _v in _SS_DEFAULTS.items():
     if _k not in st.session_state:
@@ -731,6 +732,55 @@ def _resolve_source(label: str):
     return label, None  # None -> translate_article looks up the table
 
 
+# --- T12: in-session human-in-the-loop review -------------------------------
+_OVERRIDE_FLOOR = 0.01  # ε floor for non-chosen states when the analyst edits
+
+
+def _build_review_item(result: TranslatorResult) -> dict:
+    """Normalise a translation into a review-queue entry (JSON-friendly)."""
+    return {
+        "id": uuid.uuid4().hex,
+        "headline": result.headline,
+        "day": st.session_state.current_day,
+        "relevance": result.relevance,
+        "model": result.model,
+        "provider": result.provider,
+        "rationale": result.rationale,
+        "assignments": [
+            {"node": a.node, "state": a.state,
+             "state_probs": dict(a.state_probs), "reason": a.reason}
+            for a in result.assignments
+        ],
+    }
+
+
+def _inject_review_item(item: dict, *, state_overrides: Optional[dict] = None) -> None:
+    """Commit a review item as an observation (optionally with edited states)."""
+    overrides = state_overrides or {}
+    soft: Dict[str, Dict[str, float]] = {}
+    reasons: Dict[str, str] = {}
+    for a in item["assignments"]:
+        node = a["node"]
+        chosen = overrides.get(node, a["state"])
+        if node in overrides and chosen != a["state"]:
+            # analyst override -> confident soft evidence on the chosen state
+            soft[node] = {s: (1.0 if s == chosen else _OVERRIDE_FLOOR) for s in STATES[node]}
+            reasons[node] = f"{a['reason']} (analyst-edited: {a['state']} → {chosen})"
+        else:
+            soft[node] = dict(a["state_probs"])
+            reasons[node] = a["reason"]
+    _append_observation(
+        headline=item["headline"], assignments={}, soft_assignments=soft,
+        rationale=item["rationale"], per_assignment_reasons=reasons, source="translator",
+    )
+
+
+def _remove_from_review(item_id: str) -> None:
+    st.session_state.review_queue = [
+        x for x in st.session_state.review_queue if x["id"] != item_id
+    ]
+
+
 def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str] = None) -> None:
     def _write(kind: str, stage: str, detail: str) -> None:
         icon = STAGE_ICON.get(stage, "•")
@@ -805,22 +855,26 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         return
 
     if result.assignments:
-        soft_assignments = {
-            a.node: dict(a.state_probs) for a in result.assignments
-        }
-        _append_observation(
-            headline=result.headline,
-            assignments={},
-            soft_assignments=soft_assignments,
-            rationale=result.rationale,
-            per_assignment_reasons={a.node: a.reason for a in result.assignments},
-            source="translator",
+        # T12: route to HITL review when flagged (partial) or when the analyst
+        # has turned on "review before inject"; otherwise auto-approve (inject).
+        needs_review = (
+            result.relevance == "partial"
+            or st.session_state.get("review_before_inject", False)
         )
-        flag = " · ⚠ partial relevance (review)" if result.relevance == "partial" else ""
-        _write(
-            "done", "validated",
-            f"{len(result.assignments)} assignment(s) · model {result.model}{flag}",
-        )
+        item = _build_review_item(result)
+        if needs_review:
+            st.session_state.review_queue.append(item)
+            _write(
+                "done", "validated",
+                f"{len(result.assignments)} assignment(s) → queued for review "
+                f"(not yet injected) · see the Triage view",
+            )
+        else:
+            _inject_review_item(item)
+            _write(
+                "done", "validated",
+                f"{len(result.assignments)} assignment(s) · auto-approved · model {result.model}",
+            )
     else:
         st.session_state.translator_error = (
             "Translator returned no assignments — the headline does not map "
@@ -872,6 +926,13 @@ with st.sidebar:
              "injection. Costs 2 LLM calls and derives relevance as yes/no only. "
              "Off = the single-call path (1 call, richer relevance).",
     )
+    review_before_inject = st.toggle(
+        "Require review before inject",
+        key="review_before_inject",
+        help="Human-in-the-loop: hold every translation in the Triage view for "
+             "approve / edit / reject before it affects the model. Partial-relevance "
+             "translations are always held regardless of this toggle.",
+    )
     translator_on = use_fake or translator_available()
 
     # -- Provider chip (one line) ------------------------------------------
@@ -889,6 +950,13 @@ with st.sidebar:
     else:
         st.markdown(
             "<div class='sb-provider warn'>⚠ No translator backend</div>",
+            unsafe_allow_html=True,
+        )
+
+    _n_review = len(st.session_state.review_queue)
+    if _n_review:
+        st.markdown(
+            f"<div class='sb-provider warn'>⏳ {_n_review} awaiting review — see Triage</div>",
             unsafe_allow_html=True,
         )
 
@@ -1486,12 +1554,13 @@ def _robustness_badge_html(
 
 _VIEW_NET = "🕸️  Network & model"
 _VIEW_OBS = "📝  Observations"
+_VIEW_TRIAGE = "🧪  Triage"
 _VIEW_AUDIT = "🔎  Audit trail"
 _VIEW_EDGES = "🧭  Edge rationale"
 
 active_view = st.segmented_control(
     "View",
-    [_VIEW_NET, _VIEW_OBS, _VIEW_AUDIT, _VIEW_EDGES],
+    [_VIEW_NET, _VIEW_OBS, _VIEW_TRIAGE, _VIEW_AUDIT, _VIEW_EDGES],
     default=_VIEW_NET,
     key="active_view",
     label_visibility="collapsed",
@@ -1872,6 +1941,72 @@ if active_view == _VIEW_EDGES:
             f"<span style='color:#475569'>{reason}</span>",
             unsafe_allow_html=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# TRIAGE — human-in-the-loop review queue (T12, in-session)
+# ---------------------------------------------------------------------------
+
+if active_view == _VIEW_TRIAGE:
+    st.markdown(
+        "<div class='card-title'>Triage — translations awaiting review</div>"
+        "<div class='card-sub'>Flagged translations (partial relevance, or all of "
+        "them when “Require review before inject” is on) wait here and do "
+        "<b>not</b> affect the model until you act. Approve, edit a state, or "
+        "reject.</div>",
+        unsafe_allow_html=True,
+    )
+    _queue = st.session_state.review_queue
+    if not _queue:
+        st.info(
+            "Nothing awaiting review. Clearly-relevant translations auto-inject; "
+            "off-topic ones abstain. Turn on “Require review before inject” in the "
+            "sidebar to route everything here first."
+        )
+    for _item in list(_queue):
+        with st.container(border=True):
+            _rel = _item.get("relevance", "yes")
+            _badge = (
+                " <span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
+                "⚠ partial</span>" if _rel == "partial" else ""
+            )
+            st.markdown(
+                f"<div class='translator-headline'>“{_item['headline']}”{_badge}</div>"
+                f"<div class='meta'>day {_item['day']} · {_item['provider']} · "
+                f"{_item['model']}</div>",
+                unsafe_allow_html=True,
+            )
+            chips = "".join(
+                f"<span class='assign-chip'>{a['node'].replace('_',' ')} = {a['state']}</span>"
+                for a in _item["assignments"]
+            )
+            st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
+
+            a_col, r_col = st.columns(2, gap="small")
+            if a_col.button("✓ Approve", key=f"appr_{_item['id']}", width="stretch",
+                            type="primary"):
+                _inject_review_item(_item)
+                _remove_from_review(_item["id"])
+                st.rerun()
+            if r_col.button("✕ Reject", key=f"rej_{_item['id']}", width="stretch"):
+                _remove_from_review(_item["id"])
+                st.rerun()
+
+            with st.expander("Edit states before approving"):
+                _overrides = {}
+                for a in _item["assignments"]:
+                    node = a["node"]
+                    _overrides[node] = st.selectbox(
+                        node.replace("_", " "),
+                        STATES[node],
+                        index=STATES[node].index(a["state"]),
+                        key=f"edit_{_item['id']}_{node}",
+                    )
+                if st.button("✓ Approve with edits", key=f"appredit_{_item['id']}",
+                             width="stretch"):
+                    _inject_review_item(_item, state_overrides=_overrides)
+                    _remove_from_review(_item["id"])
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------
