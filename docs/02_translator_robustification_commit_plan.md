@@ -130,7 +130,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 
 ## 3. Quality-jump commits (T04–T07)
 
-### ⬜ T04 — B1a article-level input *(slot 4 · closes (2))*
+### ✅ T04 — B1a article-level input *(slot 4 · closes (2))*
 **Depends on:** T02.
 **Touches:** `src/translator.py` (new `Article` dataclass, `translate_article()`), `app/dashboard.py` (paste-with-body input).
 **Change:**

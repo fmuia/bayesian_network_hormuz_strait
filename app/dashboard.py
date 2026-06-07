@@ -42,12 +42,14 @@ from src.sensitivity import (
     scenario_credible_intervals,
 )
 from src.translator import (
+    SOURCE_TYPE_CREDIBILITY,
+    Article,
     TranslatorError,
     TranslatorResult,
     available_providers,
     fake_forced_by_env,
     is_available as translator_available,
-    translate_headline,
+    translate_article,
 )
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
@@ -502,7 +504,7 @@ _SS_DEFAULTS = {
     "last_translation": None,
     "translator_error": None,
     "translator_raw": "",
-    "pending_headline": None,
+    "pending_article": None,
     "selected_node": None,
 }
 for _k, _v in _SS_DEFAULTS.items():
@@ -713,7 +715,21 @@ STAGE_LABEL = {
 }
 
 
-def _run_translator(headline: str, stream_slot, *, provider: Optional[str] = None) -> None:
+# Sidebar source-type options -> (Article.source_type, explicit credibility).
+# "(unspecified)" = analyst paste at full trust (w=1.0); the rest defer to the
+# per-source-type table (credibility=None -> looked up in translate_article).
+_FULL_TRUST_LABEL = "(unspecified — full trust)"
+_SOURCE_TYPE_OPTIONS = [_FULL_TRUST_LABEL] + list(SOURCE_TYPE_CREDIBILITY.keys())
+
+
+def _resolve_source(label: str):
+    """Map a sidebar source-type label to (source_type, credibility-or-None)."""
+    if label == _FULL_TRUST_LABEL:
+        return "unknown", 1.0
+    return label, None  # None -> translate_article looks up the table
+
+
+def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str] = None) -> None:
     def _write(kind: str, stage: str, detail: str) -> None:
         icon = STAGE_ICON.get(stage, "•")
         label = STAGE_LABEL.get(stage, stage.capitalize())
@@ -732,9 +748,18 @@ def _run_translator(headline: str, stream_slot, *, provider: Optional[str] = Non
     def on_step(stage: str, detail: str) -> None:
         _write("live", stage, detail)
 
+    source_type, credibility = _resolve_source(
+        article_fields.get("source_type_label", _FULL_TRUST_LABEL)
+    )
+    article = Article(
+        headline=article_fields["headline"],
+        body=article_fields.get("body", ""),
+        source=article_fields.get("source", ""),
+        source_type=source_type,
+    )
     try:
-        result: TranslatorResult = translate_headline(
-            headline, provider=provider, on_step=on_step
+        result: TranslatorResult = translate_article(
+            article, credibility=credibility, provider=provider, on_step=on_step
         )
     except TranslatorError as exc:
         raw = getattr(exc, "raw_response", "")
@@ -846,7 +871,7 @@ with st.sidebar:
             st.session_state.current_day += 1
             st.rerun()
 
-    st.markdown("<div class='sb-title'>Translate a headline</div>",
+    st.markdown("<div class='sb-title'>Translate a headline or article</div>",
                 unsafe_allow_html=True)
 
     with st.form("headline_form", clear_on_submit=True):
@@ -857,22 +882,44 @@ with st.sidebar:
             disabled=not translator_on,
             label_visibility="collapsed",
         )
+        with st.expander("Add article body & source (optional)"):
+            body_input = st.text_area(
+                "Article body",
+                placeholder="Paste the article body — qualifiers in the body "
+                            "(e.g. 'third such incident this week', 'no injuries') "
+                            "disambiguate states the headline alone can't.",
+                height=120,
+                disabled=not translator_on,
+            )
+            source_input = st.text_input(
+                "Source (outlet or domain)", placeholder="e.g. Reuters",
+                disabled=not translator_on,
+            )
+            source_type_input = st.selectbox(
+                "Source type (sets credibility weight w)",
+                _SOURCE_TYPE_OPTIONS, index=0, disabled=not translator_on,
+            )
         submitted = st.form_submit_button(
             "Translate & observe", type="primary",
             disabled=not translator_on, width="stretch",
         )
         if submitted and headline_input.strip():
-            st.session_state.pending_headline = headline_input.strip()
+            st.session_state.pending_article = {
+                "headline": headline_input.strip(),
+                "body": body_input.strip(),
+                "source": source_input.strip(),
+                "source_type_label": source_type_input,
+            }
 
     # Stream slot lives just below the form — compact, single-line.
     stream_slot = st.empty()
 
     # Run translator *after* the slot is in the sidebar, so updates appear here.
-    if st.session_state.pending_headline is not None:
-        headline = st.session_state.pending_headline
-        st.session_state.pending_headline = None
+    if st.session_state.pending_article is not None:
+        article_fields = st.session_state.pending_article
+        st.session_state.pending_article = None
         _run_translator(
-            headline, stream_slot, provider="fake" if use_fake else None
+            article_fields, stream_slot, provider="fake" if use_fake else None
         )
 
     with st.expander("Examples", expanded=False):
@@ -881,7 +928,10 @@ with st.sidebar:
                 ex.text, key=f"ex_{idx}",
                 width="stretch", disabled=not translator_on,
             ):
-                st.session_state.pending_headline = ex.text
+                st.session_state.pending_article = {
+                    "headline": ex.text, "body": "", "source": "",
+                    "source_type_label": _FULL_TRUST_LABEL,
+                }
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)

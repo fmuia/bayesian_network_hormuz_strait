@@ -26,6 +26,23 @@ from .network import SCENARIO_NARRATIVES, STATES
 
 Provider = Literal["claude-code", "openai", "fake"]
 
+SourceType = Literal[
+    "wire_service", "commercial_press", "state_media",
+    "analyst_note", "social_media", "unknown",
+]
+
+# Default per-source-type credibility weight w ∈ [0, 1] (Plan 2 §B1), applied as
+# a power discount on the likelihood ratios (ε ← ε**w): w=1 full evidence, w=0
+# no information. Per-source overrides + edit history come in T10 (B1b).
+SOURCE_TYPE_CREDIBILITY: Dict[str, float] = {
+    "wire_service": 1.0,
+    "commercial_press": 0.8,
+    "analyst_note": 0.7,
+    "state_media": 0.3,
+    "social_media": 0.2,
+    "unknown": 0.5,
+}
+
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 CLAUDE_DEFAULT_MODEL = "claude-opus-4-8"
 
@@ -88,6 +105,26 @@ class TranslatorResult:
         for a in self.assignments:
             out[a.node] = a.state
         return out
+
+
+@dataclass
+class Article:
+    """An article (or bare headline) to translate (Plan 2 B1a).
+
+    Tolerates missing ``body``/``url``/``published_at`` — a bare headline is the
+    degenerate case (``translate_headline`` builds one). The prompt is told which
+    fields are present so it can weight the body over the headline when they
+    disagree, and downgrade confidence when working from a headline alone.
+    """
+
+    headline: str
+    lede: str = ""
+    body: str = ""
+    source: str = ""
+    source_type: SourceType = "unknown"
+    url: str = ""
+    published_at: str = ""
+    language: str = "en"
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +237,9 @@ def _system_prompt() -> str:
         f"(Node-taxonomy snapshot: schema hash {_states_hash()}. Use ONLY the node "
         "names listed above; any other name is rejected.)",
         "",
-        "Given one news headline, output a JSON object with:",
+        "You are given an article (headline, and optionally lede, body, and source "
+        "metadata). Weight the body over the headline when they disagree, and keep "
+        "confidence moderate when only a headline is available. Output a JSON object with:",
         "  - assignments: list of {node, state, reason, state_probs}. Include only nodes "
         "the headline directly speaks to or strongly implies. Typical "
         "headlines map to 1-3 assignments. Do NOT invent assignments.",
@@ -219,6 +258,30 @@ def _system_prompt() -> str:
         "Output ONLY the JSON object, with no prose before or after it.",
     ]
     return "\n".join(lines)
+
+
+def _article_user_content(article: Article) -> str:
+    """Render the user-message content for an article (B1a)."""
+    parts = [f"Headline: {article.headline}"]
+    if article.lede:
+        parts.append(f"Lede: {article.lede}")
+    if article.body:
+        parts.append(f"Body:\n{article.body}")
+    meta = []
+    if article.source:
+        meta.append(f"source={article.source}")
+    if article.source_type and article.source_type != "unknown":
+        meta.append(f"source_type={article.source_type}")
+    if article.published_at:
+        meta.append(f"published_at={article.published_at}")
+    if meta:
+        parts.append("Metadata: " + ", ".join(meta))
+    if not article.body:
+        parts.append(
+            "(No article body provided — work from the headline alone and keep "
+            "confidence moderate.)"
+        )
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +468,7 @@ def _extract_json_block(text: str) -> Dict:
 
 
 def _translate_openai(
-    headline: str,
+    article: Article,
     *,
     model: str = OPENAI_DEFAULT_MODEL,
     client=None,
@@ -424,7 +487,7 @@ def _translate_openai(
             temperature=0.0,
             messages=[
                 {"role": "system", "content": _system_prompt()},
-                {"role": "user", "content": f"Headline: {headline}"},
+                {"role": "user", "content": _article_user_content(article)},
             ],
             response_format={
                 "type": "json_schema",
@@ -448,7 +511,7 @@ def _translate_openai(
     assignments, rationale = _validate_payload(payload)
     _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
-        headline=headline,
+        headline=article.headline,
         assignments=assignments,
         rationale=rationale,
         model=model,
@@ -529,15 +592,16 @@ async def _claude_code_collect(
 
 
 def _translate_claude_code(
-    headline: str,
+    article: Article,
     *,
     model: str = CLAUDE_DEFAULT_MODEL,
     on_step: Optional[StepCallback] = None,
 ) -> TranslatorResult:
     _emit = on_step or (lambda *_: None)
     prompt = (
-        f"Headline: {headline}\n\n"
-        "Respond with the JSON object described in the system prompt, and nothing else."
+        _article_user_content(article)
+        + "\n\nRespond with the JSON object described in the system prompt, "
+        "and nothing else."
     )
     try:
         text, structured = asyncio.run(
@@ -565,7 +629,7 @@ def _translate_claude_code(
         raise
     _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
-        headline=headline,
+        headline=article.headline,
         assignments=assignments,
         rationale=rationale,
         model=model,
@@ -613,21 +677,22 @@ def _select_fixture(fixtures: List[Dict], headline: str) -> Optional[Dict]:
 
 
 def _translate_fake(
-    headline: str, *, on_step: Optional[StepCallback] = None
+    article: Article, *, on_step: Optional[StepCallback] = None
 ) -> TranslatorResult:
     """Deterministic offline translation from a JSON fixture.
 
     The fixture's ``payload`` is run through the *same* :func:`_validate_payload`
     path as the real providers, so malformed fixtures surface real
-    ``TranslatorError``s exactly as a bad LLM response would.
+    ``TranslatorError``s exactly as a bad LLM response would. Fixtures are
+    selected by matching the article headline.
     """
     _emit = on_step or (lambda *_: None)
     _emit("init", "Using fake translator (offline fixtures)…")
-    fixture = _select_fixture(_load_fake_fixtures(), headline)
+    fixture = _select_fixture(_load_fake_fixtures(), article.headline)
     if fixture is None:
         _emit("response", "no fixtures found; returning empty translation")
         return TranslatorResult(
-            headline=headline, assignments=[], rationale="",
+            headline=article.headline, assignments=[], rationale="",
             model="fake:empty", provider="fake", raw_response="{}",
         )
     payload = fixture.get("payload", {})
@@ -640,7 +705,7 @@ def _translate_fake(
         raise
     _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
-        headline=headline, assignments=assignments, rationale=rationale,
+        headline=article.headline, assignments=assignments, rationale=rationale,
         model=f"fake:{fixture['_name']}", provider="fake", raw_response=raw,
     )
 
@@ -669,29 +734,54 @@ def _claude_output_format_enabled() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def translate_headline(
-    headline: str,
+def _apply_source_credibility(result: TranslatorResult, w: float) -> TranslatorResult:
+    """Discount per-assignment likelihood ratios by source credibility ``w``.
+
+    ``ε ← ε**w`` (Plan 2 §B1): ``w=1`` leaves ε unchanged; ``w=0`` flattens every
+    ε to 1.0 (no information injected); ``w∈(0,1)`` interpolates. The best state
+    stays pinned at 1.0 (``1.0**w == 1.0``), so the vector remains max-pinned.
+    """
+    if w >= 1.0:
+        return result
+    w = max(0.0, w)
+    for a in result.assignments:
+        a.state_probs = {s: (v ** w) for s, v in a.state_probs.items()}
+    return result
+
+
+def translate_article(
+    article: Article,
     *,
+    credibility: Optional[float] = None,
     provider: Optional[Provider] = None,
     client=None,
     on_step: Optional[StepCallback] = None,
 ) -> TranslatorResult:
-    """Translate a headline via the preferred (or requested) provider.
+    """Translate an :class:`Article` via the preferred (or requested) provider.
 
-    Pass ``on_step=callable(stage, detail)`` to receive progress updates
-    as the translator works (UI streaming). Passing ``client=<openai-like>``
-    forces the OpenAI path and is used by the test suite.
+    ``credibility`` is the source-credibility weight ``w`` applied to the
+    likelihood ratios (``ε ← ε**w``). When ``None`` it is looked up from the
+    article's ``source_type`` (see :data:`SOURCE_TYPE_CREDIBILITY`).
+    ``translate_headline`` passes ``credibility=1.0`` so a bare analyst-pasted
+    headline is full-trust. Pass ``client=<openai-like>`` to force the OpenAI
+    path (used by tests).
     """
-    headline = headline.strip()
-    if not headline:
+    article.headline = article.headline.strip()
+    if not article.headline:
         raise TranslatorError("Headline is empty.")
 
+    w = (
+        credibility if credibility is not None
+        else SOURCE_TYPE_CREDIBILITY.get(article.source_type, 0.5)
+    )
+
     if client is not None:
-        return _translate_openai(headline, client=client, on_step=on_step)
+        return _apply_source_credibility(
+            _translate_openai(article, client=client, on_step=on_step), w
+        )
 
     # TRANSLATOR_PROVIDER forces a provider when the caller didn't specify one
-    # (used for offline dev: TRANSLATOR_PROVIDER=fake). An explicit `provider=`
-    # argument always wins over the environment.
+    # (offline dev: TRANSLATOR_PROVIDER=fake). Explicit `provider=` wins.
     if provider is None:
         env_provider = os.environ.get("TRANSLATOR_PROVIDER", "").strip()
         if env_provider:
@@ -705,26 +795,53 @@ def translate_headline(
         chosen = providers[0] if providers else None
 
     if chosen == "fake":
-        return _translate_fake(headline, on_step=on_step)
-    if chosen == "claude-code":
-        return _translate_claude_code(headline, on_step=on_step)
-    if chosen == "openai":
-        return _translate_openai(headline, on_step=on_step)
-    raise TranslatorError(
-        "No translator provider is available. Install Claude Code and sign in, "
-        "export OPENAI_API_KEY, or set TRANSLATOR_PROVIDER=fake for offline fixtures."
+        result = _translate_fake(article, on_step=on_step)
+    elif chosen == "claude-code":
+        result = _translate_claude_code(article, on_step=on_step)
+    elif chosen == "openai":
+        result = _translate_openai(article, on_step=on_step)
+    else:
+        raise TranslatorError(
+            "No translator provider is available. Install Claude Code and sign in, "
+            "export OPENAI_API_KEY, or set TRANSLATOR_PROVIDER=fake for offline fixtures."
+        )
+    return _apply_source_credibility(result, w)
+
+
+def translate_headline(
+    headline: str,
+    *,
+    provider: Optional[Provider] = None,
+    client=None,
+    on_step: Optional[StepCallback] = None,
+) -> TranslatorResult:
+    """Translate a bare headline (analyst paste) at full trust (``w=1.0``).
+
+    Preserves the pre-B1a behaviour; for article-level input (body, source,
+    source-type credibility) use :func:`translate_article`.
+    """
+    return translate_article(
+        Article(headline=headline),
+        credibility=1.0,
+        provider=provider,
+        client=client,
+        on_step=on_step,
     )
 
 
 __all__ = [
     "CLAUDE_DEFAULT_MODEL",
     "OPENAI_DEFAULT_MODEL",
+    "SOURCE_TYPE_CREDIBILITY",
+    "Article",
     "Provider",
+    "SourceType",
     "TranslatorAssignment",
     "TranslatorError",
     "TranslatorResult",
     "available_providers",
     "fake_forced_by_env",
     "is_available",
+    "translate_article",
     "translate_headline",
 ]

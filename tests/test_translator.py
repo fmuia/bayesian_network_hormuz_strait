@@ -16,6 +16,8 @@ from pgmpy.models import DiscreteBayesianNetwork
 from src.inference import BNInferenceEngine
 from src.network import STATES, build_network
 from src.translator import (
+    SOURCE_TYPE_CREDIBILITY,
+    Article,
     TranslatorError,
     TranslatorResult,
     _extract_json_block,
@@ -24,6 +26,7 @@ from src.translator import (
     _validate_payload,
     available_providers,
     fake_forced_by_env,
+    translate_article,
     translate_headline,
 )
 
@@ -263,3 +266,55 @@ def test_brace_parser_handles_nested_and_trailing_prose():
 
 def test_states_hash_embedded_in_prompt():
     assert _states_hash() in _system_prompt()
+
+
+# ===== T04 — B1a article-level input + source credibility ==================
+
+
+def test_translate_article_headline_only_matches_fixture():
+    res = translate_article(
+        Article(headline="Tanker struck in the Strait of Hormuz"), provider="fake"
+    )
+    assert any(a.node == "Tanker_Incidents" and a.state == "frequent"
+               for a in res.assignments)
+
+
+def test_translate_headline_is_full_trust_unchanged():
+    """A bare headline (analyst paste) is w=1.0 -> ε unchanged from the fixture."""
+    res = translate_headline("Tanker struck in the Strait of Hormuz", provider="fake")
+    eps = next(a.state_probs for a in res.assignments if a.node == "Tanker_Incidents")
+    assert eps == {"none": 0.05, "isolated": 0.30, "frequent": 1.0}
+
+
+def test_credibility_w0_injects_no_information():
+    """w=0 flattens every ε to 1.0 -> a uniform likelihood injects nothing."""
+    res = translate_article(
+        Article(headline="Tanker struck in the Strait of Hormuz"),
+        credibility=0.0, provider="fake",
+    )
+    eps = next(a.state_probs for a in res.assignments if a.node == "Tanker_Incidents")
+    assert all(abs(v - 1.0) < 1e-9 for v in eps.values())
+
+
+def test_credibility_power_discount_and_maxpin_preserved():
+    """ε ← ε**w: best state stays 1.0, others move toward 1.0."""
+    res = translate_article(
+        Article(headline="Tanker struck in the Strait of Hormuz"),
+        credibility=0.5, provider="fake",
+    )
+    eps = next(a.state_probs for a in res.assignments if a.node == "Tanker_Incidents")
+    assert abs(eps["frequent"] - 1.0) < 1e-9               # max-pin preserved
+    assert abs(eps["isolated"] - 0.30 ** 0.5) < 1e-9       # discounted
+    assert abs(eps["none"] - 0.05 ** 0.5) < 1e-9
+
+
+def test_source_type_default_credibility_lookup():
+    """With no explicit credibility, w is looked up from source_type (state_media=0.3)."""
+    assert SOURCE_TYPE_CREDIBILITY["state_media"] == 0.3
+    res = translate_article(
+        Article(headline="Tanker struck in the Strait of Hormuz",
+                source_type="state_media"),
+        provider="fake",
+    )
+    eps = next(a.state_probs for a in res.assignments if a.node == "Tanker_Incidents")
+    assert abs(eps["isolated"] - 0.30 ** 0.3) < 1e-9
