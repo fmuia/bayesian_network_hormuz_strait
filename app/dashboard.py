@@ -459,14 +459,14 @@ TOPOLOGY = "latent_regime"
 
 
 @st.cache_resource
-def get_engine(topology: str = "labelling") -> BNInferenceEngine:
+def get_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
     return BNInferenceEngine(build_network(topology))
 
 
 @st.cache_data(show_spinner=False)
 def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
-    topology: str = "labelling",
+    topology: str = TOPOLOGY,
 ) -> Dict[str, Tuple[float, float, float]]:
     return scenario_credible_intervals(
         dict(evidence_items), m=200, concentration=20.0,
@@ -478,7 +478,7 @@ def cached_credible_intervals(
 def cached_node_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
-    topology: str = "labelling",
+    topology: str = TOPOLOGY,
 ) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
     soft = {node: dict(dist) for node, dist in soft_evidence_items}
     return node_credible_intervals(
@@ -598,7 +598,7 @@ def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     return hard_merged, soft_merged
 
 
-def _render_model_overview(topology: str = "labelling") -> None:
+def _render_model_overview(topology: str = TOPOLOGY) -> None:
     if topology == "latent_regime":
         scenario_clause = (
             "a latent <b>Scenario</b> regime that <i>generates</i> the damage, "
@@ -1046,7 +1046,7 @@ with st.container(border=True):
         err_chart = (
             err_rule + err_caps_lo + err_caps_hi + err_pts
         ).properties(height=170).configure_view(stroke=None)
-        st.altair_chart(err_chart, use_container_width=True)
+        st.altair_chart(err_chart, width="stretch")
         st.caption(
             "Intervals come from resampling CPT parameters (Dirichlet, "
             "concentration = 20, m = 200) and re-running inference."
@@ -1178,7 +1178,7 @@ with st.container(border=True):
         chart = (bands + lines + tooltip).properties(height=260).configure_view(
             stroke=None,
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
         st.caption(
             "Lines are the Dirichlet-resample posterior mean (matching the "
             "scenario cards above). Shaded bands are the 80% credible "
@@ -1334,20 +1334,39 @@ def _robustness_badge_html(
 
 
 # ===========================================================================
-# TABS — Network & model / Observations / Audit trail
+# TOP-LEVEL VIEW NAV — Network & model / Observations / Audit trail / Edges
 # ===========================================================================
+# Deliberately NOT st.tabs: st.tabs keeps every tab body mounted and merely
+# CSS-hides the inactive ones. That breaks the vis.js (streamlit-agraph) DAG
+# canvas — when the Network tab is re-shown, vis.js refits against a stale /
+# zero-size container and renders zoomed-in or blank. A session-state-driven
+# selector with conditional rendering re-mounts only the active view on each
+# switch, so the graph always sizes correctly. (agraph exposes no `key`, so
+# this is the only way to force the clean remount.)
 
-tab_net, tab_obs, tab_audit, tab_edges = st.tabs(
-    ["🕸️  Network & model", "📝  Observations",
-     "🔎  Audit trail", "🧭  Edge rationale"]
+_VIEW_NET = "🕸️  Network & model"
+_VIEW_OBS = "📝  Observations"
+_VIEW_AUDIT = "🔎  Audit trail"
+_VIEW_EDGES = "🧭  Edge rationale"
+
+active_view = st.segmented_control(
+    "View",
+    [_VIEW_NET, _VIEW_OBS, _VIEW_AUDIT, _VIEW_EDGES],
+    default=_VIEW_NET,
+    key="active_view",
+    label_visibility="collapsed",
 )
+# Single-select segmented_control lets the user deselect the active chip
+# (returns None); keep exactly one view active, the way tabs behave.
+if not active_view:
+    active_view = _VIEW_NET
 
 
 # ---------------------------------------------------------------------------
 # TAB 1 — Network & model (interactive graph + click-to-override / explain)
 # ---------------------------------------------------------------------------
 
-with tab_net:
+if active_view == _VIEW_NET:
     net_col, detail_col = st.columns([2.35, 1.0], gap="large")
 
     with net_col:
@@ -1433,7 +1452,7 @@ with tab_net:
                 if sel in evidence:
                     st.altair_chart(
                         _flat_bar_chart(marginal, sorted_states),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 else:
                     node_ci = node_ci_table[sel]
@@ -1444,7 +1463,7 @@ with tab_net:
                     ci_df = _ci_dataframe(node_ci, sorted_states)
                     st.altair_chart(
                         _dumbbell_chart(ci_df, sorted_states),
-                        use_container_width=True,
+                        width="stretch",
                     )
             else:
                 st.markdown(
@@ -1677,7 +1696,7 @@ def _fmt_node(name: str) -> str:
     return name.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
 
 
-with tab_edges:
+if active_view == _VIEW_EDGES:
     st.markdown(
         "<div class='card-title'>Why each arrow is (or isn't) in the "
         "network</div>",
@@ -1719,7 +1738,7 @@ with tab_edges:
 # TAB 3 — Observations (latest translation + day-grouped log)
 # ---------------------------------------------------------------------------
 
-with tab_obs:
+if active_view == _VIEW_OBS:
     trans_col, log_col = st.columns([1.0, 1.1], gap="large")
 
     with trans_col:
@@ -1839,7 +1858,7 @@ with tab_obs:
 # TAB 4 — Audit trail (full width, grouped tables)
 # ---------------------------------------------------------------------------
 
-with tab_audit:
+if active_view == _VIEW_AUDIT:
     st.markdown("<div class='card-title'>Updates by day (injected evidence inputs)</div>",
                 unsafe_allow_html=True)
     if not st.session_state.observations:
@@ -1871,7 +1890,7 @@ with tab_audit:
         st.dataframe(
             pd.DataFrame(update_rows),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Day": st.column_config.NumberColumn("Day", width="small"),
                 "Node": st.column_config.TextColumn("Node", width="medium"),
@@ -1931,7 +1950,7 @@ with tab_audit:
                 s, format="%.1f%%", min_value=0.0, max_value=100.0,
             )
         st.dataframe(
-            df, hide_index=True, use_container_width=True,
+            df, hide_index=True, width="stretch",
             column_config=col_cfg,
         )
 
