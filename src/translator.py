@@ -29,6 +29,11 @@ Provider = Literal["claude-code", "openai", "fake"]
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
 
+# A1 likelihood-ratio semantics: per-state ε ∈ (0, 1] with the best-supported
+# state pinned to 1.0 (NOT a probability distribution; does not sum to 1).
+_EPS_FLOOR = 0.01  # default for states the model did not mention ("ruled out")
+_EPS_TOL = 1e-6
+
 # Offline dev/test provider: deterministic fixtures, no network. Selected via
 # provider="fake", TRANSLATOR_PROVIDER=fake, or the dashboard dev toggle; kept
 # OUT of available_providers() so it is never auto-selected over a real backend.
@@ -51,7 +56,13 @@ class TranslatorError(RuntimeError):
 
 @dataclass
 class TranslatorAssignment:
-    """A single node/state assignment proposed by the translator."""
+    """A single node/state assignment proposed by the translator.
+
+    ``state_probs`` holds the per-state **likelihood ratios** ε ∈ (0, 1] (A1
+    semantics): how plausible the article is given each state, scaled so the
+    best-supported state = 1.0. It is NOT a probability distribution and does
+    not sum to 1. (Field name retained pending the A2 schema cleanup.)
+    """
 
     node: str
     state: str
@@ -69,6 +80,7 @@ class TranslatorResult:
     model: str
     provider: Provider
     raw_response: str = ""  # verbatim model output (for debug / audit)
+    semantics_version: str = "likelihood-ratio"  # A1; pre-A1 records: "pre-A1-posterior"
 
     def as_evidence_dict(self) -> Dict[str, str]:
         """Flatten assignments to a {node: state} dict (later wins on conflict)."""
@@ -117,8 +129,11 @@ def _node_state_enum_schema() -> Dict:
                         "state_probs": {
                             "type": "array",
                             "description": (
-                                "Probability distribution over states for this node. "
-                                "Must sum to 1.0."
+                                "Relative likelihood of the article for each allowed "
+                                "state (how plausible the article is if that state were "
+                                "the true one), scaled so the single best-supported state "
+                                "= 1.0 and the rest are fractions in (0, 1]. NOT a "
+                                "probability distribution; does NOT sum to 1."
                             ),
                             "items": {
                                 "type": "object",
@@ -168,8 +183,12 @@ def _system_prompt() -> str:
         "  - assignments: list of {node, state, reason, state_probs}. Include only nodes "
         "the headline directly speaks to or strongly implies. Typical "
         "headlines map to 1-3 assignments. Do NOT invent assignments.",
-        "    For each assignment, state_probs must include ALL allowed states for that node",
-        "    and probabilities must sum to 1.0. Use decimals (e.g., 0.70).",
+        "    For each assignment, state_probs gives a RELATIVE LIKELIHOOD for every",
+        "    allowed state of the node: how plausible this article is if that state were",
+        "    the true one. Scale them so the single best-supported state = 1.0 and the",
+        "    others are fractions in (0, 1]. These are NOT probabilities and must NOT sum",
+        "    to 1. Include ALL allowed states; for a state the article essentially rules",
+        "    out, use a small floor like 0.01 (never 0). E.g. a 3-state node: 1.0, 0.3, 0.05.",
         "  - overall_rationale: one or two sentences summarising your read.",
         "",
         "Do not set the 'Scenario' node; it is the terminal node to be "
@@ -289,15 +308,31 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
                     raise TranslatorError(
                         f"Translator returned non-numeric probability for {node}.{s}"
                     ) from exc
+            # A1 likelihood-ratio semantics. Reject an explicit 0 (a state
+            # asserted strictly impossible would zero its posterior
+            # irrecoverably); floor only states the model did not mention;
+            # require the best-supported state to be pinned to exactly 1.0.
+            for s, v in probs.items():
+                if v <= 0.0:
+                    raise TranslatorError(
+                        f"Translator returned non-positive likelihood {v!r} for "
+                        f"{node}.{s}; use a small floor (e.g. 0.01) for "
+                        f"'essentially ruled out', never 0."
+                    )
+                if v > 1.0 + _EPS_TOL:
+                    raise TranslatorError(
+                        f"Translator returned likelihood {v!r} > 1 for {node}.{s}; "
+                        f"ratios must be in (0, 1] with the best state pinned to 1.0."
+                    )
             for s in STATES[node]:
-                probs.setdefault(s, 0.0)
-            total = sum(probs.values())
-            if total <= 0:
-                raise TranslatorError(f"Translator returned zero-sum probabilities for {node}")
+                probs.setdefault(s, _EPS_FLOOR)
+            if abs(max(probs.values()) - 1.0) > _EPS_TOL:
+                raise TranslatorError(
+                    f"Translator likelihoods for {node} are not max-pinned "
+                    f"(no state = 1.0): {probs}. Scale so the best state = 1.0."
+                )
         else:
-            probs = {s: (1.0 if s == state else 0.0) for s in STATES[node]}
-            total = 1.0
-        probs = {k: v / total for k, v in probs.items()}
+            probs = {s: (1.0 if s == state else _EPS_FLOOR) for s in STATES[node]}
         top_state = max(probs, key=probs.get)
         assignments.append(
             TranslatorAssignment(node=node, state=top_state, reason=reason, state_probs=probs)

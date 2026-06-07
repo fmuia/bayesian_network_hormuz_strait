@@ -69,7 +69,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 
 ## 2. Baseline commits (T00–T03)
 
-### ⬜ T00 — dev & test scaffolding *(prerequisite — enables offline tests + manual app play)*
+### ✅ T00 — dev & test scaffolding *(prerequisite — enables offline tests + manual app play)*
 **Depends on:** —
 **Touches:** `src/translator.py` (add a `fake` provider + dispatcher/availability), new `tests/fixtures/translator/*.json`, `app/dashboard.py` (sidebar dev toggle + provider banner), `pixi.toml` (`translator-eval` task placeholder).
 **Change:**
@@ -82,7 +82,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** `TRANSLATOR_PROVIDER=fake pixi run app` (or flip the sidebar dev toggle) → paste any headline → a deterministic canned translation appears with no network; the provider banner reads `fake`.
 **Out of scope:** real-provider behaviour (unchanged); the eval metrics themselves (→ T03).
 
-### ⬜ T01 — A1 likelihood semantics *(slot 1 · closes diagnosis (1) = M2-interface + C5)*
+### ✅ T01 — A1 likelihood semantics *(slot 1 · closes diagnosis (1) = M2-interface + C5)*
 **Depends on:** T00 (fake provider for offline tests + manual play). (The Λ consumer `scenario_bayes_factors` already exists in `inference.py`; T01 feeds it.)
 **Touches:** `src/translator.py` (`_system_prompt`, `_node_state_enum_schema`, `_validate_payload`), `src/inference.py` (`update_soft_evidence` / `_virtual_evidence_cpds`), `app/dashboard.py` (show the ε vector), `docs/model_documentation.md`.
 **Change:**

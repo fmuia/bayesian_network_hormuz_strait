@@ -1452,8 +1452,8 @@ if active_view == _VIEW_NET:
                     dist = soft_evidence[sel]
                     top_state = max(dist, key=dist.get)
                     tip_text = (
-                        f"Soft evidence from headlines: {top_state} "
-                        f"({dist[top_state]*100:0.1f}%, "
+                        f"Soft evidence from headlines: best-supported state "
+                        f"{top_state} (likelihood ratios ε, scaled to 1.0; "
                         f"day {observed_day_map.get(sel, '?')}). "
                         "Intervals show how the posterior shifts when "
                         "CPT parameters are resampled (Dirichlet, "
@@ -1802,18 +1802,25 @@ if active_view == _VIEW_OBS:
                 unsafe_allow_html=True,
             )
             if t["assignments"]:
-                with st.expander("Per-assignment evidence input (translator soft evidence)"):
+                with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
+                    st.caption(
+                        "ε = relative likelihood of the article given each state "
+                        "(best-supported state pinned to 1.0); injected as soft "
+                        "evidence, not a probability distribution."
+                    )
                     for a in t["assignments"]:
                         probs = a.get("state_probs", {})
-                        probs_text = " · ".join(
-                            f"{k.replace('_',' ')}: {float(v)*100:0.1f}%"
+                        eps_text = " · ".join(
+                            (f"**{k.replace('_',' ')}: {float(v):.2f}**"
+                             if abs(float(v) - 1.0) < 1e-6
+                             else f"{k.replace('_',' ')}: {float(v):.2f}")
                             for k, v in probs.items()
                         )
-                        probs_suffix = f"  \n  {probs_text}" if probs_text else ""
+                        eps_suffix = f"  \n  ε: {eps_text}" if eps_text else ""
                         st.markdown(
                             f"- **{a['node'].replace('_',' ')} = "
                             f"`{a['state']}`** — {a['reason']}"
-                            f"{probs_suffix}"
+                            f"{eps_suffix}"
                         )
         if st.session_state.translator_raw:
             with st.expander("Raw model response (debug)"):
@@ -1957,7 +1964,7 @@ if active_view == _VIEW_AUDIT:
             if not observed_label and node in soft_evidence:
                 dist = soft_evidence[node]
                 top_state = max(dist, key=dist.get)
-                observed_label = f"{top_state} ({dist[top_state]*100:0.0f}%, soft)"
+                observed_label = f"{top_state} (soft)"
             row = {
                 "Node": node.replace("_", " "),
                 "Injected evidence": observed_label,

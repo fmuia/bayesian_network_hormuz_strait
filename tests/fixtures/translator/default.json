@@ -1,7 +1,7 @@
 {
   "match": [],
   "kind": "wellformed",
-  "note": "Fallback for any unmatched headline. Pre-T01 posterior-shaped state_probs (sum to 1); T01 converts fixtures to the likelihood-ratio (max-pinned) form.",
+  "note": "Fallback for any unmatched headline. A1 likelihood-ratio (ε) form: best state pinned to 1.0, others in (0,1], not a distribution.",
   "payload": {
     "assignments": [
       {
@@ -9,9 +9,9 @@
         "state": "isolated",
         "reason": "Generic Gulf maritime tension (fake default fixture).",
         "state_probs": [
-          {"state": "none", "prob": 0.30},
-          {"state": "isolated", "prob": 0.50},
-          {"state": "frequent", "prob": 0.20}
+          {"state": "none", "prob": 0.50},
+          {"state": "isolated", "prob": 1.00},
+          {"state": "frequent", "prob": 0.40}
         ]
       }
     ],

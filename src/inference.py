@@ -149,6 +149,14 @@ class BNInferenceEngine:
     def update_soft_evidence(
         self, soft_evidence: Mapping[str, Mapping[str, float]]
     ) -> None:
+        """Store per-node soft evidence as **likelihood ratios** (A1 semantics).
+
+        Values are normalised by their max (the best-supported state → 1.0), not
+        by their sum: pgmpy's virtual-evidence treats the column as a likelihood
+        and applies it proportionally, so max-pinning is mathematically
+        equivalent to sum-normalising for inference while keeping the stored
+        values interpretable as the ε vector the translator emitted.
+        """
         for node, dist in soft_evidence.items():
             if node not in STATES:
                 raise KeyError(f"Unknown node: {node}")
@@ -156,12 +164,12 @@ class BNInferenceEngine:
             for state in STATES[node]:
                 p = float(dist.get(state, 0.0))
                 if p < 0.0:
-                    raise ValueError(f"Negative probability for {node}.{state}: {p}")
+                    raise ValueError(f"Negative likelihood for {node}.{state}: {p}")
                 probs[state] = p
-            total = sum(probs.values())
-            if total <= 0.0:
-                raise ValueError(f"Soft evidence for {node} sums to zero.")
-            probs = {k: v / total for k, v in probs.items()}
+            peak = max(probs.values())
+            if peak <= 0.0:
+                raise ValueError(f"Soft evidence for {node} is all-zero.")
+            probs = {k: v / peak for k, v in probs.items()}
             self._evidence.pop(node, None)
             self._soft_evidence[node] = probs
 
