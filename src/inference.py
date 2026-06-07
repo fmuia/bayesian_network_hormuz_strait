@@ -13,6 +13,25 @@ from .network import STATES, build_network
 SCENARIO = "Scenario"
 
 
+def _require_latent_regime(network: DiscreteBayesianNetwork) -> None:
+    """Raise unless ``network`` is the latent-regime topology.
+
+    Regime Bayes factors are only meaningful when ``Scenario`` is a latent cause
+    that *generates* the outcomes (i.e. has children). On the labelling topology
+    ``Scenario`` is a leaf, so this query would silently return plausible-looking
+    but meaningless numbers — fail loudly instead. Note this guards the regime
+    *Bayes-factor* path only; :func:`clamped_scenario_likelihoods` is a
+    deliberately topology-agnostic primitive (used on both topologies to
+    contrast their likelihoods) and is intentionally left unguarded.
+    """
+    if not list(network.successors(SCENARIO)):
+        raise ValueError(
+            "scenario_bayes_factors requires the latent-regime topology "
+            "(build_network('latent_regime')); on the labelling topology "
+            f"{SCENARIO!r} is a leaf and regime Bayes factors are undefined."
+        )
+
+
 def _scenario_virtual_cpds(
     soft_evidence: Optional[Mapping[str, Mapping[str, float]]],
 ) -> list[TabularCPD]:
@@ -45,6 +64,7 @@ def scenario_bayes_factors(
     cancels), which is exact for hard *and* soft evidence. For an algebraically
     independent cross-check on hard evidence see :func:`clamped_scenario_likelihoods`.
     """
+    _require_latent_regime(network)
     evidence = dict(evidence or {})
     ve = VariableElimination(network)
 

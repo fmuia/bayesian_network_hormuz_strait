@@ -339,3 +339,17 @@ def test_engine_method_bayes_factors_on_latent():
     eng.update_evidence({D: "severe"})
     bf = eng.scenario_bayes_factors()
     assert bf["posterior"]["Severe_Closure"] > bf["prior"]["Severe_Closure"]
+
+
+def test_bayes_factors_guard_rejects_labelling(lab):
+    """Regime Bayes factors are undefined on the labelling topology -> loud error,
+    not a plausible-looking but meaningless number."""
+    with pytest.raises(ValueError, match="latent-regime"):
+        scenario_bayes_factors(lab, {D: "severe"})
+
+
+def test_engine_bayes_factors_guard_rejects_labelling_default():
+    """BNInferenceEngine() defaults to the labelling network; the regime helper
+    must refuse rather than silently return garbage."""
+    with pytest.raises(ValueError, match="latent-regime"):
+        BNInferenceEngine().scenario_bayes_factors()
