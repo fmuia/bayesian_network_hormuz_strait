@@ -144,7 +144,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** the translate panel gains a "full article" input (body / source / source_type / url). Paste an article whose **body** disambiguates a state the headline alone doesn't → the assignment follows the body; switch `source_type` (e.g. wire_service → state_media) → the injected strength visibly weakens ($\varepsilon^w$).
 **Out of scope:** Sources tab, `source_credibility_history`, pinning $w$ at translation time (→ T10, needs D3).
 
-### ⬜ T05 — B3 relevance filter + abstention *(slot 5 · closes (4))*
+### ✅ T05 — B3 relevance filter + abstention *(slot 5 · closes (4))*
 **Depends on:** T04 (the embedding pre-filter is more accurate on full body).
 **Touches:** `src/translator.py` (top-level `relevance` field), `app/dashboard.py`.
 **Change:**

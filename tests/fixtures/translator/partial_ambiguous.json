@@ -1,0 +1,21 @@
+{
+  "match": ["oil price", "brent", "crude", "prices climb", "prices rise"],
+  "kind": "wellformed",
+  "note": "Tangential/ambiguous article -> relevance 'partial' (assignments kept but flagged for review).",
+  "payload": {
+    "assignments": [
+      {
+        "node": "Oil_Price_Regime",
+        "state": "90_to_120",
+        "reason": "Mild price move on unspecified Gulf jitters — weakly informative, not a clear escalation signal.",
+        "state_probs": [
+          {"state": "below_90", "value": 0.4},
+          {"state": "90_to_120", "value": 1.0},
+          {"state": "above_120", "value": 0.3}
+        ]
+      }
+    ],
+    "relevance": "partial",
+    "overall_rationale": "Price commentary loosely tied to Gulf tension; ambiguous, flagged for review."
+  }
+}

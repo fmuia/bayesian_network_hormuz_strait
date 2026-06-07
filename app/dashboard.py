@@ -777,7 +777,13 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         "rationale": result.rationale,
         "model": result.model,
         "provider": result.provider,
+        "relevance": result.relevance,
     }
+    # B3: an off-topic article abstains — logged, but no evidence injected.
+    if result.relevance == "no":
+        _write("done", "validated", "not relevant — no evidence injected")
+        return
+
     if result.assignments:
         soft_assignments = {
             a.node: dict(a.state_probs) for a in result.assignments
@@ -790,9 +796,10 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
             per_assignment_reasons={a.node: a.reason for a in result.assignments},
             source="translator",
         )
+        flag = " · ⚠ partial relevance (review)" if result.relevance == "partial" else ""
         _write(
             "done", "validated",
-            f"{len(result.assignments)} assignment(s) · model {result.model}",
+            f"{len(result.assignments)} assignment(s) · model {result.model}{flag}",
         )
     else:
         st.session_state.translator_error = (
@@ -1866,16 +1873,31 @@ if active_view == _VIEW_OBS:
                 f"{a['node'].replace('_',' ')} = {a['state']}</span>"
                 for a in t["assignments"]
             ) or "<span style='color:#9CA3AF;'>No assignments</span>"
+            # B3 relevance badge.
+            _rel = t.get("relevance", "yes")
+            _rel_badge = {
+                "no": "<span class='assign-chip' style='background:#FEE2E2;color:#991B1B;'>"
+                      "⛔ not relevant — not injected</span>",
+                "partial": "<span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
+                           "⚠ partial relevance — review before relying on it</span>",
+            }.get(_rel, "")
             st.markdown(
                 f"""
                 <div class='translator-headline'>“{t['headline']}”</div>
                 <div class='translator-rationale'>{t['rationale']}</div>
-                <div>{chips_html}</div>
+                <div>{_rel_badge}{chips_html}</div>
                 <div class='meta'>provider: {t.get('provider','?')} ·
-                model: {t['model']}</div>
+                model: {t['model']} · relevance: {_rel}</div>
                 """,
                 unsafe_allow_html=True,
             )
+            if _rel == "partial":
+                st.caption(
+                    "Injected, but only partially relevant — sanity-check the "
+                    "assignment(s) below; remove it from the Observation log (✕) or "
+                    "override the node in the Network tab if it's off-base. "
+                    "(A formal approve / edit / reject review queue arrives in a later step.)"
+                )
             if t["assignments"]:
                 with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
                     st.caption(

@@ -98,6 +98,7 @@ class TranslatorResult:
     provider: Provider
     raw_response: str = ""  # verbatim model output (for debug / audit)
     semantics_version: str = "likelihood-ratio"  # A1; pre-A1 records: "pre-A1-posterior"
+    relevance: str = "yes"  # B3: "yes" | "partial" | "no" (no => not injected)
 
     def as_evidence_dict(self) -> Dict[str, str]:
         """Flatten assignments to a {node: state} dict (later wins on conflict)."""
@@ -143,7 +144,7 @@ def _node_state_enum_schema() -> Dict:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["assignments", "overall_rationale"],
+        "required": ["assignments", "overall_rationale", "relevance"],
         "properties": {
             "assignments": {
                 "type": "array",
@@ -198,6 +199,17 @@ def _node_state_enum_schema() -> Dict:
                 "type": "string",
                 "description": "One or two sentences summarising the translation.",
             },
+            "relevance": {
+                "type": "string",
+                "enum": ["yes", "partial", "no"],
+                "description": (
+                    "Is the article relevant to the Strait-of-Hormuz scenario set "
+                    "(US–Iran tension, Gulf shipping/energy)? 'yes' = clearly "
+                    "relevant; 'partial' = tangential or ambiguous (assignments "
+                    "allowed but the analyst should review); 'no' = off-topic, in "
+                    "which case 'assignments' MUST be empty."
+                ),
+            },
         },
     }
 
@@ -251,6 +263,10 @@ def _system_prompt() -> str:
         "    to 1. Include ALL allowed states; for a state the article essentially rules",
         "    out, use a small floor like 0.01 (never 0). E.g. a 3-state node: 1.0, 0.3, 0.05.",
         "  - overall_rationale: one or two sentences summarising your read.",
+        "  - relevance: 'yes' if the article is clearly about the Strait of Hormuz / "
+        "US-Iran tension / Gulf shipping or energy; 'partial' if it is only "
+        "tangential or ambiguous; 'no' if it is off-topic. When relevance is 'no', "
+        "'assignments' MUST be empty (do not force a mapping for unrelated news).",
         "",
         "Do not set the 'Scenario' node; it is the terminal node to be "
         "inferred, not observed. Prefer the most specific state that is "
@@ -407,6 +423,31 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
     return assignments, payload.get("overall_rationale", "")
 
 
+def _extract_relevance(payload: Dict) -> str:
+    """Relevance verdict (B3): one of 'yes' | 'partial' | 'no'.
+
+    Defaults to 'yes' when absent (e.g. pre-B3 recorded golden responses); a
+    present-but-invalid value is rejected loudly (A2 discipline).
+    """
+    rel = payload.get("relevance", "yes")
+    if rel not in ("yes", "partial", "no"):
+        raise TranslatorError(f"Translator returned invalid relevance: {rel!r}")
+    return rel
+
+
+def _finalize_payload(payload: Dict):
+    """Validate a payload into (assignments, rationale, relevance).
+
+    Enforces the B3 abstention rule: when relevance == 'no', assignments are
+    dropped (the relevance verdict wins — off-topic news injects nothing).
+    """
+    assignments, rationale = _validate_payload(payload)
+    relevance = _extract_relevance(payload)
+    if relevance == "no":
+        assignments = []
+    return assignments, rationale, relevance
+
+
 def _first_balanced_json_object(text: str) -> Optional[str]:
     """Return the first brace-balanced ``{...}`` substring, or ``None``.
 
@@ -508,7 +549,7 @@ def _translate_openai(
     except (json.JSONDecodeError, IndexError, AttributeError) as exc:
         raise TranslatorError(f"Malformed OpenAI response: {exc}") from exc
 
-    assignments, rationale = _validate_payload(payload)
+    assignments, rationale, relevance = _finalize_payload(payload)
     _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
         headline=article.headline,
@@ -517,6 +558,7 @@ def _translate_openai(
         model=model,
         provider="openai",
         raw_response=raw,
+        relevance=relevance,
     )
 
 
@@ -622,7 +664,7 @@ def _translate_claude_code(
 
     raw = text or json.dumps(payload)
     try:
-        assignments, rationale = _validate_payload(payload)
+        assignments, rationale, relevance = _finalize_payload(payload)
     except TranslatorError as exc:
         if not getattr(exc, "raw_response", ""):
             exc.raw_response = raw  # type: ignore[attr-defined]
@@ -635,6 +677,7 @@ def _translate_claude_code(
         model=model,
         provider="claude-code",
         raw_response=raw,
+        relevance=relevance,
     )
 
 
@@ -699,7 +742,7 @@ def _translate_fake(
     raw = json.dumps(payload)
     _emit("response", f"fixture '{fixture['_name']}' ({len(raw)} chars)")
     try:
-        assignments, rationale = _validate_payload(payload)
+        assignments, rationale, relevance = _finalize_payload(payload)
     except TranslatorError as exc:
         exc.raw_response = raw  # type: ignore[attr-defined]
         raise
@@ -707,6 +750,7 @@ def _translate_fake(
     return TranslatorResult(
         headline=article.headline, assignments=assignments, rationale=rationale,
         model=f"fake:{fixture['_name']}", provider="fake", raw_response=raw,
+        relevance=relevance,
     )
 
 

@@ -1,0 +1,10 @@
+{
+  "match": ["football", "champions league", "sports", "weather", "celebrity", "box office"],
+  "kind": "wellformed",
+  "note": "Off-topic article -> relevance 'no', empty assignments (B3 abstention).",
+  "payload": {
+    "assignments": [],
+    "relevance": "no",
+    "overall_rationale": "Off-topic for the Strait-of-Hormuz scenario set; no nodes constrained."
+  }
+}

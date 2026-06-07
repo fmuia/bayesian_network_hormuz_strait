@@ -21,6 +21,7 @@ from src.translator import (
     TranslatorError,
     TranslatorResult,
     _extract_json_block,
+    _finalize_payload,
     _states_hash,
     _system_prompt,
     _validate_payload,
@@ -318,3 +319,54 @@ def test_source_type_default_credibility_lookup():
     )
     eps = next(a.state_probs for a in res.assignments if a.node == "Tanker_Incidents")
     assert abs(eps["isolated"] - 0.30 ** 0.3) < 1e-9
+
+
+# ===== T05 — B3 relevance filter + abstention ==============================
+
+
+def _eps_payload(relevance=None):
+    payload = {
+        "assignments": [
+            {"node": "Tanker_Incidents", "state": "frequent", "reason": "x",
+             "state_probs": [{"state": "none", "value": 0.05},
+                             {"state": "isolated", "value": 0.3},
+                             {"state": "frequent", "value": 1.0}]}
+        ],
+        "overall_rationale": "r",
+    }
+    if relevance is not None:
+        payload["relevance"] = relevance
+    return payload
+
+
+def test_offtopic_fixture_abstains():
+    res = translate_article(Article(headline="Champions League final tonight"), provider="fake")
+    assert res.relevance == "no"
+    assert res.assignments == []
+
+
+def test_partial_fixture_kept_and_flagged():
+    res = translate_article(
+        Article(headline="Brent crude prices climb on Gulf jitters"), provider="fake"
+    )
+    assert res.relevance == "partial"
+    assert any(a.node == "Oil_Price_Regime" for a in res.assignments)
+
+
+def test_relevance_defaults_yes_when_absent():
+    """Pre-B3 recorded payloads (no relevance field) default to 'yes', kept."""
+    asg, _rat, rel = _finalize_payload(_eps_payload(relevance=None))
+    assert rel == "yes"
+    assert asg
+
+
+def test_relevance_no_drops_assignments():
+    """relevance='no' wins: assignments are dropped (abstention)."""
+    asg, _rat, rel = _finalize_payload(_eps_payload(relevance="no"))
+    assert rel == "no"
+    assert asg == []
+
+
+def test_invalid_relevance_rejected():
+    with pytest.raises(TranslatorError):
+        _finalize_payload(_eps_payload(relevance="maybe"))
