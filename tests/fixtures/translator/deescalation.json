@@ -1,0 +1,20 @@
+{
+  "match": ["talks", "negotiat", "deal", "agreement", "ceasefire", "diplomac"],
+  "kind": "wellformed",
+  "note": "Diplomatic de-escalation headline.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "success",
+        "reason": "Diplomatic progress reported (fake fixture).",
+        "state_probs": [
+          {"state": "success", "prob": 0.70},
+          {"state": "stalled", "prob": 0.25},
+          {"state": "breakdown", "prob": 0.05}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: de-escalation fixture."
+  }
+}

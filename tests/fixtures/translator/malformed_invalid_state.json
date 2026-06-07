@@ -1,0 +1,18 @@
+{
+  "match": ["badstate", "__badstate__"],
+  "kind": "malformed",
+  "note": "Triggers the validator's invalid-state rejection. Paste a headline containing 'badstate' to exercise error handling.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "catastrophic",
+        "reason": "'catastrophic' is not an allowed state for Tanker_Incidents.",
+        "state_probs": [
+          {"state": "catastrophic", "prob": 1.0}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: malformed fixture (invalid state)."
+  }
+}

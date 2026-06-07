@@ -19,14 +19,25 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 from .network import SCENARIO_NARRATIVES, STATES
 
-Provider = Literal["claude-code", "openai"]
+Provider = Literal["claude-code", "openai", "fake"]
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
+
+# Offline dev/test provider: deterministic fixtures, no network. Selected via
+# provider="fake", TRANSLATOR_PROVIDER=fake, or the dashboard dev toggle; kept
+# OUT of available_providers() so it is never auto-selected over a real backend.
+_FAKE_FIXTURES_DIR = Path(
+    os.environ.get(
+        "TRANSLATOR_FAKE_DIR",
+        str(Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "translator"),
+    )
+)
 
 # Callback type: fn(stage, detail) where stage is a short machine tag and
 # detail is a human-readable sentence. Used by the UI to stream progress.
@@ -455,6 +466,82 @@ def _translate_claude_code(
 
 
 # ---------------------------------------------------------------------------
+# Fake backend (offline dev/test fixtures — no network, deterministic)
+# ---------------------------------------------------------------------------
+
+
+def _load_fake_fixtures() -> List[Dict]:
+    """Load every ``*.json`` fixture from the fake-fixtures directory.
+
+    Each fixture is ``{"match": [substr, ...], "kind": "...", "payload": {...}}``.
+    A fixture with an empty ``match`` list is the default fallback. A missing
+    directory yields an empty list (the fake provider then returns an empty result).
+    """
+    fixtures: List[Dict] = []
+    if not _FAKE_FIXTURES_DIR.is_dir():
+        return fixtures
+    for path in sorted(_FAKE_FIXTURES_DIR.glob("*.json")):
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["_name"] = path.stem
+        fixtures.append(data)
+    return fixtures
+
+
+def _select_fixture(fixtures: List[Dict], headline: str) -> Optional[Dict]:
+    """First fixture any of whose ``match`` substrings appears in ``headline``
+    (case-insensitive); otherwise the empty-``match`` default, if present."""
+    hl = headline.lower()
+    default: Optional[Dict] = None
+    for fx in fixtures:
+        matches = [m.lower() for m in fx.get("match", [])]
+        if not matches:
+            default = default or fx
+            continue
+        if any(m in hl for m in matches):
+            return fx
+    return default
+
+
+def _translate_fake(
+    headline: str, *, on_step: Optional[StepCallback] = None
+) -> TranslatorResult:
+    """Deterministic offline translation from a JSON fixture.
+
+    The fixture's ``payload`` is run through the *same* :func:`_validate_payload`
+    path as the real providers, so malformed fixtures surface real
+    ``TranslatorError``s exactly as a bad LLM response would.
+    """
+    _emit = on_step or (lambda *_: None)
+    _emit("init", "Using fake translator (offline fixtures)…")
+    fixture = _select_fixture(_load_fake_fixtures(), headline)
+    if fixture is None:
+        _emit("response", "no fixtures found; returning empty translation")
+        return TranslatorResult(
+            headline=headline, assignments=[], rationale="",
+            model="fake:empty", provider="fake", raw_response="{}",
+        )
+    payload = fixture.get("payload", {})
+    raw = json.dumps(payload)
+    _emit("response", f"fixture '{fixture['_name']}' ({len(raw)} chars)")
+    try:
+        assignments, rationale = _validate_payload(payload)
+    except TranslatorError as exc:
+        exc.raw_response = raw  # type: ignore[attr-defined]
+        raise
+    _emit("validated", f"Validated {len(assignments)} assignment(s)")
+    return TranslatorResult(
+        headline=headline, assignments=assignments, rationale=rationale,
+        model=f"fake:{fixture['_name']}", provider="fake", raw_response=raw,
+    )
+
+
+def fake_forced_by_env() -> bool:
+    """True if ``TRANSLATOR_PROVIDER=fake`` forces the offline fake provider."""
+    return os.environ.get("TRANSLATOR_PROVIDER", "").strip().lower() == "fake"
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -479,6 +566,14 @@ def translate_headline(
     if client is not None:
         return _translate_openai(headline, client=client, on_step=on_step)
 
+    # TRANSLATOR_PROVIDER forces a provider when the caller didn't specify one
+    # (used for offline dev: TRANSLATOR_PROVIDER=fake). An explicit `provider=`
+    # argument always wins over the environment.
+    if provider is None:
+        env_provider = os.environ.get("TRANSLATOR_PROVIDER", "").strip()
+        if env_provider:
+            provider = env_provider  # type: ignore[assignment]
+
     chosen: Optional[Provider]
     if provider is not None:
         chosen = provider
@@ -486,13 +581,15 @@ def translate_headline(
         providers = available_providers()
         chosen = providers[0] if providers else None
 
+    if chosen == "fake":
+        return _translate_fake(headline, on_step=on_step)
     if chosen == "claude-code":
         return _translate_claude_code(headline, on_step=on_step)
     if chosen == "openai":
         return _translate_openai(headline, on_step=on_step)
     raise TranslatorError(
         "No translator provider is available. Install Claude Code and sign in, "
-        "or export OPENAI_API_KEY."
+        "export OPENAI_API_KEY, or set TRANSLATOR_PROVIDER=fake for offline fixtures."
     )
 
 
@@ -504,6 +601,7 @@ __all__ = [
     "TranslatorError",
     "TranslatorResult",
     "available_providers",
+    "fake_forced_by_env",
     "is_available",
     "translate_headline",
 ]

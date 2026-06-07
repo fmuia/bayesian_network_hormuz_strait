@@ -1,0 +1,20 @@
+{
+  "match": ["tanker", "strait", "vessel", "shipping"],
+  "kind": "wellformed",
+  "note": "Tanker / shipping incident headline.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "frequent",
+        "reason": "Reported attack on shipping in the strait (fake fixture).",
+        "state_probs": [
+          {"state": "none", "prob": 0.05},
+          {"state": "isolated", "prob": 0.25},
+          {"state": "frequent", "prob": 0.70}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: tanker-incident fixture."
+  }
+}

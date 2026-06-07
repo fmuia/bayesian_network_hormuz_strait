@@ -17,6 +17,7 @@ previous sidebar manual picker.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 from dataclasses import asdict
@@ -44,6 +45,7 @@ from src.translator import (
     TranslatorError,
     TranslatorResult,
     available_providers,
+    fake_forced_by_env,
     is_available as translator_available,
     translate_headline,
 )
@@ -711,7 +713,7 @@ STAGE_LABEL = {
 }
 
 
-def _run_translator(headline: str, stream_slot) -> None:
+def _run_translator(headline: str, stream_slot, *, provider: Optional[str] = None) -> None:
     def _write(kind: str, stage: str, detail: str) -> None:
         icon = STAGE_ICON.get(stage, "•")
         label = STAGE_LABEL.get(stage, stage.capitalize())
@@ -731,7 +733,9 @@ def _run_translator(headline: str, stream_slot) -> None:
         _write("live", stage, detail)
 
     try:
-        result: TranslatorResult = translate_headline(headline, on_step=on_step)
+        result: TranslatorResult = translate_headline(
+            headline, provider=provider, on_step=on_step
+        )
     except TranslatorError as exc:
         raw = getattr(exc, "raw_response", "")
         _write("err", "validated", f"failed: {exc}")
@@ -778,9 +782,16 @@ def _run_translator(headline: str, stream_slot) -> None:
 # SIDEBAR
 # ===========================================================================
 
-translator_on = translator_available()
 providers = available_providers()
 provider_labels = {"claude-code": "Claude Code", "openai": "OpenAI API"}
+
+# Offline `fake` translator (deterministic fixtures, no network). Default the
+# dev toggle on when TRANSLATOR_PROVIDER=fake forces it, or when no real backend
+# is available (so the app is always playable). The toggle widget owns the state.
+if "use_fake_translator" not in st.session_state:
+    st.session_state.use_fake_translator = (
+        fake_forced_by_env() or not translator_available()
+    )
 
 with st.sidebar:
     st.markdown(
@@ -791,8 +802,22 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # -- Fake-translator dev toggle (offline, deterministic) ---------------
+    use_fake = st.toggle(
+        "Use fake translator (offline)",
+        key="use_fake_translator",
+        help="Deterministic fixtures, no network or API key. For dev / manual "
+             "verification without spending LLM calls.",
+    )
+    translator_on = use_fake or translator_available()
+
     # -- Provider chip (one line) ------------------------------------------
-    if translator_on:
+    if use_fake:
+        st.markdown(
+            "<div class='sb-provider'>● Translator: fake (offline dev)</div>",
+            unsafe_allow_html=True,
+        )
+    elif translator_on:
         primary = provider_labels[providers[0]]
         st.markdown(
             f"<div class='sb-provider'>● Translator: {primary}</div>",
@@ -846,7 +871,9 @@ with st.sidebar:
     if st.session_state.pending_headline is not None:
         headline = st.session_state.pending_headline
         st.session_state.pending_headline = None
-        _run_translator(headline, stream_slot)
+        _run_translator(
+            headline, stream_slot, provider="fake" if use_fake else None
+        )
 
     with st.expander("Examples", expanded=False):
         for idx, ex in enumerate(EXAMPLE_HEADLINES):
