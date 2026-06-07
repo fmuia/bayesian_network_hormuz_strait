@@ -6,7 +6,9 @@
 >
 > **Scope note (PyMC).** The PyMC / continuous-variable inference backend is **not on the current roadmap**. Nothing in this plan introduces PyMC, continuous nodes, or a dual-backend abstraction. The translator stays on the existing pgmpy discrete path. If a card seems to need continuous-variable support, stop and re-scope — it is out of bounds.
 >
-> **Status.** ⬜ not started · 🟡 in progress · ✅ merged. All commits below are ⬜ as of 2026-06-07.
+> **🎯 POC scope (decision 2026-06-08).** After a skeptical gate, the stakeholder POC ships **T00–T06 (done) + a slimmed, in-session T12 (HITL)**. The rest of the institutional layer — **T07 (ensemble), T08 (prompt versioning), T09 full sqlite provenance, T10 (source-credibility history), T11 (multi-model cross-check), T13 (RAG), and all riders** — is **deferred to a post-POC productization backlog** (parked in [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3); none changes what a stakeholder sees enough to justify the complexity/cost now. The **single-call path stays the demo default**; the structured pipeline (T06) is an optional "advanced / auditable" toggle. Deferred cards below are marked 🅿️.
+>
+> **Status.** ⬜ not started · 🟡 in progress · ✅ merged · 🅿️ deferred (post-POC). All commits below are ⬜ as of 2026-06-07.
 
 ---
 
@@ -167,7 +169,8 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** flip the sidebar "structured pipeline" toggle → translate a multi-claim article (a `fake` multi-claim fixture works offline) → the result lists per-claim atomic claims each with its verbatim span; paste the **injection-canary** fixture → the override instruction is ignored and only the genuine assignments appear.
 **Out of scope:** per-incident clustering (documented residual limitation); merging the 3 calls into 1 for throughput (deferred).
 
-### ⬜ T07 — C1 self-consistency ensemble *(slot 7 · closes (3))*
+### 🅿️ T07 — C1 self-consistency ensemble *(slot 7 · closes (3))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: 5–10× LLM cost; the dashboard's CPT-resampling credible intervals already tell an uncertainty story. See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3. (Cheap substitute if needed: a verbalised-confidence field in the existing call.)
 **Depends on:** T02 (canonical shape), T06 (per-claim axis exists).
 **Touches:** `src/translator.py`, new `src/translator_aggregate.py` (the §C1 recipe in one place).
 **Change:**
@@ -186,7 +189,8 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 
 ## 4. Institutional commits (T08–T13) + riders
 
-### ⬜ T08 — D1 prompt as versioned artefact + pre-commit gate *(slot 8 · closes (6))*
+### 🅿️ T08 — D1 prompt as versioned artefact + pre-commit gate *(slot 8 · closes (6))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: pure engineering hygiene, invisible to stakeholders. See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3.
 **Depends on:** T03 (need a golden baseline to gate against; grow golden set to 50 first).
 **Touches:** new `prompts/translator/v{N}.yaml`, `src/translator.py` (loader), new `.pre-commit-config.yaml` (**§6 D2** — pre-commit + manual gate, no CI service).
 **Change:** externalise the prompt to YAML with frontmatter `{version, owner, model, created, node_taxonomy_hash, changelog}`; loader resolves latest unless pinned; the `STATES` taxonomy block is auto-generated at load and its hash recorded (a `network.py` taxonomy change invalidates the prompt → new version required).
@@ -194,7 +198,8 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app + cmd):** the app footer (or audit panel) shows the active prompt version + taxonomy hash; edit a prompt YAML and run `pre-commit run` → the hook blocks the commit when the golden set regresses, passes when it doesn't.
 **Out of scope:** per-node F1 gating (corpus too small); calibration (→ R-cal).
 
-### ⬜ T09 — D3 provenance audit log *(slot 9 · closes (8))*
+### 🅿️ T09 — D3 provenance audit log *(slot 9 · closes (8))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: the in-session Audit-trail tab + saveable sessions already demo provenance; full sqlite persistence + retention + reproducibility contract is productization. The slim T12 (HITL) is in-session and does **not** depend on this. See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3.
 **Depends on:** T01 (needs `semantics_version`).
 **Touches:** new `src/audit/` module, per-deployment **sqlite** store at `data/translator_audit.sqlite` (⚠ **§6 D5** — `sqlite3` is stdlib, no new dep; needs a `.gitignore` entry); `dashboard.py` observation log becomes a thin view.
 **Change:** extend the result with `{article_url, source, source_credibility, prompt_version, model, model_version, response_hash, temperature, ensemble_size, sample_disagreement, created_at, relevance, analyst_state, analyst_id, analyst_correction, body_retention, semantics_version}`; persist keyed by `response_hash` (identifies a stored record — **not** a reproducible target, see §6 D3). **Store the body by default**; `body_retention="hash_only"` opt-in persists `body_sha256`+`body_length` only. Nightly parquet export as a derived artefact (sqlite is source of truth).
@@ -202,7 +207,8 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** translate a few headlines → the Audit trail tab reads from the sqlite store; **quit and restart `pixi run app`** → the past translations are still there (proves persistence, not just session state).
 **Out of scope:** multi-writer/SaaS storage; retrieval indexing (→ T13).
 
-### ⬜ T10 — B1b per-source credibility + history *(slot 10 · closes (2))*
+### 🅿️ T10 — B1b per-source credibility + history *(slot 10 · closes (2))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: T04's default-per-source-type credibility already demos the concept; per-source editing/history/pinning needs D3 (also deferred). See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3.
 **Depends on:** T04, T09.
 **Touches:** `app/dashboard.py` (Sources tab), audit store (`source_credibility_history` table).
 **Change:** Sources tab lists every source seen with current $w$, last-edit date, editor; analyst edits/pre-populates; every edit appends a history row. The $w$ in force at a translation's `created_at` is the most recent commit before it — **no retroactive rescoring**. D3 records pin `(source_id, credibility_at_translation_time)`.
@@ -210,7 +216,8 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** open the Sources tab → edit a source's $w$ → a **new** translation from that source uses the new $w$ (visibly stronger/weaker injection) while an already-logged one keeps its pinned $w$ in the audit trail.
 **Out of scope:** automated credibility learning (Plan 4 territory).
 
-### ⬜ T11 — C2 multi-model cross-check *(slot 11 · closes (3))*
+### 🅿️ T11 — C2 multi-model cross-check *(slot 11 · closes (3))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: 2× cost, needs two providers configured, marginal demo value. See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3.
 **Depends on:** T07, T09.
 **Touches:** `src/translator.py`, `app/dashboard.py`.
 **Change:** run the C1 ensemble on **both** providers; per-node TV distance `> 0.25` **sets a cross-model-disagreement flag and attaches both translations** to the result (the queue that consumes the flag is built in T12 — C2 ships first and just produces the signal). Toggle: default on for analyst workflow, off for batch.
@@ -218,15 +225,17 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** with two providers available (or two `fake` profiles that deliberately disagree), enable the cross-model toggle → translate → a "cross-model disagreement" flag appears with both translations shown side by side; agreeing inputs pass through with no flag.
 **Out of scope:** R-pair (separate rider).
 
-### ⬜ T12 — E1 HITL review queue *(slot 12 · closes (3),(4))*
-**Depends on:** T07 (confidence signal), T09 (persistence). *Consumes flags from T05 (`relevance=partial`) and T11 (cross-model disagreement), both of which precede it.*
-**Touches:** `app/dashboard.py` (Triage view), audit store.
-**Change:** threshold-triggered three-state flow — **auto-approved** (confidence high, no cross-model disagreement, credibility above floor) enters inference immediately; **pending review** (below threshold / cross-model disagreement / flagged source / `relevance=partial`) shows in a Triage tab with both translations, body, and supporting spans; **rejected** logged, unused. Analyst edits are first-class records fed back to the golden-set queue (T03).
-**Acceptance gate:** test — an above-threshold translation auto-approves and injects; a below-threshold one lands in `pending` and does **not** inject until approved; an analyst correction writes a new ground-truth record.
-**Manual verification (app):** a Triage view lists pending items; translate a low-confidence/flagged headline (a `fake` low-confidence fixture works offline) → it waits in Triage and the posteriors do **not** move; approve → they update; edit/reject → behaves accordingly and the corrected record is captured.
-**Out of scope:** always-on triage (threshold-triggered only, per design decision 11).
+### ⬜ T12 — E1 HITL review queue (SLIM, in-session) *(slot 12 · closes (4), part of (3))*
+**Re-scoped 2026-06-08 for the POC:** in-session only — no sqlite (T09), no confidence ensemble (T07), no cross-model (T11). This is the one remaining stakeholder-facing item: it makes the "analyst stays in control" / defensible-workflow story concrete and closes the loop on acting on a flagged translation (the gap raised at T05).
+**Depends on:** T05 (`relevance` flag), T06 (the translate path it gates). No T07/T09/T11.
+**Touches:** `app/dashboard.py` (a Triage view + a "require review before inject" toggle), session state.
+**Change:** a **review-before-inject** flow held in session state. A translation that is **flagged** (`relevance=partial`, or — when the toggle is on — *every* translation) lands in a **pending** state and is **not injected** until the analyst acts; clearly-relevant translations can auto-inject (default), or all go to review if the analyst turns on "review everything". From the Triage view the analyst can **approve** (inject as-is), **edit** (adjust node/state, then inject), or **reject** (discard, logged). Auto-approved + clearly-irrelevant (`relevance=no`) behave as today.
+**Acceptance gate:** tests (mocked/fake) — a pending translation does **not** appear in `_merged_evidence` until approved; approve → it injects; reject → it never injects; edit → the edited assignment injects. No persistence dependency.
+**Manual verification (app):** turn on "review before inject" (or translate a `partial` headline) → it sits in a **Triage** panel and the posteriors do **not** move; **approve** → they update; **edit** a state → the edited value injects; **reject** → discarded. Offline via the `fake` partial fixture.
+**Out of scope:** sqlite persistence of the queue (T09), confidence/cross-model triggers (T07/T11), feeding edits back into the golden set (R-judge) — all post-POC.
 
-### ⬜ T13 — E2 retrieval-augmented translation *(slot 13 · closes (3))*
+### 🅿️ T13 — E2 retrieval-augmented translation *(slot 13 · closes (3))* — DEFERRED (post-POC)
+> Deferred 2026-06-08: the reach item — needs embeddings (parked §1), D3, and a populated approved corpus. See [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3.
 **Depends on:** T06 (injects into the B2 prompt), T09 + T12 populated (needs analyst-approved records to retrieve). The **one** place semantic retrieval genuinely wants embeddings — the provider choice (**§6 D1**) is deferred to when this reach-item is undertaken; small-corpus lexical / LLM-mediated retrieval is the fallback.
 **Touches:** `src/audit/` (embedding index), `src/translator.py` (few-shot injection in B2 prompt).
 **Change:** index the audit log by article embedding; for a new article retrieve top-K past records with `analyst_state ∈ {auto_approved, approved, edited}` and inject their **analyst-approved final outputs** as few-shot examples. One news-memory layer, two consumers (translator + future narrative layer) per the roadmap coupling.
@@ -234,10 +243,10 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** approve several similar translations, then translate a near-duplicate → the result reflects the approved precedent; a dev panel shows the injected few-shot examples (and "none" on an empty corpus).
 **Out of scope:** the narrative-layer consumer (roadmap, not Plan 2).
 
-### Rider commits
-- **⬜ R-judge — LLM-as-judge pre-labelling** *(host: T03+).* A stronger, different-family model drafts labels; analyst corrects; the **corrected** record is ground truth. Adversarial/injection records stay hand-seeded. *Gate:* a draft-then-correct round-trip produces a record indistinguishable in schema from a hand-authored one; judge never overwrites an analyst correction.
-- **⬜ R-cal — post-hoc calibration map** *(after T09, once corpus ≥ ~100).* Fit a monotone map (temperature scaling default; isotonic fallback) on the golden set, applied to the C1 output **before** pgmpy. Versioned per model+prompt, logged in D3. *Gate:* map is monotone (cannot reorder states); applying it improves golden-set calibration vs raw; the fitted map is reproducible from its version key.
-- **⬜ R-pair — pairwise Bayes-factor elicitation (A1 variant)** *(with/after T11).* Optional prompt eliciting $\Lambda_{ij}=P(A\mid s_i)/P(A\mid s_j)$ so the LLM's implicit prior cancels; recover per-state $\varepsilon$ by max-pinning (geometric-mean least-squares for $k>2$, residual logged). Same object as Plan 1's $\Lambda$. *Gate:* on synthetic pairwise inputs the recovered $\varepsilon$ matches the direct elicitation within the logged residual; **only undertaken if** D2 calibration shows per-state implicit-prior leakage is material.
+### Rider commits — 🅿️ all DEFERRED (post-POC, 2026-06-08; see [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3)
+- **🅿️ R-judge — LLM-as-judge pre-labelling** *(host: T03+).* A stronger, different-family model drafts labels; analyst corrects; the **corrected** record is ground truth. Adversarial/injection records stay hand-seeded. *Gate:* a draft-then-correct round-trip produces a record indistinguishable in schema from a hand-authored one; judge never overwrites an analyst correction.
+- **🅿️ R-cal — post-hoc calibration map** *(after T09, once corpus ≥ ~100).* Fit a monotone map (temperature scaling default; isotonic fallback) on the golden set, applied to the C1 output **before** pgmpy. Versioned per model+prompt, logged in D3. *Gate:* map is monotone (cannot reorder states); applying it improves golden-set calibration vs raw; the fitted map is reproducible from its version key.
+- **🅿️ R-pair — pairwise Bayes-factor elicitation (A1 variant)** *(with/after T11).* Optional prompt eliciting $\Lambda_{ij}=P(A\mid s_i)/P(A\mid s_j)$ so the LLM's implicit prior cancels; recover per-state $\varepsilon$ by max-pinning (geometric-mean least-squares for $k>2$, residual logged). Same object as Plan 1's $\Lambda$. *Gate:* on synthetic pairwise inputs the recovered $\varepsilon$ matches the direct elicitation within the logged residual; **only undertaken if** D2 calibration shows per-state implicit-prior leakage is material.
 
 ---
 

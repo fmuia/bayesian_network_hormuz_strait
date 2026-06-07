@@ -30,6 +30,8 @@
 > **Implementation companion.** A commit-by-commit execution version of this plan — every slot decomposed into independently-reviewable commits with explicit acceptance gates — lives in [`docs/02_translator_robustification_commit_plan.md`](02_translator_robustification_commit_plan.md). This document remains the *design* rationale (the "why" and the math); the commit plan is the *execution* checklist (the "in what order, gated on what").
 >
 > **Deferred to streamline the first pass.** Some sub-features below (the embedding-based relevance pre-filter, the embedding-cosine dedup backstop, and the retrieval embedding index) are **parked** in [`docs/06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §1 with LLM-only substitutes in force. Each retains its design here, marked with a "first-implementation note" at the point of deferral.
+>
+> **POC scope (skeptical gate, 2026-06-08).** This document is the full *production* design (all 13 items). The **stakeholder POC** ships only **A1, A2, D2-MVP, B1a, B3, B2/B4 (T00–T06) + a slim in-session HITL**; the institutional layer (C1 ensemble, D1 prompt versioning, D3 sqlite provenance, B1b history, C2 cross-check, E2 RAG, riders) is **deferred post-POC** — parked in [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §3. The execution status lives in the commit plan.
 
 ## Context
 

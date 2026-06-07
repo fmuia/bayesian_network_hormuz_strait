@@ -20,6 +20,7 @@
 |---|--------------|-----------|----------------|-------------------------|
 | **1** | Embedding-based translator features (relevance pre-filter, paraphrase dedup, retrieval index) | Plan 2 (B3/T05, B2/T06a, E2/T13) | LLM-only equivalents / deferred reach item | Throughput or calibration data shows the LLM-only path is insufficient |
 | **2** | PyMC / continuous-variable inference backend (dual backend, hierarchical priors, continuous Oil_Price, per-CPT κ) | Plan 3 (all phases) | Stay on the existing pgmpy discrete path | A continuous variable or hierarchical-prior calibration becomes necessary |
+| **3** | Plan 2 institutional layer (ensemble, prompt versioning, sqlite provenance, source-credibility history, multi-model cross-check, RAG, riders) | Plan 2 (T07, T08, T09, T10, T11, T13, R-judge/R-cal/R-pair) | POC ships T00–T06 + a slim in-session HITL (T12); in-session audit + saved sessions cover provenance | Moving from POC to a paying/production engagement |
 
 ---
 
@@ -74,3 +75,26 @@
 - **M4 (independent CPT column resampling).** The hierarchical-priors fix (Plan 3 Phase 3) is parked; the bolt-on Dirichlet resampling remains.
 
 The master-plan matrix rows for M2/M3/M4 are annotated to point here.
+
+---
+
+## 3. Plan 2 institutional layer (post-POC)  🅿️
+
+**Where it lived.** Plan 2 commit plan [`docs/02_translator_robustification_commit_plan.md`](02_translator_robustification_commit_plan.md): **T07** (C1 self-consistency ensemble), **T08** (D1 prompt versioning + pre-commit gate), **T09** (D3 sqlite provenance / reproducibility / body retention), **T10** (B1b per-source credibility editing + history), **T11** (C2 multi-model cross-check), **T13** (E2 retrieval-augmented translation), and the riders **R-judge / R-cal / R-pair**.
+
+**What was dropped (skeptical-gate decision, 2026-06-08).** After T06 the translator already makes a compelling stakeholder demo (likelihood-ratio semantics, hardened schema, article + source credibility, relevance/abstention, optional span-grounded + injection-resistant structured reasoning, an eval badge, an in-session audit trail). The remaining items are the plan's own self-described "institutional layer that distinguishes a tool from a script" — productization, not demo. The POC therefore ships **T00–T06 + a slim, in-session HITL (T12)** and parks the rest here.
+
+**Why dropped for the POC.**
+- **T07 ensemble** — 5–10× LLM cost; the dashboard's CPT-resampling credible intervals already carry an uncertainty story. (Cheap substitute if ever wanted: a verbalised-confidence field in the existing call.)
+- **T08 prompt versioning + gate** — engineering hygiene, invisible to stakeholders.
+- **T09 sqlite provenance** — the in-session Audit-trail tab + saveable named sessions already demo provenance; persistence/retention/reproducibility is a deployment concern.
+- **T10 source-credibility history** — T04's default-per-source-type weighting already demos the concept; per-source editing/history needs T09.
+- **T11 multi-model cross-check** — 2× cost, needs two providers, marginal demo value.
+- **T13 RAG** — the reach item; needs embeddings (§1), T09, and a populated approved corpus.
+- **R-judge / R-cal / R-pair** — golden-set acceleration / calibration / prior-cancellation; all maturity features.
+
+**Substitute in force now.** Single-call translation stays the demo default (cheap, full yes/partial/no relevance); the T06 structured pipeline is an optional advanced/auditable toggle; the slim in-session HITL (T12) provides the human-in-control workflow without sqlite/ensemble/cross-model dependencies.
+
+**Re-introduction trigger.** Moving from POC to a paying or production engagement — when reproducible audit, prompt governance, calibrated confidence, or institutional memory become contractual requirements.
+
+**Findings affected (NOT closed while parked).** **(6)** no prompt governance → T08; **(8)** no provenance → T09 (in-session audit is a partial stand-in); the measured-confidence half of **(3)** → T07. The span-grounding/injection half of **(2)/(3)** *is* delivered by T06.
