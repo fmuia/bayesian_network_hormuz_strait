@@ -52,7 +52,7 @@ from src.translator import (
     structured_enabled,
     translate_article,
 )
-from src.translator_pipeline import extract_claims
+from src.translator_pipeline import extract_claims, map_claims
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
 # ---------------------------------------------------------------------------
@@ -787,8 +787,11 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         try:
             claims = extract_claims(article, provider=provider, on_step=on_step)
             st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
+            mappings = map_claims(article, claims, provider=provider, on_step=on_step)
+            st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
         except TranslatorError as exc:
             st.session_state.last_translation["claims"] = []
+            st.session_state.last_translation["claim_mappings"] = []
             st.session_state.last_translation["claims_error"] = str(exc)
 
     # B3: an off-topic article abstains — logged, but no evidence injected.
@@ -1921,23 +1924,31 @@ if active_view == _VIEW_OBS:
                 )
             if "claims" in t:
                 _claims = t["claims"]
+                _maps = t.get("claim_mappings", [])
+                _by_span = {m["supporting_span"]: m for m in _maps if m.get("supporting_span")}
                 with st.expander(
-                    f"Extracted claims · structured pipeline (experimental) — {len(_claims)}",
+                    f"Structured pipeline (experimental) — {len(_claims)} claim(s), "
+                    f"{len(_maps)} mapped",
                     expanded=False,
                 ):
                     st.caption(
-                        "Span-grounded atomic claims (B2 step 1). Each cites a verbatim "
-                        "span copied from the article; ungrounded claims are dropped. "
-                        "These don't drive the assignments yet — that lands in later sub-commits."
+                        "Span-grounded atomic claims (B2 step 1) mapped to BN nodes "
+                        "(step 2). Each claim cites a verbatim span copied from the "
+                        "article; ungrounded claims are dropped. These don't drive the "
+                        "injected assignments yet — that lands in later sub-commits."
                     )
                     if t.get("claims_error"):
-                        st.warning(f"Claim extraction failed: {t['claims_error']}")
+                        st.warning(f"Structured pipeline failed: {t['claims_error']}")
                     for c in _claims:
-                        triple = " ".join(
-                            x for x in (c.get("subject"), c.get("predicate"), c.get("object")) if x
-                        )
-                        head = f"**{triple}** — " if triple.strip() else ""
-                        st.markdown(f"- {head}“{c['verbatim_span']}”")
+                        span = c["verbatim_span"]
+                        m = _by_span.get(span)
+                        if m:
+                            mapped = (
+                                f" → **{m['node'].replace('_',' ')} = {m['state']}**"
+                            )
+                        else:
+                            mapped = " → <span style='color:#9CA3AF;'>(no node)</span>"
+                        st.markdown(f"- “{span}”{mapped}", unsafe_allow_html=True)
                     if not _claims and not t.get("claims_error"):
                         st.markdown("_No grounded claims extracted._")
             if t["assignments"]:
