@@ -1,7 +1,7 @@
 {
   "match": [],
   "kind": "wellformed",
-  "note": "Fallback for any unmatched headline. A1 likelihood-ratio (ε) form: best state pinned to 1.0, others in (0,1], not a distribution.",
+  "note": "Fallback for any unmatched headline. A1 likelihood-ratio (ε) form, A2 canonical {state, value} shape: best state pinned to 1.0, others in (0,1], not a distribution.",
   "payload": {
     "assignments": [
       {
@@ -9,9 +9,9 @@
         "state": "isolated",
         "reason": "Generic Gulf maritime tension (fake default fixture).",
         "state_probs": [
-          {"state": "none", "prob": 0.50},
-          {"state": "isolated", "prob": 1.00},
-          {"state": "frequent", "prob": 0.40}
+          {"state": "none", "value": 0.50},
+          {"state": "isolated", "value": 1.00},
+          {"state": "frequent", "value": 0.40}
         ]
       }
     ],

@@ -295,7 +295,7 @@ C1 does **not** catch:
 - **Logit-based confidence.** Use API-exposed token probabilities for the answer token. Cheaper than ensemble and often better-calibrated, but currently not actionable under the Claude-only posture (Claude's logprob exposure is limited). Bookmark for the OpenAI cross-check in C2.
 - **Conformal prediction** (Quach, Fisch, Schuster, Yala, Sohn, Jaakkola, & Barzilay 2024, *"Conformal Language Modeling"*, ICLR 2024). Provides finite-sample coverage guarantees rather than confidence estimates. Heavier engineering; right tool if/when stakeholder decisions require a defensible coverage bound.
 
-**Cost note.** N× LLM spend per article. At demo cadence this is negligible (~$0.05/article on Sonnet 4.5 at N=5). At production cadence it scales linearly; below 1000 articles/day the bill is still small.
+**Cost note.** N× LLM spend per article. At demo cadence this is negligible (order of a few cents to ~$0.20/article at N=5, depending on the model — the default is Opus 4.8). At production cadence it scales linearly; below 1000 articles/day the bill is still small.
 
 ### C2. Multi-model cross-check
 

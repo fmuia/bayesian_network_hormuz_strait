@@ -9,7 +9,7 @@
         "state": "catastrophic",
         "reason": "'catastrophic' is not an allowed state for Tanker_Incidents.",
         "state_probs": [
-          {"state": "catastrophic", "prob": 1.0}
+          {"state": "catastrophic", "value": 1.0}
         ]
       }
     ],

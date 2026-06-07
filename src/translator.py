@@ -14,9 +14,9 @@ UI degrades to a manual node/state picker.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
-import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +27,7 @@ from .network import SCENARIO_NARRATIVES, STATES
 Provider = Literal["claude-code", "openai", "fake"]
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
-CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
+CLAUDE_DEFAULT_MODEL = "claude-opus-4-8"
 
 # A1 likelihood-ratio semantics: per-state ε ∈ (0, 1] with the best-supported
 # state pinned to 1.0 (NOT a probability distribution; does not sum to 1).
@@ -138,10 +138,18 @@ def _node_state_enum_schema() -> Dict:
                             "items": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["state", "prob"],
+                                "required": ["state", "value"],
                                 "properties": {
                                     "state": {"type": "string"},
-                                    "prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                                    "value": {
+                                        "type": "number",
+                                        "minimum": 0.0,
+                                        "maximum": 1.0,
+                                        "description": (
+                                            "Relative likelihood ε for this state in (0, 1]; "
+                                            "the best-supported state in the array = 1.0."
+                                        ),
+                                    },
                                 },
                             },
                             "minItems": 2,
@@ -155,6 +163,16 @@ def _node_state_enum_schema() -> Dict:
             },
         },
     }
+
+
+def _states_hash() -> str:
+    """Short stable hash of the node taxonomy (``STATES``).
+
+    Embedded in the prompt and recorded so drift between ``network.py`` and a
+    frozen/externalised prompt is detectable (used by D1/T08 prompt versioning).
+    """
+    canonical = json.dumps(STATES, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
 
 def _system_prompt() -> str:
@@ -179,11 +197,15 @@ def _system_prompt() -> str:
         lines.append(f"  - {node}: {states}")
     lines += [
         "",
+        f"(Node-taxonomy snapshot: schema hash {_states_hash()}. Use ONLY the node "
+        "names listed above; any other name is rejected.)",
+        "",
         "Given one news headline, output a JSON object with:",
         "  - assignments: list of {node, state, reason, state_probs}. Include only nodes "
         "the headline directly speaks to or strongly implies. Typical "
         "headlines map to 1-3 assignments. Do NOT invent assignments.",
-        "    For each assignment, state_probs gives a RELATIVE LIKELIHOOD for every",
+        "    For each assignment, state_probs is a list of {state, value} objects giving a",
+        "    RELATIVE LIKELIHOOD for every",
         "    allowed state of the node: how plausible this article is if that state were",
         "    the true one. Scale them so the single best-supported state = 1.0 and the",
         "    others are fractions in (0, 1]. These are NOT probabilities and must NOT sum",
@@ -263,73 +285,55 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
             )
         probs: Dict[str, float]
         if probs_raw:
-            probs = {}
-            parsed_items = []
-            if isinstance(probs_raw, dict):
-                parsed_items = [
-                    {"state": k, "prob": v} for k, v in probs_raw.items()
-                ]
-            elif isinstance(probs_raw, list):
-                parsed_items = probs_raw
-            elif isinstance(probs_raw, str):
-                try:
-                    loaded = json.loads(probs_raw)
-                except json.JSONDecodeError as exc:
-                    raise TranslatorError(
-                        f"Translator returned non-JSON state_probs string for node {node!r}"
-                    ) from exc
-                if isinstance(loaded, dict):
-                    parsed_items = [{"state": k, "prob": v} for k, v in loaded.items()]
-                elif isinstance(loaded, list):
-                    parsed_items = loaded
-                else:
-                    raise TranslatorError(
-                        f"Translator returned unsupported state_probs shape for node {node!r}"
-                    )
-            else:
+            # A2: a single canonical shape — an array of {state, value} objects.
+            # The permissive dict / list-of-{prob} / JSON-string branches are
+            # gone (C6); nothing is silently coerced (C7).
+            if not isinstance(probs_raw, list):
                 raise TranslatorError(
-                    f"Translator returned unsupported state_probs type "
-                    f"{type(probs_raw).__name__} for node {node!r}"
+                    f"state_probs for node {node!r} must be an array of "
+                    f"{{state, value}} objects, got {type(probs_raw).__name__}."
                 )
-
-            for p in parsed_items:
-                if not isinstance(p, dict):
+            probs = {}
+            for p in probs_raw:
+                if not isinstance(p, dict) or "state" not in p or "value" not in p:
                     raise TranslatorError(
-                        f"Translator returned malformed state_probs item for node {node!r}"
+                        f"Malformed state_probs item for node {node!r}: {p!r}; "
+                        f"expected {{state, value}}."
                     )
-                s = p.get("state")
+                s = p["state"]
                 if s not in STATES[node]:
                     raise TranslatorError(
-                        f"Translator returned invalid state_probs state {s!r} for node {node!r}"
+                        f"Invalid state_probs state {s!r} for node {node!r}; "
+                        f"valid: {STATES[node]}"
                     )
                 try:
-                    probs[s] = float(p.get("prob", 0.0))
+                    probs[s] = float(p["value"])
                 except (TypeError, ValueError) as exc:
                     raise TranslatorError(
-                        f"Translator returned non-numeric probability for {node}.{s}"
+                        f"Non-numeric value for {node}.{s}: {p.get('value')!r}"
                     ) from exc
-            # A1 likelihood-ratio semantics. Reject an explicit 0 (a state
-            # asserted strictly impossible would zero its posterior
-            # irrecoverably); floor only states the model did not mention;
-            # require the best-supported state to be pinned to exactly 1.0.
+            # A1 likelihood-ratio semantics: ε ∈ (0, 1], best state pinned to 1.0.
+            # Reject an explicit 0 (a state asserted strictly impossible would
+            # zero its posterior irrecoverably); floor only states the model did
+            # not mention. Errors carry the offending vector.
             for s, v in probs.items():
                 if v <= 0.0:
                     raise TranslatorError(
-                        f"Translator returned non-positive likelihood {v!r} for "
-                        f"{node}.{s}; use a small floor (e.g. 0.01) for "
+                        f"Non-positive likelihood {v!r} for {node}.{s} "
+                        f"(vector {probs}); use a small floor (e.g. 0.01) for "
                         f"'essentially ruled out', never 0."
                     )
                 if v > 1.0 + _EPS_TOL:
                     raise TranslatorError(
-                        f"Translator returned likelihood {v!r} > 1 for {node}.{s}; "
+                        f"Likelihood {v!r} > 1 for {node}.{s} (vector {probs}); "
                         f"ratios must be in (0, 1] with the best state pinned to 1.0."
                     )
             for s in STATES[node]:
                 probs.setdefault(s, _EPS_FLOOR)
             if abs(max(probs.values()) - 1.0) > _EPS_TOL:
                 raise TranslatorError(
-                    f"Translator likelihoods for {node} are not max-pinned "
-                    f"(no state = 1.0): {probs}. Scale so the best state = 1.0."
+                    f"Likelihoods for {node} are not max-pinned (no state = 1.0): "
+                    f"{probs}. Scale so the best state = 1.0."
                 )
         else:
             probs = {s: (1.0 if s == state else _EPS_FLOOR) for s in STATES[node]}
@@ -340,20 +344,57 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
     return assignments, payload.get("overall_rationale", "")
 
 
+def _first_balanced_json_object(text: str) -> Optional[str]:
+    """Return the first brace-balanced ``{...}`` substring, or ``None``.
+
+    Tracks string literals and escapes so braces inside JSON strings don't throw
+    off the depth count, and stops at the first balanced object so trailing prose
+    is ignored. Replaces the old greedy ``\\{.*\\}`` regex (finding C8), which
+    over-matched across multiple objects and through string contents.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def _extract_json_block(text: str) -> Dict:
-    """Best-effort JSON extraction from a model's text response."""
+    """Parse a JSON object from a model's text response (Claude fallback only).
+
+    Used only when the Claude structured-output path returns no
+    ``structured_output``; the OpenAI path and the schema-bound Claude path do
+    not pass through here.
+    """
     text = text.strip()
-    # Fast path: the whole response is JSON.
     try:
-        return json.loads(text)
+        return json.loads(text)  # fast path: the whole response is JSON
     except json.JSONDecodeError:
         pass
-    # Fallback: grab the outermost JSON object via a greedy brace match.
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
+    block = _first_balanced_json_object(text)
+    if block is None:
         raise TranslatorError("No JSON object found in translator response.")
     try:
-        return json.loads(match.group(0))
+        return json.loads(block)
     except json.JSONDecodeError as exc:
         raise TranslatorError(f"Malformed translator JSON: {exc}") from exc
 
@@ -426,24 +467,41 @@ async def _claude_code_collect(
     *,
     model: str,
     on_step: Optional[StepCallback] = None,
-) -> str:
+) -> tuple[str, Optional[Dict]]:
+    """Return ``(collected_text, structured_output)``.
+
+    With ``output_format`` set to our JSON schema (A2), the CLI parses and
+    validates the model output and hands it back on
+    ``ResultMessage.structured_output`` — the schema-bound path that replaces
+    regex scraping (C8). ``structured_output`` is ``None`` only if the CLI did
+    not produce one, in which case the caller falls back to brace-matching the
+    collected text.
+    """
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
+        ResultMessage,
         TextBlock,
         ThinkingBlock,
         query,
     )
 
     _emit = on_step or (lambda *_: None)
-    options = ClaudeAgentOptions(
+    opts_kwargs: Dict = dict(
         system_prompt=_system_prompt(),
         model=model,
         allowed_tools=[],              # pure LLM call, no tools
         max_turns=1,
         permission_mode="bypassPermissions",
     )
+    if _claude_output_format_enabled():
+        # Schema-bound output — only when the CLI is known to support it.
+        opts_kwargs["output_format"] = {
+            "type": "json_schema", "schema": _node_state_enum_schema(),
+        }
+    options = ClaudeAgentOptions(**opts_kwargs)
     chunks: List[str] = []
+    structured: Optional[Dict] = None
     _emit("init", f"Calling Claude Code ({model})…")
     total_chars = 0
     last_thinking_preview = ""
@@ -456,12 +514,18 @@ async def _claude_code_collect(
                     _emit("response", f"Model returned {total_chars} chars")
                 elif isinstance(block, ThinkingBlock):
                     # Surface a short preview of the model's reasoning if
-                    # extended thinking is enabled on the CLI side.
-                    preview = block.thinking.strip().splitlines()[0][:160]
+                    # extended thinking is enabled on the CLI side. Guard against
+                    # an empty/whitespace thinking block (splitlines() -> []).
+                    _t_lines = block.thinking.strip().splitlines()
+                    preview = _t_lines[0][:160] if _t_lines else ""
                     if preview and preview != last_thinking_preview:
                         last_thinking_preview = preview
                         _emit("thinking", preview)
-    return "".join(chunks).strip()
+        elif isinstance(msg, ResultMessage):
+            so = getattr(msg, "structured_output", None)
+            if isinstance(so, dict):
+                structured = so
+    return "".join(chunks).strip(), structured
 
 
 def _translate_claude_code(
@@ -476,19 +540,29 @@ def _translate_claude_code(
         "Respond with the JSON object described in the system prompt, and nothing else."
     )
     try:
-        text = asyncio.run(_claude_code_collect(prompt, model=model, on_step=on_step))
+        text, structured = asyncio.run(
+            _claude_code_collect(prompt, model=model, on_step=on_step)
+        )
     except Exception as exc:
         raise TranslatorError(f"Claude Code call failed: {exc}") from exc
 
-    _emit("parsing", "Parsing JSON response…")
-    try:
-        payload = _extract_json_block(text)
-    except TranslatorError as exc:
-        # Surface the raw text on the exception so the UI can show it.
-        exc.raw_response = text  # type: ignore[attr-defined]
-        raise
+    if structured is not None:
+        payload = structured  # schema-bound output; no parsing needed
+    else:
+        _emit("parsing", "Parsing JSON response…")
+        try:
+            payload = _extract_json_block(text)
+        except TranslatorError as exc:
+            exc.raw_response = text  # type: ignore[attr-defined]  # surface to UI
+            raise
 
-    assignments, rationale = _validate_payload(payload)
+    raw = text or json.dumps(payload)
+    try:
+        assignments, rationale = _validate_payload(payload)
+    except TranslatorError as exc:
+        if not getattr(exc, "raw_response", ""):
+            exc.raw_response = raw  # type: ignore[attr-defined]
+        raise
     _emit("validated", f"Validated {len(assignments)} assignment(s)")
     return TranslatorResult(
         headline=headline,
@@ -496,7 +570,7 @@ def _translate_claude_code(
         rationale=rationale,
         model=model,
         provider="claude-code",
-        raw_response=text,
+        raw_response=raw,
     )
 
 
@@ -574,6 +648,20 @@ def _translate_fake(
 def fake_forced_by_env() -> bool:
     """True if ``TRANSLATOR_PROVIDER=fake`` forces the offline fake provider."""
     return os.environ.get("TRANSLATOR_PROVIDER", "").strip().lower() == "fake"
+
+
+def _claude_output_format_enabled() -> bool:
+    """Whether to pass ``output_format`` (schema-bound output) to the Claude CLI.
+
+    Opt-in (default off): the Python SDK exposes the field, but the bundled
+    ``claude`` CLI binary may reject it and fail with exit code 1. When off, the
+    Claude path uses text + brace-matching + strict post-validation — the D4
+    fallback, which still enforces A2's canonical shape via ``_validate_payload``.
+    Enable with ``TRANSLATOR_CLAUDE_OUTPUT_FORMAT=1`` once the CLI supports it.
+    """
+    return os.environ.get("TRANSLATOR_CLAUDE_OUTPUT_FORMAT", "").strip().lower() in (
+        "1", "true", "yes",
+    )
 
 
 # ---------------------------------------------------------------------------

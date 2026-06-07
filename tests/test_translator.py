@@ -18,6 +18,8 @@ from src.network import STATES, build_network
 from src.translator import (
     TranslatorError,
     TranslatorResult,
+    _extract_json_block,
+    _states_hash,
     _system_prompt,
     _validate_payload,
     available_providers,
@@ -74,7 +76,7 @@ def _payload(node: str, eps: dict) -> dict:
                 "node": node,
                 "state": max(eps, key=eps.get),
                 "reason": "test",
-                "state_probs": [{"state": s, "prob": v} for s, v in eps.items()],
+                "state_probs": [{"state": s, "value": v} for s, v in eps.items()],
             }
         ],
         "overall_rationale": "r",
@@ -147,8 +149,8 @@ def test_validator_floors_unmentioned_state():
                 "state": "frequent",
                 "reason": "only two states mentioned",
                 "state_probs": [
-                    {"state": "frequent", "prob": 1.0},
-                    {"state": "isolated", "prob": 0.3},
+                    {"state": "frequent", "value": 1.0},
+                    {"state": "isolated", "value": 0.3},
                 ],
             }
         ],
@@ -163,3 +165,101 @@ def test_prompt_drops_sum_to_one_instruction():
     assert "must sum to 1" not in p          # the old affirmative instruction is gone
     assert "relative likelihood" in p         # new likelihood-ratio instruction
     assert "must not sum to 1" in p
+
+
+# ===== T02 — A2 schema hardening ===========================================
+
+
+def _value_item(node, eps):
+    """Canonical {state, value} payload."""
+    return {
+        "assignments": [
+            {
+                "node": node,
+                "state": max(eps, key=eps.get),
+                "reason": "t",
+                "state_probs": [{"state": s, "value": v} for s, v in eps.items()],
+            }
+        ],
+        "overall_rationale": "r",
+    }
+
+
+def test_validator_rejects_dict_shape():
+    """The old permissive dict shape (C6) is no longer accepted."""
+    bad = {
+        "assignments": [
+            {
+                "node": "Tanker_Incidents",
+                "state": "frequent",
+                "reason": "t",
+                "state_probs": {"none": 0.05, "isolated": 0.3, "frequent": 1.0},
+            }
+        ],
+        "overall_rationale": "r",
+    }
+    with pytest.raises(TranslatorError):
+        _validate_payload(bad)
+
+
+def test_validator_rejects_json_string_shape():
+    """The old JSON-encoded-string shape (C6) is no longer accepted."""
+    bad = {
+        "assignments": [
+            {
+                "node": "Tanker_Incidents",
+                "state": "frequent",
+                "reason": "t",
+                "state_probs": '[{"state": "frequent", "value": 1.0}]',
+            }
+        ],
+        "overall_rationale": "r",
+    }
+    with pytest.raises(TranslatorError):
+        _validate_payload(bad)
+
+
+def test_validator_rejects_legacy_prob_key():
+    """An item using the old `prob` key (no `value`) is rejected, not coerced."""
+    bad = {
+        "assignments": [
+            {
+                "node": "Tanker_Incidents",
+                "state": "frequent",
+                "reason": "t",
+                "state_probs": [{"state": "frequent", "prob": 1.0}],
+            }
+        ],
+        "overall_rationale": "r",
+    }
+    with pytest.raises(TranslatorError):
+        _validate_payload(bad)
+
+
+def test_validator_rejects_node_outside_snapshot():
+    with pytest.raises(TranslatorError):
+        _validate_payload(_value_item("Not_A_Real_Node", {"x": 1.0}))
+
+
+def test_validator_accepts_canonical_value_shape():
+    asg, _ = _validate_payload(
+        _value_item("Tanker_Incidents", {"none": 0.05, "isolated": 0.3, "frequent": 1.0})
+    )
+    assert asg[0].node == "Tanker_Incidents"
+    assert asg[0].state_probs["frequent"] == 1.0
+
+
+def test_brace_parser_handles_nested_and_trailing_prose():
+    text = (
+        'Here is the result:\n```json\n'
+        '{"assignments": [{"node": "Tanker_Incidents", "state": "frequent", '
+        '"reason": "x {with brace}", "state_probs": [{"state": "frequent", "value": 1.0}]}], '
+        '"overall_rationale": "ok"}\n```\nHope that helps!'
+    )
+    payload = _extract_json_block(text)
+    assert payload["overall_rationale"] == "ok"
+    assert payload["assignments"][0]["node"] == "Tanker_Incidents"
+
+
+def test_states_hash_embedded_in_prompt():
+    assert _states_hash() in _system_prompt()

@@ -1,7 +1,7 @@
 {
   "match": ["tanker", "strait", "vessel", "shipping"],
   "kind": "wellformed",
-  "note": "Tanker / shipping incident headline. A1 likelihood-ratio (ε) form.",
+  "note": "Tanker / shipping incident headline. A1 ε form, A2 {state, value} shape.",
   "payload": {
     "assignments": [
       {
@@ -9,9 +9,9 @@
         "state": "frequent",
         "reason": "Reported attack on shipping in the strait (fake fixture).",
         "state_probs": [
-          {"state": "none", "prob": 0.05},
-          {"state": "isolated", "prob": 0.30},
-          {"state": "frequent", "prob": 1.00}
+          {"state": "none", "value": 0.05},
+          {"state": "isolated", "value": 0.30},
+          {"state": "frequent", "value": 1.00}
         ]
       }
     ],

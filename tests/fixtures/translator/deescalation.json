@@ -1,7 +1,7 @@
 {
   "match": ["talks", "negotiat", "deal", "agreement", "ceasefire", "diplomac"],
   "kind": "wellformed",
-  "note": "Diplomatic de-escalation headline. A1 likelihood-ratio (ε) form.",
+  "note": "Diplomatic de-escalation headline. A1 ε form, A2 {state, value} shape.",
   "payload": {
     "assignments": [
       {
@@ -9,9 +9,9 @@
         "state": "success",
         "reason": "Diplomatic progress reported (fake fixture).",
         "state_probs": [
-          {"state": "success", "prob": 1.00},
-          {"state": "stalled", "prob": 0.30},
-          {"state": "breakdown", "prob": 0.05}
+          {"state": "success", "value": 1.00},
+          {"state": "stalled", "value": 0.30},
+          {"state": "breakdown", "value": 0.05}
         ]
       }
     ],

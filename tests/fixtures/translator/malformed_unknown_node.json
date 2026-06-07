@@ -9,7 +9,7 @@
         "state": "frequent",
         "reason": "This node is not in the BN schema and must be rejected.",
         "state_probs": [
-          {"state": "frequent", "prob": 1.0}
+          {"state": "frequent", "value": 1.0}
         ]
       }
     ],
