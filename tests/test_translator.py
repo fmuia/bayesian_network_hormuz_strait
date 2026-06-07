@@ -370,3 +370,30 @@ def test_relevance_no_drops_assignments():
 def test_invalid_relevance_rejected():
     with pytest.raises(TranslatorError):
         _finalize_payload(_eps_payload(relevance="maybe"))
+
+
+# ===== Claude CLI transient-failure retry ==================================
+
+
+def test_asyncio_run_retrying_recovers_after_transient():
+    from src.translator import _asyncio_run_retrying
+    calls = {"n": 0}
+
+    async def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RuntimeError("Command failed with exit code 1")
+        return "ok"
+
+    assert _asyncio_run_retrying(lambda: flaky(), attempts=3, backoff=0.0) == "ok"
+    assert calls["n"] == 3
+
+
+def test_asyncio_run_retrying_gives_up_as_translator_error():
+    from src.translator import _asyncio_run_retrying
+
+    async def always_fail():
+        raise RuntimeError("nope")
+
+    with pytest.raises(TranslatorError):
+        _asyncio_run_retrying(lambda: always_fail(), attempts=2, backoff=0.0)

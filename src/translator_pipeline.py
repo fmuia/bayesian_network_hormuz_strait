@@ -38,6 +38,7 @@ from .translator import (
     TranslatorResult,
     _apply_source_credibility,
     _article_user_content,
+    _asyncio_run_retrying,
     _claude_output_format_enabled,
     _EPS_FLOOR,
     _extract_json_block,
@@ -234,13 +235,11 @@ async def _claude_claims_collect(user_content: str, model: str):
 
 def _claude_claims(article: Article, *, model: Optional[str] = None,
                    on_step=None) -> List[Dict]:
-    try:
-        text, structured = asyncio.run(
-            _claude_claims_collect(_article_user_content(article),
-                                   model or CLAUDE_DEFAULT_MODEL)
-        )
-    except Exception as exc:  # noqa: BLE001 - surfaced as TranslatorError
-        raise TranslatorError(f"Claude claim extraction failed: {exc}") from exc
+    text, structured = _asyncio_run_retrying(
+        lambda: _claude_claims_collect(_article_user_content(article),
+                                       model or CLAUDE_DEFAULT_MODEL),
+        label="Claude claim extraction",
+    )
     payload = structured if structured is not None else _extract_json_block(text)
     return payload.get("claims", [])
 
@@ -485,14 +484,13 @@ async def _claude_map_collect(user_content: str, model: str):
 
 def _claude_map_claims(article: Article, claims: List[Claim], *,
                        model: Optional[str] = None, on_step=None) -> List[Dict]:
-    try:
-        text, structured = asyncio.run(
-            _claude_map_collect(_claims_user_block(claims), model or CLAUDE_DEFAULT_MODEL)
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise TranslatorError(f"Claude claim mapping failed: {exc}") from exc
+    text, structured = _asyncio_run_retrying(
+        lambda: _claude_map_collect(_claims_user_block(claims), model or CLAUDE_DEFAULT_MODEL),
+        label="Claude claim mapping",
+    )
     payload = structured if structured is not None else _extract_json_block(text)
-    return payload.get("mappings", [])
+    # Tolerate a model that wraps the list under the wrong key.
+    return payload.get("mappings") or payload.get("claims") or []
 
 
 def map_claims(article: Article, claims: List[Claim], *, provider: Optional[str] = None,

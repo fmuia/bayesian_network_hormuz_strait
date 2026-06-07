@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
@@ -580,6 +581,27 @@ def _translate_openai(
 # ---------------------------------------------------------------------------
 
 
+def _asyncio_run_retrying(coro_factory, *, attempts: int = 3, backoff: float = 0.5,
+                         label: str = "Claude call"):
+    """Run an async coroutine via ``asyncio.run``, retrying transient failures.
+
+    The bundled ``claude`` CLI intermittently exits 1 ("Fatal error in message
+    reader"); a retry usually succeeds. The structured pipeline makes two Claude
+    calls per translation, so this flakiness surfaces more often — retrying makes
+    it robust. ``coro_factory`` must return a *fresh* coroutine each call. Raises
+    :class:`TranslatorError` after ``attempts`` failures.
+    """
+    last: Optional[Exception] = None
+    for i in range(attempts):
+        try:
+            return asyncio.run(coro_factory())
+        except Exception as exc:  # noqa: BLE001 - external subprocess; retry
+            last = exc
+            if i + 1 < attempts and backoff:
+                time.sleep(backoff * (i + 1))
+    raise TranslatorError(f"{label} failed after {attempts} attempts: {last}")
+
+
 async def _claude_code_collect(
     prompt: str,
     *,
@@ -658,12 +680,10 @@ def _translate_claude_code(
         + "\n\nRespond with the JSON object described in the system prompt, "
         "and nothing else."
     )
-    try:
-        text, structured = asyncio.run(
-            _claude_code_collect(prompt, model=model, on_step=on_step)
-        )
-    except Exception as exc:
-        raise TranslatorError(f"Claude Code call failed: {exc}") from exc
+    text, structured = _asyncio_run_retrying(
+        lambda: _claude_code_collect(prompt, model=model, on_step=on_step),
+        label="Claude Code call",
+    )
 
     if structured is not None:
         payload = structured  # schema-bound output; no parsing needed
