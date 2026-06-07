@@ -18,7 +18,7 @@ import hashlib
 import json
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
@@ -85,6 +85,7 @@ class TranslatorAssignment:
     state: str
     reason: str
     state_probs: Dict[str, float]
+    supporting_spans: List[str] = field(default_factory=list)  # B2: verbatim spans (audit)
 
 
 @dataclass

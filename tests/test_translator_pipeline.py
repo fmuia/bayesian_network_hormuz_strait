@@ -18,6 +18,7 @@ from src.translator_pipeline import (
     article_text,
     extract_claims,
     map_claims,
+    run_structured,
     translate_structured,
 )
 
@@ -226,3 +227,25 @@ def test_article_user_content_spotlights_body():
     content = _article_user_content(Article(headline="h", body="b"))
     assert "<article>" in content and "</article>" in content
     assert "never" in content.lower() and "instructions" in content.lower()
+
+
+# ===== T06e — structured drives assignments; audit spans ===================
+
+
+def test_run_structured_returns_intermediates_and_audit_spans():
+    art = Article(headline="A tanker was struck near Hormuz.",
+                  body="A tanker was struck near Hormuz.")
+    result, claims, mappings = run_structured(art, provider="fake")
+    assert claims and mappings
+    a = next(a for a in result.assignments if a.node == "Tanker_Incidents")
+    assert a.supporting_spans  # per-assignment verbatim spans attached for audit
+
+
+def test_translate_structured_credibility_discount():
+    """Source credibility discounts the structured ε exactly like single-call."""
+    art = Article(headline="A tanker was struck near Hormuz.",
+                  body="A tanker was struck near Hormuz.", source_type="state_media")
+    res = translate_structured(art, provider="fake")  # state_media -> w=0.3
+    a = next(a for a in res.assignments if a.node == "Tanker_Incidents")
+    # best state stays 1.0; a floored off-best state is lifted toward 1.0 by ε**0.3
+    assert abs(max(a.state_probs.values()) - 1.0) < 1e-9

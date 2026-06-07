@@ -547,28 +547,30 @@ def aggregate_mappings(mappings: List[ClaimMapping]) -> List[TranslatorAssignmen
         top = max(eps, key=lambda s: eps[s])
         reasons = [m.reason for m in ms if m.reason]
         reason = "; ".join(reasons)[:300] if reasons else ""
+        spans = [m.supporting_span for m in ms if m.supporting_span]
         out.append(TranslatorAssignment(
             node=node, state=top, reason=reason, state_probs=eps,
+            supporting_spans=spans,
         ))
     return out
 
 
-def translate_structured(
+def run_structured(
     article: Article,
     *,
     credibility: Optional[float] = None,
     provider: Optional[str] = None,
     client=None,
     on_step=None,
-) -> TranslatorResult:
-    """Full structured pipeline: extract → map → aggregate (B2).
+):
+    """Full structured pipeline, returning ``(result, claims, mappings)``.
 
     Two LLM calls (claim extraction + node mapping) plus a pure aggregation
     step. Relevance is derived: no node mapped ⇒ abstain ("no"). Source
     credibility is applied to the aggregated ε exactly as in the single-call
-    path.
+    path. The intermediates are returned so callers (the dashboard) can show the
+    claim → node provenance behind each injected assignment.
     """
-    _emit = on_step or (lambda *_: None)
     claims = extract_claims(article, provider=provider, client=client, on_step=on_step)
     mappings = map_claims(article, claims, provider=provider, client=client, on_step=on_step)
     assignments = aggregate_mappings(mappings)
@@ -589,7 +591,13 @@ def translate_structured(
         raw_response="",
         relevance="yes" if assignments else "no",
     )
-    return _apply_source_credibility(result, w)
+    return _apply_source_credibility(result, w), claims, mappings
+
+
+def translate_structured(article: Article, **kwargs) -> TranslatorResult:
+    """Full structured pipeline returning just the :class:`TranslatorResult`."""
+    result, _claims, _mappings = run_structured(article, **kwargs)
+    return result
 
 
 __all__ = [
@@ -599,5 +607,6 @@ __all__ = [
     "article_text",
     "extract_claims",
     "map_claims",
+    "run_structured",
     "translate_structured",
 ]

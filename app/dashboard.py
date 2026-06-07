@@ -52,7 +52,7 @@ from src.translator import (
     structured_enabled,
     translate_article,
 )
-from src.translator_pipeline import aggregate_mappings, extract_claims, map_claims
+from src.translator_pipeline import run_structured
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
 # ---------------------------------------------------------------------------
@@ -759,10 +759,21 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         source=article_fields.get("source", ""),
         source_type=source_type,
     )
+    # T06e: when the structured toggle is on, the structured pipeline (extract →
+    # map → aggregate) PRODUCES the injected assignments; otherwise the single-
+    # call path does. Structured costs 2 LLM calls and derives relevance as
+    # yes/no (no "partial"); the single-call path keeps the richer relevance.
+    use_structured = st.session_state.get("use_structured")
+    claims = mappings = None
     try:
-        result: TranslatorResult = translate_article(
-            article, credibility=credibility, provider=provider, on_step=on_step
-        )
+        if use_structured:
+            result, claims, mappings = run_structured(
+                article, credibility=credibility, provider=provider, on_step=on_step
+            )
+        else:
+            result = translate_article(
+                article, credibility=credibility, provider=provider, on_step=on_step
+            )
     except TranslatorError as exc:
         raw = getattr(exc, "raw_response", "")
         _write("err", "validated", f"failed: {exc}")
@@ -781,21 +792,12 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         "provider": result.provider,
         "relevance": result.relevance,
     }
-    # T06a: structured pipeline (experimental). Extract span-grounded claims for
-    # review. These do not yet drive the assignments (later sub-commits do).
-    if st.session_state.get("use_structured"):
-        try:
-            claims = extract_claims(article, provider=provider, on_step=on_step)
-            mappings = map_claims(article, claims, provider=provider, on_step=on_step)
-            agg = aggregate_mappings(mappings)
-            st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
-            st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
-            st.session_state.last_translation["structured_assignments"] = [asdict(a) for a in agg]
-        except TranslatorError as exc:
-            st.session_state.last_translation["claims"] = []
-            st.session_state.last_translation["claim_mappings"] = []
-            st.session_state.last_translation["structured_assignments"] = []
-            st.session_state.last_translation["claims_error"] = str(exc)
+    if use_structured:
+        st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
+        st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
+        st.session_state.last_translation["structured_assignments"] = [
+            asdict(a) for a in result.assignments
+        ]
 
     # B3: an off-topic article abstains — logged, but no evidence injected.
     if result.relevance == "no":
@@ -864,9 +866,11 @@ with st.sidebar:
     use_structured = st.toggle(
         "Experimental: structured pipeline",
         key="use_structured",
-        help="Extract span-grounded claims from the article (B2, in progress). "
-             "Claims are shown for review; they do not yet drive the assignments "
-             "(that lands in later sub-commits).",
+        help="Span-grounded structured reasoning (B2): extract atomic claims → map "
+             "each to a node → aggregate. When on, this PRODUCES the injected "
+             "assignments (every one cites verbatim spans) and resists prompt "
+             "injection. Costs 2 LLM calls and derives relevance as yes/no only. "
+             "Off = the single-call path (1 call, richer relevance).",
     )
     translator_on = use_fake or translator_available()
 
@@ -1936,9 +1940,9 @@ if active_view == _VIEW_OBS:
                 ):
                     st.caption(
                         "Span-grounded atomic claims (B2 step 1) mapped to BN nodes "
-                        "(step 2). Each claim cites a verbatim span copied from the "
-                        "article; ungrounded claims are dropped. These don't drive the "
-                        "injected assignments yet — that lands in later sub-commits."
+                        "(step 2) then aggregated (step 3). Each claim cites a verbatim "
+                        "span copied from the article; ungrounded claims are dropped. "
+                        "The aggregated output below **is** what was injected."
                     )
                     if t.get("claims_error"):
                         st.warning(f"Structured pipeline failed: {t['claims_error']}")
@@ -1956,19 +1960,14 @@ if active_view == _VIEW_OBS:
                         st.markdown("_No grounded claims extracted._")
                     _agg = t.get("structured_assignments")
                     if _agg is not None:
-                        st.markdown("**Aggregated pipeline output (per node):**")
+                        st.markdown("**Aggregated pipeline output (injected):**")
                         if _agg:
                             for a in _agg:
                                 st.markdown(
                                     f"- {a['node'].replace('_',' ')} = **{a['state']}**"
                                 )
                         else:
-                            st.markdown("_No nodes — would abstain._")
-                        st.caption(
-                            "This is what the structured pipeline would inject once it "
-                            "becomes the default (T06e). Until then the single-call "
-                            "output above is what's injected."
-                        )
+                            st.markdown("_No nodes mapped — abstained._")
             if t["assignments"]:
                 with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
                     st.caption(
