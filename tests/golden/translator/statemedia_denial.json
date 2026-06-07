@@ -1,0 +1,89 @@
+{
+  "id": "statemedia_denial",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "mixed",
+  "note": "Edge case: state-media framing. Expected = the claims as asserted; source discounting is T10/B1b's job, not the translator's.",
+  "article": {
+    "headline": "Iranian state TV: US 'aggression' repelled, all oil facilities operating normally"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "US_Military_Response",
+        "state": "limited"
+      },
+      {
+        "node": "Energy_Infrastructure_Damage",
+        "state": "none"
+      },
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "no"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "US_Military_Response",
+        "state": "limited",
+        "reason": "Iran references US 'aggression' that was 'repelled', indicating a US military strike occurred but framed as contained rather than a sustained major campaign.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.1
+          },
+          {
+            "state": "limited",
+            "value": 1.0
+          },
+          {
+            "state": "major",
+            "value": 0.4
+          }
+        ]
+      },
+      {
+        "node": "Energy_Infrastructure_Damage",
+        "state": "none",
+        "reason": "Iran claims all oil facilities are operating normally, asserting no damage to energy infrastructure (state media, so possibly understated).",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 1.0
+          },
+          {
+            "state": "moderate",
+            "value": 0.35
+          },
+          {
+            "state": "severe",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "no",
+        "reason": "Normal operation of oil facilities implies energy flows and the strait remain functional, not closed.",
+        "state_probs": [
+          {
+            "state": "no",
+            "value": 1.0
+          },
+          {
+            "state": "partial",
+            "value": 0.3
+          },
+          {
+            "state": "full",
+            "value": 0.05
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Iranian state media signals a US military strike occurred but downplays any impact, claiming repulsion and fully operational oil facilities, suggesting limited US action with no infrastructure damage and an open strait—though the propaganda source warrants caution."
+  }
+}

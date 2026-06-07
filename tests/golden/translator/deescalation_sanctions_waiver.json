@@ -1,0 +1,66 @@
+{
+  "id": "deescalation_sanctions_waiver",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "de-escalation",
+  "note": "Concrete sanctions loosening + de-escalatory signal.",
+  "article": {
+    "headline": "Treasury issues 90-day sanctions waiver for Iranian oil exports"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Sanctions_Trajectory",
+        "state": "easing"
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "open"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Sanctions_Trajectory",
+        "state": "easing",
+        "reason": "A 90-day waiver permitting Iranian oil exports is a concrete loosening of sanctions enforcement.",
+        "state_probs": [
+          {
+            "state": "easing",
+            "value": 1.0
+          },
+          {
+            "state": "status_quo",
+            "value": 0.1
+          },
+          {
+            "state": "tightening",
+            "value": 0.01
+          }
+        ]
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "open",
+        "reason": "Sanctions relief is typically a goodwill gesture that signals an open diplomatic channel and de-escalation.",
+        "state_probs": [
+          {
+            "state": "open",
+            "value": 1.0
+          },
+          {
+            "state": "narrowing",
+            "value": 0.25
+          },
+          {
+            "state": "closed",
+            "value": 0.03
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "A Treasury waiver enabling Iranian oil exports is a clear easing of sanctions and a de-escalatory gesture that points toward an open diplomatic path."
+  }
+}

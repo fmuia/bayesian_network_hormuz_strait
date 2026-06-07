@@ -1,0 +1,66 @@
+{
+  "id": "escalation_tanker_incidents",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "escalation",
+  "note": "Sustained pattern (4 in 2 weeks) + premia. NOTE deliberate label: militia=high (model said elevated) — borderline, exercises state-accuracy.",
+  "article": {
+    "headline": "Fourth tanker incident in two weeks; insurers raise war-risk premia"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "frequent"
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "high"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "frequent",
+        "reason": "A fourth tanker incident in two weeks constitutes a clear pattern of repeated, frequent attacks rather than isolated events, corroborated by insurers' market response.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.01
+          },
+          {
+            "state": "isolated",
+            "value": 0.15
+          },
+          {
+            "state": "frequent",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "elevated",
+        "reason": "Repeated tanker incidents plus war-risk premium hikes strongly imply elevated maritime hostilities, though the headline doesn't confirm a full-scale high-intensity campaign.",
+        "state_probs": [
+          {
+            "state": "low",
+            "value": 0.05
+          },
+          {
+            "state": "elevated",
+            "value": 1.0
+          },
+          {
+            "state": "high",
+            "value": 0.6
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "A clustered series of tanker incidents and rising war-risk insurance premia signal a sustained pattern of maritime attacks and escalating threat to shipping, consistent with elevated militia activity and a frequent-incident regime."
+  }
+}

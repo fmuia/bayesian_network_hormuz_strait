@@ -986,10 +986,35 @@ for obs in st.session_state.observations:
 # HEADER
 # ===========================================================================
 
+
+def _load_eval_badge() -> Optional[str]:
+    """Header badge from the committed translator-eval snapshot (T03/D2).
+
+    Returns None if the snapshot is missing (e.g. before `pixi run translator-eval`).
+    """
+    snap = ROOT / "tests" / "golden" / "translator" / "_eval_snapshot.json"
+    try:
+        m = json.loads(snap.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    f1, acc = m.get("node_f1"), m.get("state_accuracy_given_node_match")
+    f1s = f"{f1:.2f}" if isinstance(f1, (int, float)) else "—"
+    accs = f"{acc:.2f}" if isinstance(acc, (int, float)) else "—"
+    return (
+        "<div class='sb-provider' style='display:inline-block;margin:0 0 0.4rem;'>"
+        f"📏 translator eval: n={m.get('n_records', '?')} ({m.get('gate', '?')}) · "
+        f"node-F1 {f1s} · state-acc {accs} · "
+        f"{m.get('n_nodes_covered', '?')}/{m.get('n_observable_nodes', '?')} nodes</div>"
+    )
+
+
 st.markdown(
     "<div class='demo-title'>Adaptive Scenario Probability Framework — Strait of Hormuz</div>",
     unsafe_allow_html=True,
 )
+_eval_badge = _load_eval_badge()
+if _eval_badge:
+    st.markdown(_eval_badge, unsafe_allow_html=True)
 with st.expander("How this model works", expanded=False):
     _render_model_overview(TOPOLOGY)
 

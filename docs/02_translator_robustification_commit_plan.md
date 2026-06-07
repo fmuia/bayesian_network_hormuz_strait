@@ -113,7 +113,7 @@ Commit card: docs/02_translator_robustification_commit_plan.md <id>
 **Manual verification (app):** with `TRANSLATOR_PROVIDER=fake`, select a **malformed** fixture (T00) → the app shows a clear `TranslatorError` (offending vector in the message) instead of a silently-coerced result; a well-formed fixture still translates normally.
 **Out of scope:** changing what the prompt *asks for* (that was T01).
 
-### ⬜ T03 — D2-MVP golden set + eval harness *(slot 3 · closes (7))*
+### ✅ T03 — D2-MVP golden set + eval harness *(slot 3 · closes (7))*
 **Depends on:** T01, T02. *(Start authoring records in parallel with T01/T02; merge once the canonical shape from T02 is fixed.)*
 **Touches:** new `tests/golden/translator/*.json`, new `tests/test_translator_eval.py`.
 **Change:**
