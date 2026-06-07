@@ -52,7 +52,7 @@ from src.translator import (
     structured_enabled,
     translate_article,
 )
-from src.translator_pipeline import extract_claims, map_claims
+from src.translator_pipeline import aggregate_mappings, extract_claims, map_claims
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
 # ---------------------------------------------------------------------------
@@ -786,12 +786,15 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
     if st.session_state.get("use_structured"):
         try:
             claims = extract_claims(article, provider=provider, on_step=on_step)
-            st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
             mappings = map_claims(article, claims, provider=provider, on_step=on_step)
+            agg = aggregate_mappings(mappings)
+            st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
             st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
+            st.session_state.last_translation["structured_assignments"] = [asdict(a) for a in agg]
         except TranslatorError as exc:
             st.session_state.last_translation["claims"] = []
             st.session_state.last_translation["claim_mappings"] = []
+            st.session_state.last_translation["structured_assignments"] = []
             st.session_state.last_translation["claims_error"] = str(exc)
 
     # B3: an off-topic article abstains — logged, but no evidence injected.
@@ -1951,6 +1954,21 @@ if active_view == _VIEW_OBS:
                         st.markdown(f"- “{span}”{mapped}", unsafe_allow_html=True)
                     if not _claims and not t.get("claims_error"):
                         st.markdown("_No grounded claims extracted._")
+                    _agg = t.get("structured_assignments")
+                    if _agg is not None:
+                        st.markdown("**Aggregated pipeline output (per node):**")
+                        if _agg:
+                            for a in _agg:
+                                st.markdown(
+                                    f"- {a['node'].replace('_',' ')} = **{a['state']}**"
+                                )
+                        else:
+                            st.markdown("_No nodes — would abstain._")
+                        st.caption(
+                            "This is what the structured pipeline would inject once it "
+                            "becomes the default (T06e). Until then the single-call "
+                            "output above is what's injected."
+                        )
             if t["assignments"]:
                 with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
                     st.caption(

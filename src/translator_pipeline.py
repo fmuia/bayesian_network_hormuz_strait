@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -29,10 +31,15 @@ from .network import STATES
 from .translator import (
     CLAUDE_DEFAULT_MODEL,
     OPENAI_DEFAULT_MODEL,
+    SOURCE_TYPE_CREDIBILITY,
     Article,
+    TranslatorAssignment,
     TranslatorError,
+    TranslatorResult,
+    _apply_source_credibility,
     _article_user_content,
     _claude_output_format_enabled,
+    _EPS_FLOOR,
     _extract_json_block,
     _validate_payload,
     available_providers,
@@ -511,4 +518,86 @@ def map_claims(article: Article, claims: List[Claim], *, provider: Optional[str]
     return mappings
 
 
-__all__ = ["Claim", "ClaimMapping", "extract_claims", "map_claims", "article_text"]
+# ===========================================================================
+# T06c — per-node aggregation (step 3) + full structured pipeline
+# ===========================================================================
+
+
+def aggregate_mappings(mappings: List[ClaimMapping]) -> List[TranslatorAssignment]:
+    """Combine per-claim ε into one ε per node (the §C1 claim axis).
+
+    Independent-evidence combination: sum log ε across the claims mapped to a
+    node (= multiply ε in linear space), then renormalise once via A1 max-pin so
+    the best state is 1.0. (The sample axis and source-credibility weight join in
+    C1/T07.)
+    """
+    by_node: Dict[str, List[ClaimMapping]] = defaultdict(list)
+    for m in mappings:
+        by_node[m.node].append(m)
+    out: List[TranslatorAssignment] = []
+    for node, ms in by_node.items():
+        states = STATES[node]
+        log_eps = {s: 0.0 for s in states}
+        for m in ms:
+            for s in states:
+                v = float(m.state_probs.get(s, _EPS_FLOOR))
+                log_eps[s] += math.log(max(v, _EPS_FLOOR))
+        peak = max(log_eps.values())
+        eps = {s: math.exp(log_eps[s] - peak) for s in states}  # max-pin renorm
+        top = max(eps, key=lambda s: eps[s])
+        reasons = [m.reason for m in ms if m.reason]
+        reason = "; ".join(reasons)[:300] if reasons else ""
+        out.append(TranslatorAssignment(
+            node=node, state=top, reason=reason, state_probs=eps,
+        ))
+    return out
+
+
+def translate_structured(
+    article: Article,
+    *,
+    credibility: Optional[float] = None,
+    provider: Optional[str] = None,
+    client=None,
+    on_step=None,
+) -> TranslatorResult:
+    """Full structured pipeline: extract → map → aggregate (B2).
+
+    Two LLM calls (claim extraction + node mapping) plus a pure aggregation
+    step. Relevance is derived: no node mapped ⇒ abstain ("no"). Source
+    credibility is applied to the aggregated ε exactly as in the single-call
+    path.
+    """
+    _emit = on_step or (lambda *_: None)
+    claims = extract_claims(article, provider=provider, client=client, on_step=on_step)
+    mappings = map_claims(article, claims, provider=provider, client=client, on_step=on_step)
+    assignments = aggregate_mappings(mappings)
+    w = (
+        credibility if credibility is not None
+        else SOURCE_TYPE_CREDIBILITY.get(article.source_type, 0.5)
+    )
+    chosen = _resolve_provider(provider, client) or "?"
+    result = TranslatorResult(
+        headline=article.headline,
+        assignments=assignments,
+        rationale=(
+            f"Structured pipeline: {len(claims)} claim(s) → {len(mappings)} "
+            f"mapping(s) → {len(assignments)} node(s)."
+        ),
+        model=f"structured ({chosen})",
+        provider=chosen,
+        raw_response="",
+        relevance="yes" if assignments else "no",
+    )
+    return _apply_source_credibility(result, w)
+
+
+__all__ = [
+    "Claim",
+    "ClaimMapping",
+    "aggregate_mappings",
+    "article_text",
+    "extract_claims",
+    "map_claims",
+    "translate_structured",
+]

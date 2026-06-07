@@ -14,9 +14,11 @@ from src.translator_pipeline import (
     _fake_claims,
     _parse_claims,
     _parse_mappings,
+    aggregate_mappings,
     article_text,
     extract_claims,
     map_claims,
+    translate_structured,
 )
 
 _TEXT = (
@@ -151,3 +153,53 @@ def test_map_claims_fake_offline():
     for m in maps:
         assert abs(max(m.state_probs.values()) - 1.0) < 1e-9
         assert m.supporting_span
+
+
+# ===== T06c — per-node aggregation + full structured pipeline ==============
+
+
+def _mapping(node, eps):
+    return ClaimMapping(node=node, state=max(eps, key=eps.get),
+                        state_probs=eps, reason="", supporting_span="x")
+
+
+def test_aggregate_multiplies_in_log_space_and_maxpins():
+    """Two claims on one node combine multiplicatively, then max-pin."""
+    maps = [
+        _mapping("Tanker_Incidents", {"none": 0.1, "isolated": 0.5, "frequent": 1.0}),
+        _mapping("Tanker_Incidents", {"none": 0.2, "isolated": 1.0, "frequent": 0.4}),
+    ]
+    out = aggregate_mappings(maps)
+    assert len(out) == 1
+    eps = out[0].state_probs
+    # product (0.02, 0.5, 0.4) max-pinned -> (0.04, 1.0, 0.8); top = isolated
+    assert out[0].state == "isolated"
+    assert abs(eps["isolated"] - 1.0) < 1e-9
+    assert abs(eps["frequent"] - 0.8) < 1e-9
+    assert abs(eps["none"] - 0.04) < 1e-9
+
+
+def test_aggregate_single_mapping_passthrough():
+    eps_in = {"none": 0.05, "isolated": 0.3, "frequent": 1.0}
+    out = aggregate_mappings([_mapping("Tanker_Incidents", eps_in)])
+    for s, v in eps_in.items():
+        assert abs(out[0].state_probs[s] - v) < 1e-9
+
+
+def test_translate_structured_fake_on_topic():
+    art = Article(headline="Gulf tension",
+                  body="A tanker was struck near Hormuz. "
+                       "Oman is mediating between Washington and Tehran.")
+    res = translate_structured(art, provider="fake")
+    nodes = {a.node for a in res.assignments}
+    assert "Tanker_Incidents" in nodes
+    assert res.relevance == "yes"
+    for a in res.assignments:
+        assert abs(max(a.state_probs.values()) - 1.0) < 1e-9  # max-pinned
+
+
+def test_translate_structured_fake_off_topic_abstains():
+    res = translate_structured(Article(headline="Champions League final tonight"),
+                               provider="fake")
+    assert res.assignments == []
+    assert res.relevance == "no"
