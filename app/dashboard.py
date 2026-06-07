@@ -49,8 +49,10 @@ from src.translator import (
     available_providers,
     fake_forced_by_env,
     is_available as translator_available,
+    structured_enabled,
     translate_article,
 )
+from src.translator_pipeline import extract_claims
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 
 # ---------------------------------------------------------------------------
@@ -779,6 +781,16 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
         "provider": result.provider,
         "relevance": result.relevance,
     }
+    # T06a: structured pipeline (experimental). Extract span-grounded claims for
+    # review. These do not yet drive the assignments (later sub-commits do).
+    if st.session_state.get("use_structured"):
+        try:
+            claims = extract_claims(article, provider=provider, on_step=on_step)
+            st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
+        except TranslatorError as exc:
+            st.session_state.last_translation["claims"] = []
+            st.session_state.last_translation["claims_error"] = str(exc)
+
     # B3: an off-topic article abstains — logged, but no evidence injected.
     if result.relevance == "no":
         _write("done", "validated", "not relevant — no evidence injected")
@@ -824,6 +836,8 @@ if "use_fake_translator" not in st.session_state:
     st.session_state.use_fake_translator = (
         fake_forced_by_env() or not translator_available()
     )
+if "use_structured" not in st.session_state:
+    st.session_state.use_structured = structured_enabled()
 
 with st.sidebar:
     st.markdown(
@@ -840,6 +854,13 @@ with st.sidebar:
         key="use_fake_translator",
         help="Deterministic fixtures, no network or API key. For dev / manual "
              "verification without spending LLM calls.",
+    )
+    use_structured = st.toggle(
+        "Experimental: structured pipeline",
+        key="use_structured",
+        help="Extract span-grounded claims from the article (B2, in progress). "
+             "Claims are shown for review; they do not yet drive the assignments "
+             "(that lands in later sub-commits).",
     )
     translator_on = use_fake or translator_available()
 
@@ -1898,6 +1919,27 @@ if active_view == _VIEW_OBS:
                     "override the node in the Network tab if it's off-base. "
                     "(A formal approve / edit / reject review queue arrives in a later step.)"
                 )
+            if "claims" in t:
+                _claims = t["claims"]
+                with st.expander(
+                    f"Extracted claims · structured pipeline (experimental) — {len(_claims)}",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Span-grounded atomic claims (B2 step 1). Each cites a verbatim "
+                        "span copied from the article; ungrounded claims are dropped. "
+                        "These don't drive the assignments yet — that lands in later sub-commits."
+                    )
+                    if t.get("claims_error"):
+                        st.warning(f"Claim extraction failed: {t['claims_error']}")
+                    for c in _claims:
+                        triple = " ".join(
+                            x for x in (c.get("subject"), c.get("predicate"), c.get("object")) if x
+                        )
+                        head = f"**{triple}** — " if triple.strip() else ""
+                        st.markdown(f"- {head}“{c['verbatim_span']}”")
+                    if not _claims and not t.get("claims_error"):
+                        st.markdown("_No grounded claims extracted._")
             if t["assignments"]:
                 with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
                     st.caption(

@@ -759,6 +759,18 @@ def fake_forced_by_env() -> bool:
     return os.environ.get("TRANSLATOR_PROVIDER", "").strip().lower() == "fake"
 
 
+def structured_enabled() -> bool:
+    """Default for the dashboard's 'experimental: structured pipeline' toggle.
+
+    Off by default (the single-call path is the default until T06e); set
+    ``TRANSLATOR_STRUCTURED=1`` to default it on. The pipeline lives in
+    :mod:`src.translator_pipeline`.
+    """
+    return os.environ.get("TRANSLATOR_STRUCTURED", "").strip().lower() in (
+        "1", "true", "yes",
+    )
+
+
 def _claude_output_format_enabled() -> bool:
     """Whether to pass ``output_format`` (schema-bound output) to the Claude CLI.
 
@@ -886,6 +898,7 @@ __all__ = [
     "available_providers",
     "fake_forced_by_env",
     "is_available",
+    "structured_enabled",
     "translate_article",
     "translate_headline",
 ]
