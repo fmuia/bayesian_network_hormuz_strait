@@ -861,6 +861,7 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
             result.relevance == "partial"
             or st.session_state.get("review_before_inject", False)
         )
+        st.session_state.last_translation["pending_review"] = needs_review
         item = _build_review_item(result)
         if needs_review:
             st.session_state.review_queue.append(item)
@@ -2057,12 +2058,11 @@ if active_view == _VIEW_OBS:
                 """,
                 unsafe_allow_html=True,
             )
-            if _rel == "partial":
-                st.caption(
-                    "Injected, but only partially relevant — sanity-check the "
-                    "assignment(s) below; remove it from the Observation log (✕) or "
-                    "override the node in the Network tab if it's off-base. "
-                    "(A formal approve / edit / reject review queue arrives in a later step.)"
+            if t.get("pending_review"):
+                st.warning(
+                    "⏳ **Pending review — not yet injected.** Approve, edit a state, "
+                    "or reject it in the **🧪 Triage** view; until then it does not "
+                    "affect the model."
                 )
             if "claims" in t:
                 _claims = t["claims"]

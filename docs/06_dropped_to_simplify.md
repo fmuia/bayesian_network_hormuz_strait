@@ -92,6 +92,8 @@ The master-plan matrix rows for M2/M3/M4 are annotated to point here.
 - **T11 multi-model cross-check** — 2× cost, needs two providers, marginal demo value.
 - **T13 RAG** — the reach item; needs embeddings (§1), T09, and a populated approved corpus.
 - **R-judge / R-cal / R-pair** — golden-set acceleration / calibration / prior-cancellation; all maturity features.
+- **Structured pipeline as the default** (T06e's card "flip default") — kept opt-in for the POC: the structured path derives relevance as yes/no only (loses T05's `partial`) and costs ~2×. Promoting it to the default is gated on **relevance parity** (give the pipeline a real relevance verdict) + a cost decision.
+- **Grow the golden set** (D2: 11 seed → 30 → 50 records) and **promote `claude-seed` labels to human-reviewed** ground truth — the seed is contract-only.
 
 **Substitute in force now.** Single-call translation stays the demo default (cheap, full yes/partial/no relevance); the T06 structured pipeline is an optional advanced/auditable toggle; the slim in-session HITL (T12) provides the human-in-control workflow without sqlite/ensemble/cross-model dependencies.
 
