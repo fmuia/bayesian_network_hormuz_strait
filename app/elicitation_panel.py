@@ -32,6 +32,7 @@ from src.elicitation.integration import (
     list_runs,
     load_run,
     load_seeds,
+    probe_call,
     run_elicitation,
     run_to_dict,
     save_run,
@@ -45,12 +46,25 @@ from src.network_spec import NetworkSpec
 
 RUNS_DIR = _REPO_ROOT / "data" / "elicitation_runs"
 SEEDS_PATH = _REPO_ROOT / "data" / "elicitation_seeds.json"
-DEFINITIONAL_NODES = {"Scenario"}  # the terminal node that *defines* the scenarios
+
+
+def definitional_nodes(topology: str) -> set[str]:
+    """Nodes left out of elicitation *by default* because their CPT is definitional
+    rather than substantive. 'Scenario' is a definitional *leaf* only in the
+    labelling topology (its CPT maps outcomes → scenario label). In the latent-regime
+    topology (Plan 1) Scenario is the latent regime: P(Scenario | drivers) is a real
+    causal CPT and its emission children are the primary targets — so nothing is
+    definitional there and every node is elicited by default."""
+    return {"Scenario"} if topology == "labelling" else set()
 
 
 def current_seeds() -> list[SeedQuestion]:
-    """The analyst's saved seed set, or the illustrative defaults if none saved."""
-    return load_seeds(SEEDS_PATH) or default_seeds()
+    """The analyst's saved seed set once they have saved one — even an *empty* set,
+    which means 'run equal-weighted, no calibration'. A saved set fully *replaces*
+    the illustrative defaults; the defaults are used only when nothing is saved yet."""
+    if SEEDS_PATH.exists():
+        return load_seeds(SEEDS_PATH)
+    return default_seeds()
 
 
 # --------------------------------------------------------------------------- #
@@ -143,17 +157,25 @@ def render(st, topology: str = "labelling") -> None:
             chosen = [m for m in models if m.label in chosen_labels] or models[:1]
 
             all_nodes = list(base_spec(topology).nodes)
-            default_nodes = [n for n in all_nodes if n not in DEFINITIONAL_NODES]
+            definitional = definitional_nodes(topology)
+            default_nodes = [n for n in all_nodes if n not in definitional]
             selected_nodes = st.multiselect(
                 "CPTs to elicit", all_nodes, default=default_nodes,
                 help="You choose which CPTs to elicit. Unselected ones keep the "
                 "hand-authored bootstrap values.",
             )
-            st.caption(
-                "‘Scenario’ is the definitional terminal node — its CPT *defines* the "
-                "three scenarios, so it is left out by default (add it only if you want "
-                "the panel to redefine them)."
-            )
+            if definitional:
+                st.caption(
+                    "In the **labelling** topology, ‘Scenario’ is a definitional *terminal* node — "
+                    "its CPT maps outcomes onto the three scenario labels — so it is left out by "
+                    "default (add it only to redefine them)."
+                )
+            else:
+                st.caption(
+                    "In the **latent-regime** topology (Plan 1), ‘Scenario’ is the *latent regime*: "
+                    "its CPT given the drivers, and its emission children (damage, duration, "
+                    "resolution), are substantive targets — so all nodes are elicited by default."
+                )
             c1, c2 = st.columns(2)
             n_agents = c1.number_input("Agents", 1, 8, 3, help="The LLM picks roles per node.")
             reasoning = c2.selectbox(
@@ -161,7 +183,12 @@ def render(st, topology: str = "labelling") -> None:
                 help="How much each agent deliberates before committing on its first attempt.",
             )
             c3, c4 = st.columns(2)
-            concurrency = c3.number_input("Concurrency", 1, 8, 4, help="Parallel calls.")
+            concurrency = c3.number_input(
+                "Concurrency", 1, 16, 4,
+                help="Max LLM calls in flight at once — across all nodes AND agents. "
+                "A whole run is roughly ceil(total_calls / concurrency) waves, where "
+                "total_calls ≈ seeds + nodes + nodes × agents.",
+            )
             time_limit = c4.number_input(
                 "Time limit (s)", 10, 300, 45,
                 help="Soft budget per call. If an agent runs over, it is re-asked to "
@@ -170,6 +197,24 @@ def render(st, topology: str = "labelling") -> None:
 
             if not selected_nodes:
                 st.warning("Select at least one CPT to elicit.")
+            if selected_nodes and st.button("⏱ Estimate timing (1 real call)"):
+                seeds = current_seeds()
+                fw = build_framework(chosen, n_agents, selected_nodes, concurrency, reasoning, time_limit, seeds)
+                with st.spinner("Timing one real call…"):
+                    p = probe_call(base_spec(topology), fw)
+                if p["error"]:
+                    st.error(f"Probe call failed on {p['node']}: {p['error']}")
+                else:
+                    roles_flag = " ⚠️ over soft limit" if p["roles_escalated"] else ""
+                    cpt_flag = " ⚠️ over soft limit" if p["cpt_escalated"] else ""
+                    st.info(
+                        f"Measured on **{p['node']}** ({p['model']}): roles {p['roles_s']}s{roles_flag}, "
+                        f"CPT {p['cpt_s']}s{cpt_flag}. For {len(selected_nodes)} node(s) × {int(n_agents)} "
+                        f"agent(s) at concurrency {int(concurrency)} → **{p['total_calls']} calls ≈ "
+                        f"{p['est_wall_s']:.0f}s** (~{p['est_wall_s'] / 60:.1f} min, work-conserving estimate). "
+                        f"A ⚠️ flag means that call blew the {p['soft_limit_s']:g}s soft limit and paid a "
+                        f"'conclude now' tail — raise the time limit or lower the reasoning budget."
+                    )
             if st.button("▶︎ Run elicitation", type="primary", disabled=not selected_nodes):
                 seeds = current_seeds()
                 fw = build_framework(chosen, n_agents, selected_nodes, concurrency, reasoning, time_limit, seeds)
@@ -190,6 +235,7 @@ def render(st, topology: str = "labelling") -> None:
                     st.warning(summary + f" ⚠️ FAILED — please re-run: {', '.join(run.skipped_nodes)}.")
                 else:
                     st.success(summary)
+                _render_diagnostics(st, run.diagnostics)
 
     _render_seed_editor(st)
 
@@ -216,8 +262,9 @@ def _render_seed_editor(st) -> None:
             "Known-answer questions used to score each agent. For an LLM, factual "
             "look-up questions mostly test *recall*, not calibration — prefer estimation/"
             "judgment, recent (post-cutoff), counterfactual, or analyst-private figures the "
-            "model can't simply look up. Leave the table empty to run equal-weighted (no "
-            "calibration)."
+            "model can't simply look up. **Saving replaces the defaults entirely** — edit, add, "
+            "or delete rows to write your own set. Save an empty table (or use *Clear all*) to "
+            "run equal-weighted with no calibration."
         )
         saved = current_seeds()
         rows = [{"question": s.text, "true_value": float(s.realization), "unit": s.unit or ""} for s in saved]
@@ -229,7 +276,7 @@ def _render_seed_editor(st) -> None:
                 "unit": st.column_config.TextColumn("Unit"),
             },
         )
-        col_a, col_b = st.columns(2)
+        col_a, col_b, col_c = st.columns(3)
         if col_a.button("Save seeds"):
             seeds = []
             for i, r in enumerate(edited):
@@ -243,10 +290,53 @@ def _render_seed_editor(st) -> None:
                 unit = str(r.get("unit") or "").strip() or None
                 seeds.append(SeedQuestion(slug_id(q, i), q, val, unit))
             save_seeds(seeds, SEEDS_PATH)
-            st.success(f"Saved {len(seeds)} seed(s). They'll be used on the next run.")
-        if col_b.button("Reset to illustrative defaults"):
+            if seeds:
+                st.success(f"Saved {len(seeds)} seed(s) — these replace the defaults on the next run.")
+            else:
+                st.warning("Saved an empty seed set — the next run will be equal-weighted (no calibration).")
+        if col_b.button("Clear all"):
+            save_seeds([], SEEDS_PATH)
+            st.warning("Removed all seeds — runs will be equal-weighted until you add your own.")
+            st.rerun()
+        if col_c.button("Reset to illustrative defaults"):
             save_seeds(default_seeds(), SEEDS_PATH)
             st.info("Reset to the illustrative defaults — edit and save to replace them.")
+            st.rerun()
+
+
+def _render_diagnostics(st, diag: dict | None) -> None:
+    """Show whether the run's timings landed inside the configured budget."""
+    if not diag:
+        return
+    with st.expander("⏱ Timing diagnostics", expanded=False):
+        wall = diag.get("wall_s", 0.0)
+        cols = st.columns(4)
+        cols[0].metric("Wall time", f"{wall:.0f}s" if wall < 120 else f"{wall / 60:.1f}m")
+        cols[1].metric("LLM calls", diag.get("n_calls", 0))
+        cols[2].metric(
+            "Hit soft limit", diag.get("n_escalated", 0),
+            help="Calls that ran past the soft budget and were asked to conclude now.",
+        )
+        cols[3].metric("Failed", diag.get("n_failed", 0))
+        rows = []
+        for phase, label in (("seed", "Seed scoring"), ("roles", "Role recruiting"), ("cpt", "CPT elicitation")):
+            d = diag.get("by_phase", {}).get(phase)
+            if d:
+                rows.append({
+                    "Phase": label, "Calls": d["count"],
+                    "p50 (s)": d["p50_s"], "p95 (s)": d["p95_s"], "max (s)": d["max_s"],
+                })
+        if rows:
+            st.dataframe(rows, width="stretch", hide_index=True)
+        slow = diag.get("slowest")
+        if slow:
+            where = slow.get("node") or slow.get("agent") or slow["phase"]
+            st.caption(
+                f"Slowest call: {slow['duration_s']}s ({slow['phase']} · {where}). "
+                f"Soft limit {diag.get('soft_limit_s')}s, hard timeout {diag.get('hard_timeout_s')}s. "
+                f"If many calls hit the soft limit, raise the time limit or lower the reasoning budget; "
+                f"to finish sooner, raise concurrency."
+            )
 
 
 def _render_seeds(st, run_dict: dict) -> None:
@@ -287,6 +377,21 @@ def _render_seeds(st, run_dict: dict) -> None:
         "The seeds are illustrative — replace with a vetted set for real use."
     )
 
+    contam = run_dict.get("contamination")
+    if contam:
+        scored, asked = contam.get("n_seeds_scored", 0), contam.get("n_seeds_asked", 0)
+        discarded = contam.get("discarded_seeds", [])
+        st.markdown("**Contamination check (source-attribution):**")
+        if discarded:
+            st.warning(
+                f"{scored}/{asked} seeds scored. Discarded as self-reported *recall* "
+                f"(memory, not calibration): {', '.join(discarded)}."
+            )
+        else:
+            st.caption(f"{scored}/{asked} seeds scored — none flagged as recalled by a majority of agents.")
+        if scored == 0 and asked > 0:
+            st.info("Every seed was recalled — the panel fell back to equal weighting (no calibration evidence).")
+
 
 def _render_override(st, run_dict: dict, node: str, ne: dict) -> None:
     cols = ne["mean_columns"]
@@ -321,6 +426,8 @@ def _render_inspector(st, run_dict: dict) -> None:
 
         with st.expander("Seeds & calibration scores", expanded=False):
             _render_seeds(st, run_dict)
+
+        _render_diagnostics(st, run_dict.get("diagnostics"))
 
         elicited = run_dict["elicited_nodes"]
         if not elicited:

@@ -66,6 +66,8 @@ def run_to_dict(run: ElicitationRun) -> dict:
         "seed_answers": run.seed_answers,
         "spec": spec_to_dict(run.spec),
         "nodes": {name: _node_to_dict(ne) for name, ne in run.nodes.items()},
+        "diagnostics": run.diagnostics,
+        "contamination": run.contamination,
     }
 
 
@@ -85,6 +87,8 @@ def run_from_dict(data: dict) -> ElicitationRun:
         seed_answers=data.get("seed_answers", {}),
         spec=spec_from_dict(data["spec"]),
         nodes={name: _node_from_dict(nd) for name, nd in data["nodes"].items()},
+        diagnostics=data.get("diagnostics"),
+        contamination=data.get("contamination"),
     )
 
 

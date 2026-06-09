@@ -28,7 +28,16 @@ from .framework import (
     load_framework,
     save_framework,
 )
-from .runner import Agent, ElicitationRun, NodeElicitation, build_agents, run_elicitation
+from .runner import (
+    Agent,
+    CallRecord,
+    ElicitationRun,
+    NodeElicitation,
+    build_agents,
+    probe_call,
+    project_runtime,
+    run_elicitation,
+)
 from .seeds import default_seeds, load_seeds, save_seeds, slug_id
 from .store import list_runs, load_run, run_from_dict, run_to_dict, save_run
 
@@ -57,10 +66,13 @@ __all__ = [
     "slug_id",
     # runner
     "Agent",
+    "CallRecord",
     "NodeElicitation",
     "ElicitationRun",
     "run_elicitation",
     "build_agents",
+    "probe_call",
+    "project_runtime",
     # store
     "save_run",
     "load_run",

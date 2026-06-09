@@ -58,7 +58,7 @@ class ElicitationClient(Protocol):
 
     def seed_quantiles(
         self, seeds: Sequence[SeedQuestion], quantile_levels: Sequence[float], role: str | None
-    ) -> tuple[dict[str, list[float]], str]: ...
+    ) -> tuple[dict[str, list[float]], dict[str, str], str]: ...  # (quantiles, basis, rationale)
 
     def node_cpt(
         self,
@@ -80,27 +80,34 @@ class ElicitationClient(Protocol):
 
 
 def _persona(role: str | None) -> str:
-    return (
-        f"You are acting as a {role} on a panel of calibrated domain experts. "
-        if role
-        else "You are a calibrated domain expert. "
-    )
+    """The role framing. Agents are told they are consulted *independently* (no
+    cross-agent anchoring → counters sycophancy/false consensus, methodology §8.5).
+    Skeptic and base-rate roles get an extra directive so the role does real work."""
+    if not role:
+        return "You are a calibrated domain expert, consulted independently. "
+    base = f"You are acting as a {role} on a panel whose members are consulted independently. "
+    low = role.lower()
+    if any(k in low for k in ("skeptic", "red", "adversar", "devil", "contrarian")):
+        base += "Actively challenge optimistic or consensus assumptions and argue for wider uncertainty. "
+    elif any(k in low for k in ("base rate", "base-rate", "outside", "forecaster", "statistician", "actuar")):
+        base += "Anchor firmly on reference-class base rates before any case-specific adjustment. "
+    return base
 
 
 def _reasoning_directive(effort: str) -> str:
-    """Tell the model how much to deliberate before it MUST commit to an answer.
-
-    This bounds reasoning time and forces a conclusion — the panel never gives up
-    on a node; it commits within its budget.
-    """
-    base = {
-        "brief": "Reason in a sentence or two,",
-        "balanced": "Reason concisely through the key factors,",
-        "thorough": "Reason carefully through the main considerations,",
-    }.get(effort, "Reason concisely,")
+    """How much to deliberate before committing — and *how* to reason. Bakes in the
+    debiasing protocol (methodology §8): outside view first (counters anchoring /
+    base-rate neglect) and consider-the-opposite (counters one-sided overconfidence).
+    Bounds reasoning time and forces a conclusion within budget."""
+    depth = {
+        "brief": "In a sentence or two,",
+        "balanced": "Concisely,",
+        "thorough": "Carefully but without rambling,",
+    }.get(effort, "Concisely,")
     return (
-        f"{base} then commit to your single best answer. Always finish within this "
-        f"reasoning budget and output the final JSON — do not deliberate indefinitely."
+        f"{depth} reason from the outside view first (reference-class base rates), then adjust for the "
+        f"specifics. Before committing, note one reason your estimate could be too high and one too low. "
+        f"Always finish within this budget and output the final JSON — do not deliberate indefinitely."
     )
 
 
@@ -126,12 +133,20 @@ def build_seed_prompt(
     seeds: Sequence[SeedQuestion], levels: Sequence[float], role: str | None, reasoning: str = "balanced"
 ) -> str:
     items = "\n".join(f'  - id "{s.id}": {s.text}' for s in seeds)
+    inner_pct = round((max(levels) - min(levels)) * 100)
     return (
         f"{_persona(role)}{_reasoning_directive(reasoning)}\n"
-        f"For each calibration question, give your {list(levels)} "
-        f"quantiles for the unknown quantity (do not state the answer, give a range).\n"
+        f"These are calibration questions. For each, give your {list(levels)} quantiles for the unknown "
+        f"quantity — a range, not a point answer.\n"
+        f"Calibrate honestly: your outer [{min(levels)}, {max(levels)}] quantiles should be wide enough "
+        f"that the true value falls inside them about {inner_pct}% of the time across many such questions. "
+        f"Most experts and models make these ranges TOO NARROW — when unsure, widen rather than guess. "
+        f"Estimate from first principles; do NOT answer from a specific figure you happen to recall.\n"
+        f'For each answer also report "basis": "recall" if your number comes from a specific figure or '
+        f'source you remember, otherwise "estimate". Be honest — recalled answers are DISCARDED, not '
+        f"penalised, because they test memory rather than calibration.\n"
         f"{items}\n\n"
-        'Respond ONLY with JSON: {"answers":[{"id":"...","quantiles":[..]}],'
+        'Respond ONLY with JSON: {"answers":[{"id":"...","quantiles":[..],"basis":"estimate|recall"}],'
         '"rationale":"one or two sentences"}.'
     )
 
@@ -147,24 +162,39 @@ def build_node_prompt(
     cfgs = "\n".join(f"  - {list(c)}" for c in parent_configs) if parents else "  - [] (root node)"
     return (
         f"{_persona(role)}{_reasoning_directive(reasoning)}\n"
-        f"Elicit the conditional probability table for a Bayesian "
-        f"network modelling Strait-of-Hormuz crisis dynamics.\n"
-        f"Node: {node}\nStates: {list(states)}\nParents: {list(parents)}\n"
-        f"For EACH parent configuration below, give a probability distribution over "
-        f"the states (in the listed order, summing to 1):\n{cfgs}\n\n"
+        f"Elicit the conditional probability table for the node below in a Bayesian network modelling "
+        f"Strait-of-Hormuz crisis dynamics.\n"
+        f"Node: {node}\nStates (in order): {list(states)}\nParents: {list(parents)}\n\n"
+        f"Method — work through this, then output JSON:\n"
+        f"1. Base rate: the marginal distribution over the states ignoring the parents (reference class).\n"
+        f"2. Parent effects: for each parent, which states it pushes up or down.\n"
+        f"3. Coherence: as the parents move toward more escalatory/extreme values, the corresponding "
+        f"extreme states must NOT become less likely — keep the table monotone and internally consistent.\n"
+        f"4. Reserve mass for surprise: avoid 0 or 1 unless logically necessary; leave some probability on "
+        f"off-nominal outcomes (counter overconfidence).\n"
+        f"5. Reason from causal structure, not from any specific remembered event.\n\n"
+        f"For EACH parent configuration below, give a probability distribution over the states (in the "
+        f"listed order, summing to 1):\n{cfgs}\n\n"
         'Respond ONLY with JSON: {"columns":[{"config":[..],"probs":[..]}],'
-        '"rationale":"one or two sentences on your reasoning"}.'
+        '"rationale":"one sentence on the main driver"}.'
     )
 
 
-def _parse_seed_response(payload: dict, seeds: Sequence[SeedQuestion]) -> tuple[dict[str, list[float]], str]:
+def _parse_seed_response(
+    payload: dict, seeds: Sequence[SeedQuestion]
+) -> tuple[dict[str, list[float]], dict[str, str], str]:
+    """Returns (quantiles_by_seed, basis_by_seed, rationale). ``basis`` is the
+    agent's self-report 'estimate' | 'recall' per seed; a missing/unknown value
+    defaults to 'estimate' (benefit of the doubt — never over-discards)."""
     answers: dict[str, list[float]] = {}
+    basis: dict[str, str] = {}
     for item in payload.get("answers", []):
         sid = item.get("id")
         q = item.get("quantiles")
         if sid is not None and q:
             answers[str(sid)] = [float(x) for x in q]
-    return answers, str(payload.get("rationale", ""))
+            basis[str(sid)] = "recall" if str(item.get("basis", "")).strip().lower() == "recall" else "estimate"
+    return answers, basis, str(payload.get("rationale", ""))
 
 
 def _parse_node_response(
@@ -179,13 +209,14 @@ def _parse_node_response(
 
 
 def build_roles_prompt(node: str, states: Sequence[str], parents: Sequence[str], n: int) -> str:
+    outside = " and at least one base-rate / outside-view forecaster" if n >= 3 else ""
     return (
-        f"You are recruiting an expert panel to elicit the conditional probability "
-        f"table for the node '{node}' (states {list(states)}, parents {list(parents)}) "
-        f"in a Strait-of-Hormuz crisis Bayesian network. Propose {n} distinct, "
-        f"node-appropriate expert roles (e.g. naval analyst, maritime-insurance "
-        f"underwriter, energy economist), including at least one skeptical/red-team "
-        f'role. Respond ONLY with JSON: {{"roles":["...", "..."]}}.'
+        f"Recruit an expert panel to elicit the conditional probability table for the node '{node}' "
+        f"(states {list(states)}, parents {list(parents)}) in a Strait-of-Hormuz crisis Bayesian "
+        f"network. Propose {n} DISTINCT, node-appropriate expert roles bringing different disciplinary "
+        f"lenses (e.g. naval analyst, maritime-insurance underwriter, energy economist). Include at "
+        f"least one red-team skeptic{outside}. Output role TITLES ONLY — no descriptions, ≤6 words each.\n"
+        'Respond ONLY with JSON: {"roles":["...", "..."]}.'
     )
 
 
@@ -350,14 +381,18 @@ class ScriptedClient:
         seed_answers: dict[str, Sequence[float]],
         node_fn: Callable[[str, Config, Sequence[str]], Sequence[float]],
         rationale: str = "Illustrative reasoning for this node.",
+        recall_ids: set[str] | None = None,
     ) -> None:
         self.name = name
         self._seed = {k: list(v) for k, v in seed_answers.items()}
         self._node_fn = node_fn
         self._rationale = rationale
+        self._recall_ids = set(recall_ids or ())  # seeds this fake "admits" it recalled
 
     def seed_quantiles(self, seeds, levels, role):
-        return {s.id: list(self._seed[s.id]) for s in seeds}, self._rationale
+        answers = {s.id: list(self._seed[s.id]) for s in seeds}
+        basis = {s.id: ("recall" if s.id in self._recall_ids else "estimate") for s in seeds}
+        return answers, basis, self._rationale
 
     def node_cpt(self, node, states, parents, parent_configs, role):
         columns = {cfg: _normalize(self._node_fn(node, cfg, states), len(states)) for cfg in parent_configs}

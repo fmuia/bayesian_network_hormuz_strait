@@ -61,7 +61,7 @@ class EffortConfig:
     """
 
     n_seeds: int = 0                   # 0 = use all authored seeds
-    concurrency: int = 4               # parallel LLM calls
+    concurrency: int = 4               # max LLM calls in flight at once (across all nodes AND agents)
     reasoning_effort: str = "balanced"  # brief | balanced | thorough
     time_limit_s: float = 45.0         # soft budget; on exceed the agent is asked to conclude now
     hard_timeout_s: float = 180.0      # final wall-clock guard for a hung call

@@ -12,6 +12,8 @@ from src.elicitation.integration import (
     default_seeds,
     list_runs,
     load_run,
+    probe_call,
+    project_runtime,
     run_elicitation,
     save_run,
 )
@@ -222,6 +224,117 @@ def test_seed_set_save_load_roundtrip(tmp_path) -> None:
     assert [s.text for s in restored] == ["How many X?", "What share?"]
     assert restored[0].realization == 42.0
     assert load_seeds(tmp_path / "nonexistent.json") == []
+
+
+def _recall_factory(recall_ids):
+    """Calibrated scripted clients that self-report the given seed ids as 'recall'."""
+    def factory(spec):
+        answers = {s.id: (s.realization * 0.6, s.realization, s.realization * 1.4) for s in default_seeds()}
+        return ScriptedClient(spec.model, answers, _node_fn, recall_ids=set(recall_ids))
+    return factory
+
+
+def test_default_basis_keeps_all_seeds() -> None:
+    _, run = _run()  # scripted clients report 'estimate' for everything
+    c = run.contamination
+    assert c is not None
+    assert c["discarded_seeds"] == []
+    assert c["n_seeds_scored"] == c["n_seeds_asked"] == len(default_seeds())
+    assert c["any_flagged"] is False
+
+
+def test_recalled_seeds_are_discarded_from_scoring() -> None:
+    base = NetworkSpec.from_pgmpy(build_network())
+    recalled = {s.id for s in default_seeds()[:3]}  # a majority-recalled subset
+    fw = _framework(nodes=["Tanker_Incidents"], n_agents=2)
+    run = run_elicitation(base, fw, run_id="r", created_at="t", client_factory=_recall_factory(recalled))
+    c = run.contamination
+    assert set(c["discarded_seeds"]) == recalled
+    assert c["n_seeds_scored"] == len(default_seeds()) - 3
+    assert c["any_flagged"] is True
+    # the discarded seeds still appear in the asked-seed record (transparency)
+    assert {s["id"] for s in run.seeds} == {s.id for s in default_seeds()}
+
+
+def test_all_recalled_falls_back_to_equal_weighting() -> None:
+    base = NetworkSpec.from_pgmpy(build_network())
+    all_ids = {s.id for s in default_seeds()}
+    fw = _framework(nodes=["Tanker_Incidents"], n_agents=2)
+    run = run_elicitation(base, fw, run_id="r", created_at="t", client_factory=_recall_factory(all_ids))
+    assert run.contamination["n_seeds_scored"] == 0
+    assert set(run.contamination["discarded_seeds"]) == all_ids
+    assert all(abs(s["weight"] - 0.5) < 1e-9 for s in run.expert_scores)   # equal weighting
+    assert all(s["calibration"] == 0.0 for s in run.expert_scores)         # no calibration evidence
+
+
+def test_contamination_summary_survives_save_load(tmp_path) -> None:
+    _, run = _run()
+    save_run(run, tmp_path)
+    assert load_run("r1", tmp_path).contamination == run.contamination
+
+
+def test_parallel_agents_give_same_result_regardless_of_concurrency() -> None:
+    """Agents now fan out under a global concurrency cap; the pooled result must
+    be identical whether one call runs at a time or several."""
+    base = NetworkSpec.from_pgmpy(build_network())
+
+    def run_at(concurrency: int):
+        fw = ElicitationFramework(
+            name="c", models=[ModelSpec("scripted", "calib", "C")], n_agents=3,
+            nodes=list(SUBSET), effort=EffortConfig(n_seeds=6, concurrency=concurrency),
+        )
+        return run_elicitation(base, fw, run_id="r", created_at="t", client_factory=_factory)
+
+    serial, parallel = run_at(1), run_at(8)
+    assert set(serial.elicited_nodes) == set(parallel.elicited_nodes)
+    for node in serial.elicited_nodes:
+        for cfg, vec in serial.nodes[node].mean_columns.items():
+            np.testing.assert_allclose(parallel.nodes[node].mean_columns[cfg], vec)
+        assert serial.nodes[node].kappa == parallel.nodes[node].kappa
+
+
+def test_run_captures_timing_diagnostics() -> None:
+    _, run = _run(_framework(nodes=SUBSET, n_agents=3))
+    diag = run.diagnostics
+    assert diag is not None
+    # seeds(3) + roles(4 nodes) + cpts(4 nodes * 3 agents) = 19 calls
+    assert diag["n_calls"] == 3 + len(SUBSET) + len(SUBSET) * 3
+    assert diag["n_failed"] == 0
+    assert set(diag["by_phase"]) == {"seed", "roles", "cpt"}
+    assert diag["wall_s"] >= 0.0
+
+
+def test_diagnostics_survive_save_load(tmp_path) -> None:
+    _, run = _run()
+    save_run(run, tmp_path)
+    restored = load_run("r1", tmp_path)
+    assert restored.diagnostics == run.diagnostics
+
+
+def test_project_runtime_is_work_conserving() -> None:
+    # 12 nodes, 3 agents, concurrency 3, seeds on, uniform 10s calls:
+    # calls = 3 + 12 + 12*3 = 51 ; work = 51*10 = 510 ; wall = 510/3 = 170
+    p = project_runtime(n_nodes=12, n_agents=3, concurrency=3, cpt_s=10.0, has_seeds=True)
+    assert p["total_calls"] == 51
+    assert p["work_s"] == 510.0
+    assert p["est_wall_s"] == 170.0
+    # slow roles calls are costed separately, not applied to every call:
+    # work = (3+36)*19 + 12*47 = 741 + 564 = 1305 ; wall = 1305/4 = 326.25
+    p2 = project_runtime(12, 3, 4, cpt_s=19.0, roles_s=47.0, has_seeds=True)
+    assert p2["work_s"] == 1305.0
+    assert p2["est_wall_s"] == 326.2
+    # no seeds drops the seed-scoring calls
+    assert project_runtime(12, 3, 3, 10.0, has_seeds=False)["total_calls"] == 48
+
+
+def test_probe_call_times_one_call_and_projects(tmp_path) -> None:
+    base = NetworkSpec.from_pgmpy(build_network())
+    fw = _framework(nodes=SUBSET, n_agents=3)
+    p = probe_call(base, fw, client_factory=_factory)
+    assert p["error"] is None
+    assert p["node"] in SUBSET
+    assert p["total_calls"] == len(SUBSET) * (1 + 3) + 3  # seeds counted (framework has seeds)
+    assert p["est_wall_s"] >= 0.0
 
 
 def test_urgent_prompt_reuses_prior_reasoning() -> None:

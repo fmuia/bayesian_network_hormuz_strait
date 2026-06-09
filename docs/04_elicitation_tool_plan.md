@@ -388,6 +388,22 @@ These do not block Layer 0 but should be resolved before the corresponding layer
 | 6 | 5 — Inference integration | Finding M3 | Elicited CPTs → `NetworkSpec` (per-CPT κ) → pgmpy + dashboard. Replaces the global κ. |
 | 7 | 6 — Calibration & confidence over time | Diagnosis 1, 3, 10 | Confidence report, prioritisation, calibration Tiers 2/3, weight/κ updates, optional LLM drafts. |
 
+## Implementation status — as-built vs plan (dashboard integration)
+
+This plan is the north-star design. A pragmatic **v1 of the AI-panel elicitation** has been built and wired into the existing Streamlit dashboard (`src/elicitation/integration/`, `app/elicitation_panel.py`); it diverges from the plan in known, deliberate ways, recorded here so the gap is explicit rather than silent.
+
+**What shipped.** Whole-network, multi-agent Cooke elicitation driven from the dashboard: run or load a saved elicitation, inspect per-node reasonings/roles/scores, override CPT columns, and **lock** a run so the rest of the dashboard runs on its means + per-CPT κ. Real LLM agents via the logged-in Claude Code session (no API key) with optional OpenAI as a second base model; the LLM recruits roles per node; analyst-selectable models, agent count, and reasoning budget. The debiasing protocol of methodology §8.5b is compiled into the prompts; the default seeds are the crisis-dynamics, relevance-matched set (§8.3); and the **source-attribution contamination probe is wired** into scoring (majority-recall seeds discarded, equal-weight fallback).
+
+**Operational behaviour not in the layer specs.** All LLM calls (seed scoring, role recruiting, each agent's CPT) share a single global `concurrency` budget — agents within a node run in parallel; a soft per-call **time limit** triggers a 'conclude now' re-ask (reusing partial reasoning) instead of a retry; per-call **timing diagnostics** and a one-call **latency probe** are captured for cost/latency tuning.
+
+**Known divergences from the plan:**
+- **Storage.** Runs persist as **JSON artifacts** (`data/elicitation_runs/`), not the Layer-0 Postgres tables. The contamination summary lives on the run artifact, not a `contamination_checks` table; the SQLAlchemy/Alembic schema (Layer 0) exists but the integration runner does not yet write to it.
+- **Flow shape.** The integration uses a direct whole-network runner (`integration/runner.py`) rather than the `protocols/cooke.py` + per-step `LLMExpert` state machine of Layer 2. Both compute the same Cooke weights; the runner is the path the dashboard exercises.
+- **Calibration scope.** Only the retrodictive-bootstrap tier is built. Categorical/Brier seed scoring and the prospective-seed loop — the format-matched and contamination-proof upgrades — remain open (Section C; methodology §6.1, §8.3).
+- **Probes.** Of the four §8.3 contamination probes, only source-attribution is wired; perturbation/canary and cross-model-variance are specified but not invoked.
+
+The plan layers remain the target architecture; this section shrinks as the integration migrates onto the Layer-0 storage and the Layer-2 protocol objects.
+
 ## Future directions
 
 - **Additional protocols (documented, not built).** IDEA and SHELF are specified in the [methodology companion](elicitation_methodology_and_defensibility.md) §3 and slot in behind the `Protocol`/`Expert` interface when a mid- or moderate-stakes deployment needs them. No restructuring required.
