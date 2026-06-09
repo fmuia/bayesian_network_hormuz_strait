@@ -60,6 +60,18 @@ from src.elicitation.export import spec_from_dict
 # and the test harness.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import elicitation_panel  # noqa: E402
+import state  # noqa: E402  (sibling module; relies on the sys.path insert above)
+from state import (  # noqa: E402
+    build_review_item as _build_review_item,
+    current_evidence as _merged_evidence,
+    delete_named_session as _delete_named_session,
+    inject_review_item as _inject_review_item,
+    load_session_store as _load_session_store,
+    record_observation as _append_observation,
+    remove_review_item as _remove_from_review,
+    restore_named_session as _restore_named_session,
+    save_named_session as _save_named_session,
+)
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -187,111 +199,7 @@ def cached_node_credible_intervals(
 # Session state
 # ---------------------------------------------------------------------------
 
-_SS_DEFAULTS = {
-    "observations": [],
-    "current_day": 1,
-    "last_translation": None,
-    "translator_error": None,
-    "translator_raw": "",
-    "pending_article": None,
-    "selected_node": None,
-    "review_queue": [],          # T12: translations awaiting analyst review
-    "locked_spec_json": "",       # Plan 4 elicitation layer: locked elicited network
-    "current_run_dict": None,     # the elicitation run being inspected
-}
-for _k, _v in _SS_DEFAULTS.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
-
-_SESSION_STORE = ROOT / "data" / "dashboard_saved_sessions.json"
-
-
-def _load_session_store() -> Dict[str, Dict]:
-    if not _SESSION_STORE.exists():
-        return {}
-    try:
-        return json.loads(_SESSION_STORE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _write_session_store(store: Dict[str, Dict]) -> None:
-    _SESSION_STORE.parent.mkdir(parents=True, exist_ok=True)
-    _SESSION_STORE.write_text(
-        json.dumps(store, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _snapshot_session_state() -> Dict:
-    return {
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-        "current_day": st.session_state.current_day,
-        "observations": st.session_state.observations,
-        "last_translation": st.session_state.last_translation,
-        "translator_error": st.session_state.translator_error,
-        "translator_raw": st.session_state.translator_raw,
-        "selected_node": st.session_state.selected_node,
-    }
-
-
-def _save_named_session(name: str) -> None:
-    store = _load_session_store()
-    store[name] = _snapshot_session_state()
-    _write_session_store(store)
-
-
-def _restore_named_session(name: str) -> bool:
-    store = _load_session_store()
-    payload = store.get(name)
-    if payload is None:
-        return False
-    for key in _SS_DEFAULTS:
-        st.session_state[key] = payload.get(key, _SS_DEFAULTS[key])
-    return True
-
-
-def _delete_named_session(name: str) -> bool:
-    store = _load_session_store()
-    if name not in store:
-        return False
-    del store[name]
-    _write_session_store(store)
-    return True
-
-
-def _append_observation(
-    headline: str,
-    assignments: Dict[str, str],
-    soft_assignments: Optional[Dict[str, Dict[str, float]]] = None,
-    rationale: str = "",
-    per_assignment_reasons: Optional[Dict[str, str]] = None,
-    source: str = "translator",
-) -> None:
-    obs = Observation(
-        day=st.session_state.current_day,
-        headline=headline,
-        assignments=dict(assignments),
-        soft_assignments=dict(soft_assignments or {}),
-        rationale=rationale,
-        per_assignment_reasons=per_assignment_reasons or {},
-        source=source,
-    )
-    st.session_state.observations.append({"id": uuid.uuid4().hex, **asdict(obs)})
-
-
-def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
-    """Latest observation wins on conflict, in insertion order."""
-    hard_merged: Dict[str, str] = {}
-    soft_merged: Dict[str, Dict[str, float]] = {}
-    for obs in st.session_state.observations:
-        for node, state in obs.get("assignments", {}).items():
-            hard_merged[node] = state
-            soft_merged.pop(node, None)
-        for node, dist in obs.get("soft_assignments", {}).items():
-            soft_merged[node] = {k: float(v) for k, v in dist.items()}
-            hard_merged.pop(node, None)
-    return hard_merged, soft_merged
+state.init_session_state()
 
 
 def _render_model_overview(topology: str = TOPOLOGY) -> None:
@@ -419,55 +327,6 @@ def _resolve_source(label: str):
     if label == _FULL_TRUST_LABEL:
         return "unknown", 1.0
     return label, None  # None -> translate_article looks up the table
-
-
-# --- T12: in-session human-in-the-loop review -------------------------------
-_OVERRIDE_FLOOR = 0.01  # ε floor for non-chosen states when the analyst edits
-
-
-def _build_review_item(result: TranslatorResult) -> dict:
-    """Normalise a translation into a review-queue entry (JSON-friendly)."""
-    return {
-        "id": uuid.uuid4().hex,
-        "headline": result.headline,
-        "day": st.session_state.current_day,
-        "relevance": result.relevance,
-        "model": result.model,
-        "provider": result.provider,
-        "rationale": result.rationale,
-        "assignments": [
-            {"node": a.node, "state": a.state,
-             "state_probs": dict(a.state_probs), "reason": a.reason}
-            for a in result.assignments
-        ],
-    }
-
-
-def _inject_review_item(item: dict, *, state_overrides: Optional[dict] = None) -> None:
-    """Commit a review item as an observation (optionally with edited states)."""
-    overrides = state_overrides or {}
-    soft: Dict[str, Dict[str, float]] = {}
-    reasons: Dict[str, str] = {}
-    for a in item["assignments"]:
-        node = a["node"]
-        chosen = overrides.get(node, a["state"])
-        if node in overrides and chosen != a["state"]:
-            # analyst override -> confident soft evidence on the chosen state
-            soft[node] = {s: (1.0 if s == chosen else _OVERRIDE_FLOOR) for s in STATES[node]}
-            reasons[node] = f"{a['reason']} (analyst-edited: {a['state']} → {chosen})"
-        else:
-            soft[node] = dict(a["state_probs"])
-            reasons[node] = a["reason"]
-    _append_observation(
-        headline=item["headline"], assignments={}, soft_assignments=soft,
-        rationale=item["rationale"], per_assignment_reasons=reasons, source="translator",
-    )
-
-
-def _remove_from_review(item_id: str) -> None:
-    st.session_state.review_queue = [
-        x for x in st.session_state.review_queue if x["id"] != item_id
-    ]
 
 
 def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str] = None) -> None:
