@@ -83,31 +83,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-TEAL = "#1A7A6D"
-NAVY = "#1B2A3D"
-PANEL = "#F5F5F5"
-RULE = "#E5E7EB"
-MUTED = "#6B7280"
-GREEN = "#2E8B57"
-AMBER = "#D4A017"
-RED = "#B22222"
-
-SCENARIO_COLOR = {
-    "Stress_Mitigates": GREEN,
-    "Prolonged_Conflict": AMBER,
-    "Severe_Closure": RED,
-}
-SCENARIO_LABEL = {
-    "Stress_Mitigates": "Stress Mitigates",
-    "Prolonged_Conflict": "Prolonged Conflict",
-    "Severe_Closure": "Severe Closure",
-}
-ROOT_DRIVER_STYLE = {
-    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8"),
-    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D"),
-    "Third_Party_Mediation": ("#FEF3C7", "#B45309"),
-    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9"),
-}
+# Palette + scenario labels live in app/theme.py (Plan 5 P3) so the chart
+# components can share them without importing the dashboard.
+from theme import (  # noqa: E402
+    AMBER, GREEN, MUTED, NAVY, PANEL, RED, ROOT_DRIVER_STYLE, RULE,
+    SCENARIO_COLOR, SCENARIO_LABEL, SCENARIO_KEYS, TEAL,
+)
 
 # Styles live in app/styles.css (Plan 5 P1 / A2, V8). Loaded once at startup so
 # the stylesheet is editable without touching Python.
@@ -962,142 +943,14 @@ with st.container(border=True):
         )
 
 
-# ---------------------------------------------------------------------------
-# Node-CI rendering helpers (A2)
-# ---------------------------------------------------------------------------
-
-_NAVY_FULL = NAVY
-_NAVY_MID = "#5B6A7D"
-_NAVY_LIGHT = "#9BA5B0"
-_WIDTH_COLOR_SCALE = alt.Scale(
-    domain=["narrow", "moderate", "fragile"],
-    range=[_NAVY_FULL, _NAVY_MID, _NAVY_LIGHT],
+# CI / robustness chart helpers live in app/components/ci_charts.py (Plan 5 P3).
+from components.ci_charts import (  # noqa: E402
+    _ci_dataframe,
+    _dumbbell_chart,
+    _flat_bar_chart,
+    _robustness_badge_html,
+    _width_category,
 )
-
-
-def _width_category(half_width_pp: float) -> str:
-    if half_width_pp < 8:
-        return "narrow"
-    if half_width_pp < 20:
-        return "moderate"
-    return "fragile"
-
-
-def _ci_dataframe(
-    ci_dict: Dict[str, Tuple[float, float, float]],
-    sorted_states: List[str],
-) -> pd.DataFrame:
-    rows = []
-    for state in sorted_states:
-        mean, lo, hi = ci_dict[state]
-        half_w_pp = (hi - lo) * 50.0
-        rows.append({
-            "State": state,
-            "Mean": mean,
-            "Lo": lo,
-            "Hi": hi,
-            "HalfWidthPP": half_w_pp,
-            "WidthCategory": _width_category(half_w_pp),
-        })
-    return pd.DataFrame(rows)
-
-
-def _dumbbell_chart(df: pd.DataFrame, sorted_states: List[str]) -> alt.Chart:
-    y_enc = alt.Y(
-        "State:N", sort=sorted_states, title=None,
-        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
-        axis=alt.Axis(
-            labelColor=NAVY, labelFontSize=11,
-            labelOverlap=False, labelLimit=200, labelPadding=6,
-        ),
-    )
-    x_scale = alt.Scale(domain=[0, 1])
-    x_axis = alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY)
-    color_enc = alt.Color(
-        "WidthCategory:N", scale=_WIDTH_COLOR_SCALE, legend=None,
-    )
-    tooltip = [
-        alt.Tooltip("State:N"),
-        alt.Tooltip("Mean:Q", format=".1%", title="Mean"),
-        alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
-        alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
-        alt.Tooltip("HalfWidthPP:Q", format=".1f", title="± pp"),
-    ]
-    base = alt.Chart(df).encode(y=y_enc)
-    rule = base.mark_rule(strokeWidth=4).encode(
-        x=alt.X("Lo:Q", scale=x_scale, axis=x_axis, title="Probability"),
-        x2="Hi:Q",
-        color=color_enc,
-    )
-    cap_lo = base.mark_tick(thickness=3, size=18).encode(
-        x="Lo:Q", color=color_enc,
-    )
-    cap_hi = base.mark_tick(thickness=3, size=18).encode(
-        x="Hi:Q", color=color_enc,
-    )
-    mean_pt = base.mark_circle(size=140).encode(
-        x="Mean:Q", color=color_enc, tooltip=tooltip,
-    )
-    height = max(160, 50 * len(sorted_states) + 30)
-    return (rule + cap_lo + cap_hi + mean_pt).properties(
-        height=height
-    ).configure_view(stroke=None)
-
-
-def _flat_bar_chart(
-    dist: Dict[str, float], sorted_states: List[str]
-) -> alt.Chart:
-    """Plain bars without CI — for hard/soft-observed nodes."""
-    df = pd.DataFrame(
-        [{"State": s, "Probability": dist[s]} for s in sorted_states]
-    )
-    y_enc = alt.Y(
-        "State:N", sort=sorted_states, title=None,
-        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
-        axis=alt.Axis(
-            labelColor=NAVY, labelFontSize=11,
-            labelOverlap=False, labelLimit=200, labelPadding=6,
-        ),
-    )
-    x_enc = alt.X(
-        "Probability:Q", scale=alt.Scale(domain=[0, 1]),
-        axis=alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY),
-        title="Probability",
-    )
-    bars = alt.Chart(df).mark_bar(size=14, color=NAVY).encode(
-        x=x_enc, y=y_enc,
-        tooltip=[
-            alt.Tooltip("State:N"),
-            alt.Tooltip("Probability:Q", format=".1%"),
-        ],
-    )
-    height = max(160, 50 * len(sorted_states) + 30)
-    return bars.properties(height=height).configure_view(stroke=None)
-
-
-def _robustness_badge_html(
-    ci_dict: Dict[str, Tuple[float, float, float]],
-    sorted_states: List[str],
-) -> str:
-    widest_state = max(
-        sorted_states, key=lambda s: ci_dict[s][2] - ci_dict[s][1],
-    )
-    mean_w, lo_w, hi_w = ci_dict[widest_state]
-    half_w_pp = (hi_w - lo_w) * 50.0
-    cat = _width_category(half_w_pp)
-    if cat == "narrow":
-        emoji, label, color = "🟢", "robust", GREEN
-    elif cat == "moderate":
-        emoji, label, color = "🟡", "moderate", AMBER
-    else:
-        emoji, label, color = "🔴", "fragile", RED
-    return (
-        f"<div style='font-size:0.82rem; margin:0.2rem 0 0.55rem 0; "
-        f"color:{color}; font-weight:600;'>"
-        f"{emoji} {label} · widest CI ±{half_w_pp:0.1f} pp "
-        f"<span style='color:{MUTED}; font-weight:400;'>"
-        f"(state: {widest_state})</span></div>"
-    )
 
 
 # ===========================================================================
