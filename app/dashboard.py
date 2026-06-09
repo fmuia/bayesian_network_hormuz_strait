@@ -17,43 +17,22 @@ previous sidebar manual picker.
 from __future__ import annotations
 
 import json
-import os
 import sys
-import uuid
-from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import altair as alt
-import pandas as pd
 import streamlit as st
-from streamlit_agraph import agraph
 
-from src.evidence import EXAMPLE_HEADLINES, Observation
 from src.inference import BNInferenceEngine
-from src.network import SCENARIO_NARRATIVES, STATES, build_network
+from src.network import STATES, build_network
 from src.sensitivity import (
     node_credible_intervals,
     scenario_credible_intervals,
 )
-from src.translator import (
-    SOURCE_TYPE_CREDIBILITY,
-    Article,
-    TranslatorError,
-    TranslatorResult,
-    available_providers,
-    fake_forced_by_env,
-    is_available as translator_available,
-    structured_enabled,
-    translate_article,
-)
-from src.translator_pipeline import run_structured
-from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 from src.elicitation.export import spec_from_dict
 
 # Ensure sibling modules (elicitation_panel) import under both `streamlit run`
@@ -61,17 +40,7 @@ from src.elicitation.export import spec_from_dict
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import elicitation_panel  # noqa: E402
 import state  # noqa: E402  (sibling module; relies on the sys.path insert above)
-from state import (  # noqa: E402
-    build_review_item as _build_review_item,
-    current_evidence as _merged_evidence,
-    delete_named_session as _delete_named_session,
-    inject_review_item as _inject_review_item,
-    load_session_store as _load_session_store,
-    record_observation as _append_observation,
-    remove_review_item as _remove_from_review,
-    restore_named_session as _restore_named_session,
-    save_named_session as _save_named_session,
-)
+from state import current_evidence as _merged_evidence  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -83,17 +52,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Palette + scenario labels live in app/theme.py (Plan 5 P3) so the chart
-# components can share them without importing the dashboard.
-from theme import (  # noqa: E402
-    AMBER, GREEN, MUTED, NAVY, PANEL, RED, ROOT_DRIVER_STYLE, RULE,
-    SCENARIO_COLOR, SCENARIO_LABEL, SCENARIO_KEYS, TEAL,
-)
-
 from components import (  # noqa: E402
-    audit_view, edge_rationale, evolution_chart, network_view,
-    observation_log, scenario_cards,
-    triage_view,
+    audit_view, edge_rationale, evolution_chart, model_explainer, network_view,
+    observation_log, scenario_cards, translator_stream, triage_view,
 )
 
 # Styles live in app/styles.css (Plan 5 P1 / A2, V8). Loaded once at startup so
@@ -189,454 +150,7 @@ def cached_node_credible_intervals(
 state.init_session_state()
 
 
-def _render_model_overview(topology: str = TOPOLOGY) -> None:
-    if topology == "latent_regime":
-        scenario_clause = (
-            "a latent <b>Scenario</b> regime that <i>generates</i> the damage, "
-            "duration, and diplomatic-path outcomes (with context parents US "
-            "military response and strait closure)"
-        )
-    else:
-        scenario_clause = (
-            "a terminal <b>Scenario</b> node classified from the damage, "
-            "duration, and diplomatic-path outcomes"
-        )
-    st.markdown(
-        "<div class='explain'>"
-        "<p>The Bayesian network encodes qualitative causal structure "
-        "between four <b>root drivers</b> (negotiations, regime "
-        "stability, third-party mediation, sanctions trajectory), "
-        "<b>eight intermediate nodes</b> (Iran-aligned militia attacks, tanker "
-        "incidents, US military response, strait closure, energy "
-        "infrastructure damage, conflict duration, diplomatic path, "
-        f"oil price regime), and {scenario_clause} "
-        "whose three states correspond to the client's strategic "
-        "scenarios.</p>"
-        "<h4>Two layers</h4>"
-        "<p>A free-text headline is passed through an LLM translator "
-        "that extracts BN-relevant probabilistic assignments (e.g. "
-        "<i>\"Fourth tanker incident in two weeks\"</i> gives a high "
-        "probability to <code>Tanker_Incidents = frequent</code>). "
-        "Those soft assignments become BN evidence; variable-elimination "
-        "propagates them and yields the posterior distribution at "
-        "every node.</p>"
-        "<h4>Scenario definitions</h4>"
-        "<ul>"
-        f"<li><b style='color:{GREEN};'>Stress Mitigates</b> — "
-        f"{SCENARIO_NARRATIVES['Stress_Mitigates']}</li>"
-        f"<li><b style='color:{AMBER};'>Prolonged Conflict</b> — "
-        f"{SCENARIO_NARRATIVES['Prolonged_Conflict']}</li>"
-        f"<li><b style='color:{RED};'>Severe Closure</b> — "
-        f"{SCENARIO_NARRATIVES['Severe_Closure']}</li>"
-        "</ul>"
-        "<h4>Reading the graph</h4>"
-        "<p>Teal-filled nodes are the ones for which evidence has "
-        "been set (whether by the translator or a manual override). "
-        "Unobserved nodes display the most likely state under the "
-        "current posterior. Root drivers use distinct color families "
-        "so they are easy to distinguish visually.</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def _render_model_appendix() -> None:
-    st.markdown(
-        r"""
-        ### Appendix: implementation details
-
-        The model is a discrete Bayesian network with posterior updates via exact variable elimination.
-
-        **Inference rule**
-
-        $$
-        P(S \mid E=e) =
-        \frac{\sum_{z} P(S, z, e)}{\sum_{s}\sum_{z} P(s, z, e)}
-        $$
-
-        where $S$ is the scenario node and $z$ are latent/unobserved nodes.
-
-        **Translator-to-evidence pipeline**
-
-        1. A headline is parsed into a set of node assignments constrained to valid node states.
-        2. Each assignment is appended as an observation with day and source metadata.
-        3. Latest assignment wins on node conflicts when merged into current evidence.
-        4. Inference is re-run and scenario cards + node marginals are refreshed.
-
-        **Uncertainty panel**
-
-        Credible intervals are estimated by resampling every CPT column from a Dirichlet distribution centred on the elicited point estimate and rerunning inference:
-
-        $$
-        \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot}),
-        \qquad \alpha_{j,\cdot} = \kappa \cdot \theta_{j,\cdot}^{\text{point}}
-        $$
-
-        with concentration $\kappa = 20$ and $m = 200$ draws. Each draw perturbs **all** CPTs jointly and the full network is re-run under the current evidence, so the resulting posterior samples reflect *global* parameter uncertainty, not a per-node local variation.
-
-        The 10th–90th percentiles across samples give an 80% credible interval per node per state, exposed in two places:
-
-        - **Scenario cards** (top band): headline CIs for the three scenarios.
-        - **Node detail panel** (right of the Network tab): per-node dumbbells with a robustness badge (🟢 robust < ±8 pp · 🟡 moderate ±8–20 pp · 🔴 fragile > ±20 pp). Hard-observed nodes collapse to deltas; soft-observed nodes keep their CIs because the posterior still varies under CPT resampling.
-        """
-    )
-
-
-# ---------------------------------------------------------------------------
-# Translator stream (compact single-line)
-# ---------------------------------------------------------------------------
-
-STAGE_ICON = {
-    "init": "🔌",
-    "thinking": "💭",
-    "response": "✍️",
-    "parsing": "🧩",
-    "validated": "✅",
-}
-STAGE_LABEL = {
-    "init": "Connecting to model",
-    "thinking": "Thinking",
-    "response": "Receiving response",
-    "parsing": "Parsing assignments",
-    "validated": "Validated",
-}
-
-
-# Sidebar source-type options -> (Article.source_type, explicit credibility).
-# "(unspecified)" = analyst paste at full trust (w=1.0); the rest defer to the
-# per-source-type table (credibility=None -> looked up in translate_article).
-_FULL_TRUST_LABEL = "(unspecified — full trust)"
-_SOURCE_TYPE_OPTIONS = [_FULL_TRUST_LABEL] + list(SOURCE_TYPE_CREDIBILITY.keys())
-
-
-def _resolve_source(label: str):
-    """Map a sidebar source-type label to (source_type, credibility-or-None)."""
-    if label == _FULL_TRUST_LABEL:
-        return "unknown", 1.0
-    return label, None  # None -> translate_article looks up the table
-
-
-def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str] = None) -> None:
-    def _write(kind: str, stage: str, detail: str) -> None:
-        icon = STAGE_ICON.get(stage, "•")
-        label = STAGE_LABEL.get(stage, stage.capitalize())
-        clean = " ".join(detail.split())
-        if len(clean) > 120:
-            clean = clean[:117] + "…"
-        cls = {"live": "stream-line", "done": "stream-line stream-done",
-               "err":  "stream-line stream-error"}[kind]
-        stream_slot.markdown(
-            f"<div class='{cls}'>{icon} <b>{label}</b> — {clean}</div>",
-            unsafe_allow_html=True,
-        )
-
-    _write("live", "init", "starting model call…")
-
-    def on_step(stage: str, detail: str) -> None:
-        _write("live", stage, detail)
-
-    source_type, credibility = _resolve_source(
-        article_fields.get("source_type_label", _FULL_TRUST_LABEL)
-    )
-    article = Article(
-        headline=article_fields["headline"],
-        body=article_fields.get("body", ""),
-        source=article_fields.get("source", ""),
-        source_type=source_type,
-    )
-    # T06e: when the structured toggle is on, the structured pipeline (extract →
-    # map → aggregate) PRODUCES the injected assignments; otherwise the single-
-    # call path does. Structured costs 2 LLM calls and derives relevance as
-    # yes/no (no "partial"); the single-call path keeps the richer relevance.
-    use_structured = st.session_state.get("use_structured")
-    claims = mappings = None
-    try:
-        if use_structured:
-            result, claims, mappings = run_structured(
-                article, credibility=credibility, provider=provider, on_step=on_step
-            )
-        else:
-            result = translate_article(
-                article, credibility=credibility, provider=provider, on_step=on_step
-            )
-    except TranslatorError as exc:
-        raw = getattr(exc, "raw_response", "")
-        _write("err", "validated", f"failed: {exc}")
-        st.session_state.translator_error = str(exc)
-        st.session_state.translator_raw = raw
-        st.session_state.last_translation = None
-        return
-
-    st.session_state.translator_error = None
-    st.session_state.translator_raw = result.raw_response
-    st.session_state.last_translation = {
-        "headline": result.headline,
-        "assignments": [asdict(a) for a in result.assignments],
-        "rationale": result.rationale,
-        "model": result.model,
-        "provider": result.provider,
-        "relevance": result.relevance,
-    }
-    if use_structured:
-        st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
-        st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
-        st.session_state.last_translation["structured_assignments"] = [
-            asdict(a) for a in result.assignments
-        ]
-
-    # B3: an off-topic article abstains — logged, but no evidence injected.
-    if result.relevance == "no":
-        _write("done", "validated", "not relevant — no evidence injected")
-        return
-
-    if result.assignments:
-        # T12: route to HITL review when flagged (partial) or when the analyst
-        # has turned on "review before inject"; otherwise auto-approve (inject).
-        needs_review = (
-            result.relevance == "partial"
-            or st.session_state.get("review_before_inject", False)
-        )
-        st.session_state.last_translation["pending_review"] = needs_review
-        item = _build_review_item(result)
-        if needs_review:
-            st.session_state.review_queue.append(item)
-            _write(
-                "done", "validated",
-                f"{len(result.assignments)} assignment(s) → queued for review "
-                f"(not yet injected) · see the Triage view",
-            )
-        else:
-            _inject_review_item(item)
-            _write(
-                "done", "validated",
-                f"{len(result.assignments)} assignment(s) · auto-approved · model {result.model}",
-            )
-    else:
-        st.session_state.translator_error = (
-            "Translator returned no assignments — the headline does not map "
-            "to any node in this BN schema. Try a Strait-of-Hormuz-specific "
-            "headline or use the Network tab to set a node manually."
-        )
-        _write("err", "validated", "no assignments produced")
-
-
-# ===========================================================================
-# SIDEBAR
-# ===========================================================================
-
-providers = available_providers()
-provider_labels = {"claude-code": "Claude Code", "openai": "OpenAI API"}
-
-# Offline `fake` translator (deterministic fixtures, no network). Default the
-# dev toggle on when TRANSLATOR_PROVIDER=fake forces it, or when no real backend
-# is available (so the app is always playable). The toggle widget owns the state.
-if "use_fake_translator" not in st.session_state:
-    st.session_state.use_fake_translator = (
-        fake_forced_by_env() or not translator_available()
-    )
-if "use_structured" not in st.session_state:
-    st.session_state.use_structured = structured_enabled()
-
-with st.sidebar:
-    st.markdown(
-        "<div class='sb-header'>"
-        "<div class='sb-header-title'>Scenario Session Controls</div>"
-        "<div class='sb-header-sub'>Translator, observations, and state</div>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # -- Fake-translator dev toggle (offline, deterministic) ---------------
-    use_fake = st.toggle(
-        "Use fake translator (offline)",
-        key="use_fake_translator",
-        help="Deterministic fixtures, no network or API key. For dev / manual "
-             "verification without spending LLM calls.",
-    )
-    use_structured = st.toggle(
-        "Experimental: structured pipeline",
-        key="use_structured",
-        help="Span-grounded structured reasoning (B2): extract atomic claims → map "
-             "each to a node → aggregate. When on, this PRODUCES the injected "
-             "assignments (every one cites verbatim spans) and resists prompt "
-             "injection. Costs 2 LLM calls and derives relevance as yes/no only. "
-             "Off = the single-call path (1 call, richer relevance).",
-    )
-    review_before_inject = st.toggle(
-        "Require review before inject",
-        key="review_before_inject",
-        help="Human-in-the-loop: hold every translation in the Triage view for "
-             "approve / edit / reject before it affects the model. Partial-relevance "
-             "translations are always held regardless of this toggle.",
-    )
-    translator_on = use_fake or translator_available()
-
-    # -- Provider chip (one line) ------------------------------------------
-    if use_fake:
-        st.markdown(
-            "<div class='sb-provider'>● Translator: fake (offline dev)</div>",
-            unsafe_allow_html=True,
-        )
-    elif translator_on:
-        primary = provider_labels[providers[0]]
-        st.markdown(
-            f"<div class='sb-provider'>● Translator: {primary}</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            "<div class='sb-provider warn'>⚠ No translator backend</div>",
-            unsafe_allow_html=True,
-        )
-
-    _n_review = len(st.session_state.review_queue)
-    if _n_review:
-        st.markdown(
-            f"<div class='sb-provider warn'>⏳ {_n_review} awaiting review — see Triage</div>",
-            unsafe_allow_html=True,
-        )
-
-    # -- Day row ----------------------------------------------------------
-    todays_count = sum(
-        1 for o in st.session_state.observations
-        if o["day"] == st.session_state.current_day
-    )
-    day_l, day_r = st.columns([1, 1], gap="small")
-    with day_l:
-        st.markdown(
-            f"<div class='day-pill'>DAY {st.session_state.current_day}</div>"
-            f"<div class='sb-hint'>• {todays_count} obs today</div>",
-            unsafe_allow_html=True,
-        )
-    with day_r:
-        if st.button("▶ Advance", width="stretch", type="secondary", key="adv_day"):
-            st.session_state.current_day += 1
-            st.rerun()
-
-    st.markdown("<div class='sb-title'>Translate a headline or article</div>",
-                unsafe_allow_html=True)
-
-    with st.form("headline_form", clear_on_submit=True):
-        headline_input = st.text_area(
-            "News headline",
-            placeholder="e.g. 'Iran suspends Hormuz traffic inspections'",
-            height=72,
-            disabled=not translator_on,
-            label_visibility="collapsed",
-        )
-        with st.expander("Add article body & source (optional)"):
-            body_input = st.text_area(
-                "Article body",
-                placeholder="Paste the article body — qualifiers in the body "
-                            "(e.g. 'third such incident this week', 'no injuries') "
-                            "disambiguate states the headline alone can't.",
-                height=120,
-                disabled=not translator_on,
-            )
-            source_input = st.text_input(
-                "Source (outlet or domain)", placeholder="e.g. Reuters",
-                disabled=not translator_on,
-            )
-            source_type_input = st.selectbox(
-                "Source type (sets credibility weight w)",
-                _SOURCE_TYPE_OPTIONS, index=0, disabled=not translator_on,
-            )
-        submitted = st.form_submit_button(
-            "Translate & observe", type="primary",
-            disabled=not translator_on, width="stretch",
-        )
-        if submitted and headline_input.strip():
-            st.session_state.pending_article = {
-                "headline": headline_input.strip(),
-                "body": body_input.strip(),
-                "source": source_input.strip(),
-                "source_type_label": source_type_input,
-            }
-
-    # Stream slot lives just below the form — compact, single-line.
-    stream_slot = st.empty()
-
-    # Run translator *after* the slot is in the sidebar, so updates appear here.
-    if st.session_state.pending_article is not None:
-        article_fields = st.session_state.pending_article
-        st.session_state.pending_article = None
-        _run_translator(
-            article_fields, stream_slot, provider="fake" if use_fake else None
-        )
-
-    with st.expander("Examples", expanded=False):
-        for idx, ex in enumerate(EXAMPLE_HEADLINES):
-            if st.button(
-                ex.text, key=f"ex_{idx}",
-                width="stretch", disabled=not translator_on,
-            ):
-                st.session_state.pending_article = {
-                    "headline": ex.text, "body": "", "source": "",
-                    "source_type_label": _FULL_TRUST_LABEL,
-                }
-                st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<div class='sb-title'>Named sessions</div>", unsafe_allow_html=True)
-    saved_sessions = _load_session_store()
-    session_name = st.text_input(
-        "Session name",
-        placeholder="e.g. baseline-briefing",
-        key="session_name_input",
-        label_visibility="collapsed",
-    ).strip()
-
-    sess_cols = st.columns([1, 1], gap="small")
-    with sess_cols[0]:
-        if st.button("Save session", width="stretch", key="save_named_session"):
-            if not session_name:
-                st.warning("Enter a session name before saving.")
-            else:
-                _save_named_session(session_name)
-                st.success(f"Saved session '{session_name}'.")
-                st.rerun()
-    with sess_cols[1]:
-        load_name = st.selectbox(
-            "Load named session",
-            options=[""] + sorted(saved_sessions.keys()),
-            key="load_named_session_select",
-            label_visibility="collapsed",
-        )
-        if st.button("Load", width="stretch", key="load_named_session"):
-            if not load_name:
-                st.warning("Choose a saved session to load.")
-            elif _restore_named_session(load_name):
-                st.success(f"Loaded session '{load_name}'.")
-                st.rerun()
-            else:
-                st.error("Could not load that saved session.")
-
-    if saved_sessions:
-        delete_name = st.selectbox(
-            "Delete named session",
-            options=[""] + sorted(saved_sessions.keys()),
-            key="delete_named_session_select",
-            label_visibility="collapsed",
-        )
-        if st.button("Delete selected", width="stretch", key="delete_named_session"):
-            if delete_name and _delete_named_session(delete_name):
-                st.success(f"Deleted session '{delete_name}'.")
-                st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Reset session", width="stretch", key="reset_all"):
-        st.session_state.observations = []
-        st.session_state.current_day = 1
-        st.session_state.last_translation = None
-        st.session_state.translator_error = None
-        st.session_state.translator_raw = ""
-        st.session_state.selected_node = None
-        st.rerun()
-
-
-# ===========================================================================
-# MAIN COMPUTATION
-# ===========================================================================
+translator_stream.render_sidebar(st)
 
 # Plan 4 elicitation layer: run/load an elicitation, inspect reasonings & scores,
 # override columns, and lock it — the rest of the dashboard then runs on it.
@@ -722,7 +236,7 @@ _eval_badge = _load_eval_badge()
 if _eval_badge:
     st.markdown(_eval_badge, unsafe_allow_html=True)
 with st.expander("How this model works", expanded=False):
-    _render_model_overview(TOPOLOGY)
+    model_explainer.render_overview(st, TOPOLOGY)
 
 
 # ===========================================================================
@@ -780,7 +294,7 @@ if active_view == _VIEW_NET:
     )
 
     with st.expander("Appendix — math and implementation details", expanded=False):
-        _render_model_appendix()
+        model_explainer.render_appendix(st)
 
 
 # ---------------------------------------------------------------------------
