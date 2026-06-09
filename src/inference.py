@@ -195,10 +195,16 @@ class BNInferenceEngine:
         return self._distribution(result, "Scenario")
 
     def get_scenario_probabilities(self) -> Dict[str, float]:
-        """Scenario marginal under the current accumulated evidence."""
+        """Scenario marginal under the current accumulated evidence.
+
+        Scenario is the query target, so any (invalid) evidence on it is dropped
+        — mirroring :meth:`get_node_marginal` — rather than letting pgmpy reject
+        the query.
+        """
+        ev = {k: v for k, v in self._evidence.items() if k != "Scenario"}
         result = self._engine.query(
             ["Scenario"],
-            evidence=self._evidence,
+            evidence=ev,
             virtual_evidence=self._virtual_evidence_cpds(),
             show_progress=False,
         )

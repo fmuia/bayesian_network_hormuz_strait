@@ -91,6 +91,10 @@ def scenario_credible_intervals(
         raise ValueError("ci must be in (0, 1)")
     base = base_network or build_network()
     rng = np.random.default_rng(seed)
+    # Scenario is the query target — drop it from evidence if present (e.g. a
+    # mistaken observation on the latent regime) so pgmpy doesn't reject the query
+    # with "same variable in both `variables` and `evidence`".
+    evidence = {k: v for k, v in dict(evidence).items() if k != "Scenario"}
     samples: list[Dict[str, float]] = []
     for _ in range(m):
         net = _resampled_network(base, concentration, rng)

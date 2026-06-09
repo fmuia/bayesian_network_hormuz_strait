@@ -132,7 +132,13 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                 "Override</div>",
                 unsafe_allow_html=True,
             )
-            if sel and sel in STATES:
+            if sel == "Scenario":
+                st.markdown(
+                    "<div class='card-sub'>The Scenario regime is inferred from the "
+                    "evidence, not observed directly — no manual override.</div>",
+                    unsafe_allow_html=True,
+                )
+            elif sel and sel in STATES:
                 states = list(STATES[sel])
                 n = len(states)
                 default_pct = 100 // n

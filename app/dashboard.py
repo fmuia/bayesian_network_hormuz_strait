@@ -648,6 +648,10 @@ with st.expander(
 engine = get_engine(TOPOLOGY)
 engine.clear_evidence()
 evidence, soft_evidence = _merged_evidence()
+# Scenario is the latent regime we infer, never observe — drop any evidence on it
+# (e.g. a mistaken manual override) so the Scenario-targeted CI query stays valid.
+evidence.pop("Scenario", None)
+soft_evidence.pop("Scenario", None)
 if evidence:
     engine.update_evidence(evidence)
 if soft_evidence:
