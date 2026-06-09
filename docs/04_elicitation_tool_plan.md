@@ -1,483 +1,399 @@
-# Elicitation Tool Plan: A Multi-Protocol CPT Elicitation Platform
+# Elicitation Tool Plan: A Cooke-Protocol CPT Elicitation Platform
 
-> **Status.** Draft. No layers started.
+> **Companion document.** The methodology, design rationale, defensibility argument, and full reference list live in [`docs/elicitation_methodology_and_defensibility.md`](elicitation_methodology_and_defensibility.md). This document is the **executable plan**: layers, deliverables, file paths, and validation criteria. Where a design choice needs justification, this plan states the choice and links to the methodology document for the argument.
 >
-> **Position in the sequencing.** Third of three sequential plans. Depends on `docs/02_translator_robustification.md` (Plan 2) for the audit-log substrate (item D3) and on `docs/03_pymc_integration_plan.md` (Plan 3) for the `NetworkSpec` declarative model representation. Run after both are complete.
->
-> **Related docs.** `docs/master_plan.md` §4 is the in-tree registry of finding IDs (this plan closes the elicitation-related M-findings, notably M3 and M6, plus C2 from the roadmap). `docs/02_translator_robustification.md` builds the audit log, versioned-artefact pattern, HITL review queue, and source-credibility infrastructure that this plan reuses. `docs/03_pymc_integration_plan.md` provides the `NetworkSpec` interface that elicited CPTs are exported to. `docs/01_latent_regime_plan.md` Section A.8 covers the math context for why per-CPT $\kappa$ values and hierarchical priors matter.
->
-> **Status legend.** ⬜ not started · ⏳ in progress · ✅ shipped (with date).
+> **Status legend.** ⬜ not started · ⏳ in progress · ✅ shipped (with date). All layers are ⬜.
 
-## Executive Summary
+## Executive summary
 
-This plan delivers the **elicitation methodology layer** for the platform: a multi-protocol tool for eliciting, aggregating, versioning, and calibrating the conditional probability tables that drive the Bayesian network. It addresses the deepest epistemic weakness of the current model — that CPT values are inline literals chosen by one author without formal protocol, multi-expert input, or calibration tracking.
+This plan delivers a tool for **eliciting** the conditional probability tables (CPTs) that drive the Bayesian network, **aggregating** the independent judgments of several experts into a single calibrated distribution, **versioning** every CPT with full provenance, **propagating** per-CPT uncertainty into the model's outputs, and **tracking calibration** of those CPTs against realised outcomes.
 
-The plan is structured as **six layers in scope** (Layers 0 through 5) plus a deferred commercial Layer 6 (billing, onboarding, support) that ships only when paying customers exist. Layer 0 is the data model and storage substrate that extends Plan 2's audit log; Layer 1 is the mathematical engine (aggregation primitives, ranked nodes, sensitivity analysis); Layer 2 implements three elicitation protocols (Cooke's classical model, IDEA, SHELF) as configurable workflows; Layer 3 is the Streamlit UI; Layer 4 integrates with Plan 3's inference engine; Layer 5 adds advanced features (LLM-proposed CPTs, calibration tracking, ranked-node UI).
+The elicitation protocol is **Cooke's classical model** — seed-validated, performance-weighted, with poorly-calibrated experts zeroed. Two further structured-expert-judgment protocols, **IDEA** and **SHELF**, are documented in the [methodology companion](elicitation_methodology_and_defensibility.md) §3 and kept behind the same `Protocol` / `Expert` interface so they can be added later without restructuring — but they are **out of implementation scope**. Nothing in this plan builds them.
 
-An optional extension, **Layer 5.5 (agentic AI experts)**, lets LLM agents *participate in the protocols as contributors* — but only as **calibration-validated** ones: scored on the same seed questions as human experts (reusing the Cooke machinery), weighted by measured performance, composed across diverse base models to control correlated error, and always attributable in provenance with human sign-off for high-stakes work. The positioning is **calibration-validated AI elicitation**, not "AI replaces experts." The peer-reviewed methodology this rests on — structured expert judgment, LLM forecasting/calibration, multi-agent aggregation, and LLM-elicited priors — is catalogued with primary sources in **Section E**, each annotated with how it supports the design and where further research or stronger validation is warranted.
+The platform addresses the deepest epistemic weakness of the current model: CPT values are inline literals chosen by one author, with no formal protocol, no multi-expert input, and no calibration tracking. The current dashboard already *propagates* CPT uncertainty (a Dirichlet resampling pass in [`src/sensitivity.py`](../src/sensitivity.py) that the dashboard renders as 80% credible intervals), but with a single hard-coded concentration `κ = 20` applied uniformly to every CPT and around one-author point values. This plan replaces both: point values come from a scored panel, and each CPT carries its own calibration-derived `κ`.
 
-The platform is positioned as **methodology-as-product** with an **open-core licensing model**: the inference engine, mathematical primitives, and protocol implementations are open-source; the commercial layer (deployment automation, support, hosted version, premium integrations) is closed. Deployment shape is **multi-deployment, single-tenant per deployment** — each customer engagement gets its own isolated stack rather than sharing infrastructure SaaS-style. This matches the high-stakes regulatory and consulting-led nature of the use cases.
+**Operating mode: AI-only expert panels, human-capable by construction.** The expert *panel members* are multi-model AI agents. Because the panel is AI-only, the AI-expert capability is **on the critical path** — it is part of the elicitation core (Layer 2), not a final add-on. Human experts remain a first-class, retained option: an `LLMExpert` and a human expert implement the **identical** `Expert` interface, so enabling human panellists is a per-deployment configuration choice, not a code change. "AI-only" refers to the panel members, not the reviewer — **human sign-off remains mandatory for high-stakes work.**
+
+The platform is built in **seven layers, foundation first**:
+
+| Layer | Scope | Milestone |
+| --- | --- | --- |
+| **0** | Data model and storage substrate (extends the translator audit log) | |
+| **1** | Core engine — Cooke aggregation, sensitivity, the calibration→κ mapping | |
+| **2** | Cooke elicitation + AI experts — state machine, `Expert` interface, single-agent `LLMExpert`, seed scoring | *it runs* |
+| **3** | Multi-model panels & defensibility hardening — decorrelation, contamination probes, calibration reports, red-team | *it's defensible* |
+| **4** | Streamlit UI | **v1 (Layers 0–4)** |
+| **5** | Inference integration — `NetworkSpec`, per-CPT κ into the engine and dashboard | |
+| **6** | Calibration tracking & confidence over time — Tier 2/3, weight/κ updates, prioritisation, confidence report | |
+
+**Why this order.** Layers 0–2 are the minimal runnable elicitation pipeline: storage, the maths, and a Cooke workflow an AI agent can actually drive. Layer 3 makes that pipeline *defensible* (multi-model diversity and contamination probes are not optional polish — single-model naive pooling is the failure mode the methodology warns against, so hardening comes immediately after the core, not last). Layer 4 (UI) completes the **v1 milestone**: a usable, defensible, AI-only Cooke elicitation tool. Layers 5–6 connect the elicited CPTs back to the live model and accrue calibration over time.
+
+**Deployment shape: multi-deployment, single-tenant per deployment.** Each deployment runs in its own isolated stack — own database, own users, own configuration — with no data co-mingling. A data-governance requirement driven by the sensitivity of the source material, not a shared multi-tenant database.
 
 ## Context
 
-### Position in the broader plan stack
+### Position in the plan stack
 
-Three plans run sequentially:
+This plan has two dependencies and one ownership responsibility:
 
-1. **Plan 2 — `docs/02_translator_robustification.md`**: fixes the evidence ingestion layer. Establishes the audit-log substrate, versioned-artefact pattern, HITL review queue, source-credibility infrastructure, and golden-set evaluation harness.
-2. **Plan 3 — `docs/03_pymc_integration_plan.md`**: rebuilds the inference layer. Introduces the `NetworkSpec` declarative model, dual-backend dispatch (pgmpy / PyMC), hierarchical priors over CPTs, support for continuous variables, and the latent-regime topology.
-3. **Plan 4 (this doc)**: builds the elicitation methodology layer on top of the substrate from Plan 2 and the model spec from Plan 3.
+- **Plan 1 — [`docs/01_latent_regime_plan.md`](01_latent_regime_plan.md) (topology).** Determines which CPTs exist, and therefore what Layer 2 elicits. Under the latent-regime topology the protocol elicits emission CPTs ($P(D\mid S)$, $P(T\mid S)$, $P(P\mid S)$) and a regime prior $\pi(S)$ rather than a labelling CPT. The questions become generative ("given the regime, what do the observables look like?"), which is easier to defend with domain experts. The protocol is topology-agnostic; the active topology is named in deployment configuration.
+- **Plan 2 — [`docs/02_translator_robustification.md`](02_translator_robustification.md) (substrate).** Provides the audit-log schema, versioned-artefact pattern, HITL review queue, source-credibility registry, and golden-set evaluation harness — all reused here rather than duplicated.
+- **`NetworkSpec` ownership.** This plan ships the **discrete** subset of the declarative `NetworkSpec` (`DiscreteNode`, `NetworkSpec`) in `src/network_spec.py` and integrates with the existing pgmpy engine ([`src/inference.py`](../src/inference.py)). The continuous-node and PyMC-backend extension is the subject of [`docs/03_pymc_integration_plan.md`](03_pymc_integration_plan.md); when that lands it extends the same file. The export interface defined here is stable across that change.
 
-Each plan is fully self-contained internally; the three together cover evidence ingestion, inference, and methodology — the three layers of a defensible scenario-modelling platform.
+### Position relative to existing tools
 
-### Position in the market
+Examined against existing tools (each verified against its vendor or primary source):
 
-Examined against existing tools:
+- **[AgenaRisk](https://www.agenarisk.com/), [Netica](https://www.norsys.com/netica.html), [Hugin](https://www.hugin.com/), [GeNIe](https://www.bayesfusion.com/genie/).** General-purpose Bayesian-network tools with CPT-editor UIs and CPT-compression aids. Strong on mechanical CPT-editing; weak on elicitation methodology, multi-expert aggregation, and calibration tracking. We borrow the visual CPT-editor pattern and replace the spreadsheet-style elicitation UI with protocol-driven workflows.
+- **[Good Judgment Inc.](https://goodjudgment.com/), [Metaculus](https://www.metaculus.com/).** Forecaster ensembles with calibration tracking. Excellent on calibration; not designed for structured CPT elicitation. We borrow the calibration-tracking pattern (performance weights from realised accuracy) and apply it to per-expert CPT contributions.
+- **Catastrophe modelling ([Moody's RMS](https://www.rms.com/), [Verisk](https://www.verisk.com/insurance/products/extreme-event-solutions/)).** Mature expert elicitation for tail risk; tooling proprietary. We borrow the anchored-elicitation-against-analogs pattern and sensitivity-driven prioritisation.
+- **Regulatory methodology ([SHELF](https://shelf.sites.sheffield.ac.uk/), [EFSA](https://efsa.onlinelibrary.wiley.com/doi/10.2903/j.efsa.2014.3734), [IPCC](https://www.ipcc.ch/site/assets/uploads/2018/05/uncertainty-guidance-note.pdf)).** Open methodology documents on defensible elicitation. We implement Cooke directly and adopt the IPCC two-dimensional uncertainty language for reporting.
+- **Geopolitical intel platforms ([Recorded Future](https://www.recordedfuture.com/), [RANE](https://www.ranenetwork.com/)).** Operationally polished, methodologically opaque. Our approach is the inverse: methodologically transparent and auditable.
 
-- **AgenaRisk, Netica, Hugin, GeNIe.** General-purpose Bayesian-network tools with CPT-editor UIs and (in AgenaRisk's case) ranked-node compression. Strong on the mechanical CPT-editing surface; weak on multi-protocol elicitation methodology, multi-expert aggregation, and calibration tracking. We borrow the ranked-node methodology and the visual CPT-editor pattern; we replace the spreadsheet-style elicitation UI with protocol-driven workflows.
-- **Good Judgment Inc., Hypermind, Metaculus.** Forecaster ensembles with calibration tracking. Excellent on the calibration side; not designed for structured CPT elicitation in BN contexts. We borrow the calibration-tracking pattern (Cooke weights from realised performance) and apply it to per-expert CPT contributions.
-- **Catastrophe modelling (RMS, AIR, CoreLogic).** Heavy expert elicitation for tail risk where no calibration data exists. Methodology mature; tooling proprietary. We borrow the anchored-elicitation-against-analogs pattern and the sensitivity-driven prioritization approach.
-- **Pharmaceutical / regulatory (SHELF, EFSA, IPCC).** Open methodology documents on how to elicit defensibly. We implement the protocols directly (SHELF, IDEA, Cooke).
-- **Geopolitical intel platforms (Recorded Future, RANE, Maplecroft).** Productised but methodologically opaque. Our positioning is the inverse: methodologically transparent, productised for high-stakes consulting use.
+The gap this work occupies: **methodologically rigorous, calibration-aware CPT elicitation — extended to calibration-validated AI expert panels — for high-stakes analytical contexts.** No off-the-shelf tool covers this space.
 
-The market gap we occupy: **methodologically rigorous, multi-protocol, calibration-aware CPT elicitation, productised for high-stakes consulting and regulatory contexts.** No off-the-shelf tool covers this space.
+## Diagnosis: why the current state is insufficient
 
-## Diagnosis: Why the Current State Is Insufficient
+This is the failure surface the plan closes. It maps to two master-plan findings — **M6** (root priors unjustified, closed by Layer 2) and **M3** (uniform κ, closed by Layers 1 and 5) — plus roadmap item **C2**.
 
-The list below is the failure surface this plan closes. Items marked (M*) are finding IDs from the master-plan §4 matrix.
+1. **CPT values are inline literals chosen by one author without protocol.** [`src/network.py`](../src/network.py) contains hand-tuned probabilities with brief comments as justification. No record of who picked the numbers, when, against what reference, or with what confidence.
+2. **No multi-expert aggregation.** No infrastructure to elicit several views independently and combine them.
+3. **No calibration tracking.** No record of which CPT entries produced predictions that matched outcomes.
+4. **No CPT versioning.** Previous values are lost to git history at best.
+5. **No per-CPT provenance.** Every cell has the same epistemic status: "the author chose this."
+6. **Uncertainty is propagated but not calibrated.** [`src/sensitivity.py`](../src/sensitivity.py) already resamples every CPT from a Dirichlet and reports credible intervals — but with a single global `κ = 20` and one-author means. The mechanism is right; the inputs are placeholders, so the interval widths carry no calibrated meaning.
+7. **No sensitivity-driven prioritisation.** Effort is distributed uniformly, but a small subset of CPT entries drives most output variation.
+8. **No formal elicitation protocol.** The current implementation supports none.
+9. **No reuse across deployments.** Each new problem requires copy-paste-and-edit of `network.py`.
+10. **No coupling to the translator's evidence corpus.** Plan 2 builds an audit log of every article translated, with span-grounded claims — exactly the analog-event database anchored elicitation needs, currently unusable for elicitation.
 
-1. **CPT values are inline literals chosen by one author without protocol.** `src/network.py` contains hand-tuned probability values with brief Python comments as justification. No record of who picked the numbers, when, against what reference, or with what confidence. The README acknowledges this explicitly.
-2. **No multi-expert aggregation.** Even when multiple analysts have views on a CPT entry, there is no infrastructure to elicit them independently and aggregate. A single author's blind spots become the model's blind spots.
-3. **No calibration tracking.** The model has been running on demo evidence for months. There is no record of which CPT entries produced predictions that matched outcomes, or which produced predictions that failed.
-4. **No CPT versioning.** When the author tweaks a value, the previous value is lost to git history at best. Stakeholders cannot ask "what did we believe about this last quarter?" or compare model output across two parameter sets.
-5. **No provenance per CPT entry.** Every cell in the 13 CPTs has the same epistemic status from the consumer's perspective: "the author chose this." A defensible model needs per-cell provenance: who elicited, when, with what method, against what reference, with what confidence.
-6. **No sensitivity-driven prioritization.** Effort to improve CPTs is distributed uniformly, but in any BN a small subset of CPT entries drives most of the output variation. Without sensitivity analysis, elicitation effort goes to the wrong places.
-7. **No support for ranked-node compression.** A 27-column CPT is brutal to elicit cell-by-cell. The Fenton & Neil ranked-node methodology reduces this to a handful of weights, but it's not implemented anywhere.
-8. **No support for multiple protocols.** Different stakeholders demand different rigour. Regulators expect Cooke's classical model; corporate boards accept IDEA; a single analyst can do SHELF. The current implementation supports none of them explicitly.
-9. **No reuse across customer engagements.** Each new client problem would today require copy-paste-and-edit of `network.py`. A productised platform requires per-deployment isolation and per-engagement configuration.
-10. **No coupling to the LLM translator's evidence corpus.** Plan 2 builds an audit log of every article translated, with span-grounded claims and analyst-approved corrections. This corpus is exactly the analog-event database that anchored elicitation needs, but it's not currently usable for CPT elicitation.
-
-## Architecture: Layered Platform Design
+## Architecture
 
 ### Design principles
 
-1. **Methodology-as-product, open-core.** The inference engine, mathematical primitives, protocol implementations, and aggregation logic are open-source under a permissive license. The commercial layer — deployment automation, hosted versions, premium integrations, support — is closed. This is the standard pattern for PPL-adjacent B2B tooling.
-2. **Multi-deployment, single-tenant per deployment.** Each customer engagement gets its own isolated stack: own database, own app instance, own users, own configuration. The code is shared across engagements; the deployments are not. No tenant_id columns; no row-level security; no SaaS-style data co-mingling. This matches the high-stakes regulatory and consulting-led nature of the use cases.
-3. **Layered architecture with foundation-first ordering.** Each layer is independently testable and deliverable. Lower layers do not depend on higher ones; higher layers consume lower ones via stable interfaces.
-4. **Shared infrastructure with Plan 2.** The audit log schema, versioned-artefact pattern, HITL review queue, source-credibility registry, and Streamlit UI shell are extended rather than duplicated.
-5. **Shared interface with Plan 3.** Elicited CPTs export to the `NetworkSpec` from `docs/03_pymc_integration_plan.md`. Per-CPT $\kappa$ values respected by both backends.
-6. **Streamlit-first UI.** Streamlit forms for v1; upgrade to a dedicated web frontend when scaling or feature demands require it. Do not over-engineer the UI before product-market fit.
+1. **Multi-deployment, single-tenant per deployment.** Each deployment gets its own isolated stack. No `tenant_id` columns; no row-level security; no data co-mingling.
+2. **Layered, foundation first.** Each layer is independently testable and deliverable. Lower layers do not depend on higher ones.
+3. **Shared infrastructure with Plan 2.** The audit log schema, versioned-artefact pattern, HITL queue, source-credibility registry, and Streamlit shell are extended, not duplicated.
+4. **Owns the discrete `NetworkSpec` contract.** Elicited CPTs export to a declarative `NetworkSpec` carrying a per-CPT `κ`. The interface is stable across the later PyMC extension.
+5. **Streamlit-first UI.** Streamlit forms for v1; a dedicated frontend only when scaling or feature demand requires it.
+6. **AI-only panels, human-capable interface.** Panel members are AI agents today; the `Expert` interface is built human-capable so the option never has to be retrofitted.
+7. **Protocol-general core, Cooke-only build.** The `Protocol`/`Expert`/`ElicitationTarget` abstractions are protocol-agnostic; only Cooke is implemented. IDEA and SHELF are documented and slot in behind the same interface later.
 
-### The layered structure
+### Layer structure
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Layer 6 — Commercial layer (deferred)                            │
-│  Billing · onboarding · documentation · tenant config UI          │
+│ Layer 6 — Calibration tracking & confidence over time             │
+│  Tier 2/3 outcomes · weight & κ updates · prioritisation          │
+│  · assembled confidence report · (optional) LLM-drafted CPTs      │
 ├──────────────────────────────────────────────────────────────────┤
-│ Layer 5 — Advanced features                                       │
-│  LLM-proposed CPTs · ranked-node UI · sensitivity-driven priority │
-│  · calibration tiers 2/3 · Cooke weight updates from outcomes     │
+│ Layer 5 — Inference integration                                   │
+│  Elicited CPTs → NetworkSpec (per-CPT κ) → pgmpy engine + dashboard│
 ├──────────────────────────────────────────────────────────────────┤
-│ Layer 4 — Integration with inference                              │
-│  Elicited CPTs → NetworkSpec → PgmpyBackend / PymcBackend         │
+│ Layer 4 — UI (Streamlit)                          ── v1 (0–4) ──   │
+│  Cooke workflow · CPT review · Sources · HITL · calibration       │
 ├──────────────────────────────────────────────────────────────────┤
-│ Layer 3 — UI (Streamlit)                                          │
-│  Protocol workflows · CPT review · Sources · HITL · calibration   │
+│ Layer 3 — Multi-model panels & defensibility hardening            │
+│  decorrelation · contamination probes · calibration reports · red-team│
 ├──────────────────────────────────────────────────────────────────┤
-│ Layer 2 — Protocol implementations                                │
-│  Cooke · IDEA · SHELF as configurable workflows                   │
+│ Layer 2 — Cooke elicitation + AI experts   (it runs)              │
+│  Cooke state machine · Expert interface · LLMExpert · seed scoring │
 ├──────────────────────────────────────────────────────────────────┤
 │ Layer 1 — Core engine                                             │
-│  Aggregation primitives · ranked nodes · sensitivity analysis     │
+│  Cooke aggregation · sensitivity · calibration→κ mapping          │
 ├──────────────────────────────────────────────────────────────────┤
 │ Layer 0 — Data model and storage substrate                        │
-│  Multi-deployment isolation · schema · auth · audit log extension │
+│  Multi-deployment isolation · schema · auth · audit-log extension │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Data model: multi-deployment single-tenant
+### Data model
 
-Each customer engagement runs an isolated stack. Within a single deployment, the schema is:
+Each deployment runs an isolated stack. Within a single deployment:
 
 | Table | Purpose |
 | --- | --- |
-| `users`, `roles`, `permissions` | RBAC primitives for this deployment |
-| `networks` | This deployment's DAGs (one or more; e.g., a Hormuz network plus variants) |
+| `users`, `roles`, `permissions` | RBAC primitives |
+| `networks` | This deployment's DAGs |
 | `cpts` | CPT current values, indexed by network + node |
 | `cpt_versions` | Historical CPT values with full audit trail |
-| `cpt_provenance` | Per-CPT-version metadata: protocol used, elicitor(s), date, references |
-| `experts` | Registered domain experts for this deployment, with calibration history |
-| `expert_calibration` | Per-expert performance on calibration questions (Cooke weights) |
-| `elicitation_sessions` | Protocol runs (Cooke / IDEA / SHELF) with all inputs and aggregated outputs |
-| `elicitation_session_events` | State machine events for resumable workflows |
-| `articles` | Translator audit log (shared schema with Plan 2) |
-| `translations` | Per-article translation outputs (Plan 2's D3) |
-| `analyst_actions` | HITL review log (shared with Plan 2) |
-| `sources` | Per-source credibility registry (shared with Plan 2) |
-| `outcomes` | Realised intermediate-node states for Tier 2 calibration |
+| `cpt_provenance` | Per-CPT-version metadata: protocol, elicitor(s), date, references, **κ value and level, calibration score, model set, correlation note, contamination-probe summary** |
+| `experts` | Registered experts (human or AI), with calibration history. An AI expert's identity is the tuple `(base_model, role, config)` — see Layer 2/3 — stored as columns here |
+| `expert_calibration` | Per-expert (i.e. per `(base_model, role, config)`) performance on seed questions |
+| `provider_credentials` | LLM provider credentials for this deployment: source (`deployment_key` / `oauth` / `byok`), provider, owning user (for BYOK), envelope-encrypted secret reference (never the plaintext key), rotation/revocation state |
+| `seed_sets` | Per-deployment calibration question sets, with resolution dates and source provenance |
+| `contamination_checks` | Per-AI-expert, per-seed probe results (source-attribution, perturbation, in-corpus split) |
+| `elicitation_sessions` | Protocol runs with all inputs and aggregated outputs |
+| `elicitation_session_events` | State-machine events for resumable workflows |
+| `outcomes` | Realised intermediate-node states for Tier 2/3 calibration |
 | `calibration_runs` | Scheduled evaluation results |
+| `articles`, `translations`, `analyst_actions`, `sources` | Shared with Plan 2 |
 
-The tables marked "shared with Plan 2" already exist after Plan 2 is complete; this plan extends them with elicitation-specific columns or adjacent join tables rather than duplicating.
-
-No `tenant_id` column anywhere. Each deployment's database is one customer's data.
-
-Storage: SQLite for development; Postgres for production deployments. ORM: SQLAlchemy or SQLModel. Migrations: Alembic.
+No `tenant_id` anywhere. Storage: SQLite for development, Postgres for production. ORM: SQLAlchemy / SQLModel. Migrations: Alembic.
 
 ## Section A — Layered plan
 
-Each layer has a clear scope, deliverables, and validation criteria. Layers 0–3 deliver a minimum viable elicitation platform (the v1 milestone). Layers 4–5 add structural and intelligent features. Layer 6 is deferred.
-
 ### Layer 0 — Data model and storage substrate
 
-**Status.** ⬜ not started
-**Resolves.** Diagnosis items 4 (no CPT versioning), 5 (no provenance), 9 (no reuse across engagements). Establishes the platform foundation.
+**Status.** ⬜
+**Resolves.** Diagnosis 4 (versioning), 5 (provenance), 9 (reuse across deployments).
 
-**Scope.** Define and ship the elicitation-tool schema as an extension of Plan 2's audit log schema. Per-deployment isolated database. Auth scaffolding (per-deployment user table, with hooks for SSO integration). Configuration system for per-deployment customisation (network choice, protocol availability, branding).
-
-The schema additions in this layer:
-
-- `experts` and `expert_calibration` (Cooke weights track record).
-- `elicitation_sessions` and `elicitation_session_events` (resumable protocol runs).
-- `cpts`, `cpt_versions`, `cpt_provenance` (versioned CPT history with full audit trail).
-- `outcomes` (post-hoc-labelled outcomes for calibration).
-- `calibration_runs` (scheduled evaluation results).
-
-Plus Alembic migrations and ORM models for the above.
+**Scope.** Define and ship the elicitation schema as an extension of Plan 2's audit-log schema. Per-deployment isolated database. Auth scaffolding (per-deployment user table, hooks for SSO). Per-deployment YAML configuration (network choice, active topology, in-scope CPTs, branding). **LLM provider credentials** — a `CredentialResolver` abstraction over three sources (deployment key, OAuth-brokered, and policy-gated bring-your-own-key) feeding a single `ProviderCredential` interface the agents consume; secrets are envelope-encrypted at rest (KMS / secret manager, never plaintext in the DB), deployment-scoped, never logged, and redacted from all provenance and audit trails (the *model identity* is recorded; the *key* never is).
 
 **Deliverables.**
-
-- `src/elicitation/db/schema.py` — SQLAlchemy / SQLModel definitions.
+- `src/elicitation/db/schema.py` — SQLAlchemy / SQLModel definitions (all tables above, incl. `provider_credentials`).
 - `src/elicitation/db/migrations/` — Alembic migrations.
 - `src/elicitation/auth/` — per-deployment user/role tables and login plumbing.
-- `src/elicitation/config/` — per-deployment YAML configuration loader.
-- Documentation: `docs/deployment.md` — how to stand up a new customer deployment.
+- `src/elicitation/config/` — per-deployment YAML configuration loader, including the BYOK provider allowlist (per-deployment policy; may be empty to disable BYOK for high-sensitivity tiers).
+- `src/elicitation/credentials/` — `CredentialResolver`, `ProviderCredential`, the secret-store adapter (envelope encryption), and rotation/revocation plumbing.
+- `docs/deployment.md` — how to stand up a new deployment.
 
 **Validation.**
-
 - Schema migrates cleanly on a fresh SQLite database and a fresh Postgres database.
-- Two parallel deployments (e.g., `client_a.db` and `client_b.db`) operate without any cross-database visibility.
-- Migration round-trip: applying then rolling back leaves the database in its pre-migration state.
-- Documentation walks through a new-customer deployment end-to-end.
+- Two parallel deployments operate with no cross-database visibility; credentials in one are never resolvable from the other.
+- A BYOK key is never present in any log, audit row, or provenance record (redaction test).
+- BYOK is refused for a provider not on the deployment's allowlist.
+- Migration round-trip (apply then roll back) leaves the database in its pre-migration state.
 
-### Layer 1 — Core engine: aggregation primitives, ranked nodes, sensitivity
+### Layer 1 — Core engine: Cooke aggregation, sensitivity, calibration→κ
 
-**Status.** ⬜ not started
-**Resolves.** Diagnosis items 6 (no sensitivity prioritization), 7 (no ranked-node compression). Provides the mathematical primitives that protocols consume.
+**Status.** ⬜
+**Resolves.** Diagnosis 6 (calibrated κ), 7 (sensitivity prioritisation). Provides the mathematical primitives the protocol and the inference integration consume. Methodology: [§4–§6](elicitation_methodology_and_defensibility.md).
 
-**Scope.** Pure-function library with no database or UI dependencies. Three subsystems:
+**Scope.** Pure-function library, no database or UI dependencies. Three subsystems:
 
-1. **Aggregation primitives.** Linear pooling, geometric (logarithmic) pooling, performance-weighted aggregation (Cooke). Each as a pure function over expert distributions.
-2. **Ranked-node implementation.** Fenton & Neil's TNormal, weighted mean, weighted min, weighted max aggregation functions. Reduces high-dimensional CPT elicitation to a handful of weights for monotonic-relationship nodes.
-3. **Sensitivity analysis.** Morris screening (cheap, qualitative) and Sobol indices (expensive, quantitative) wrapping SALib. Identifies which CPT entries dominate output variation; prioritizes elicitation effort.
-
-All three are fully unit-testable and have no external dependencies beyond numpy and SALib.
+1. **Aggregation primitives.** Linear and logarithmic (geometric) pooling, and the performance-weighted Cooke pool built on the linear pool — each a pure function over expert distributions. (Linear/log are retained as primitives because `cooke_pool` is built on the weighted linear pool and the future IDEA/SHELF protocols reuse them.)
+2. **Sensitivity analysis.** Morris screening (cheap, qualitative) and Sobol indices (quantitative) wrapping SALib, plus a variance decomposition of the propagated posterior that ranks each CPT's contribution to output-interval width. This is the **prioritiser** that directs review and κ-tightening effort (Layer 6), not a gate on whether to elicit.
+3. **Calibration→κ mapping.** Functions that turn measured calibration and panel disagreement into a per-CPT Dirichlet concentration `κ`:
+   - `kappa_from_panel_spread(expert_vectors, correlation)` — method-of-moments estimate of `κ` from the dispersion of the panel's point vectors, discounted by measured inter-agent correlation (effective sample size).
+   - `kappa_from_seed_coverage(seed_predictions, truths)` — fits `κ` so the panel's predictive intervals attain correct empirical coverage on the seed set.
+   - `snap_to_level(kappa, levels)` — rounds a continuous `κ` to the nearest ordinal level in `{tight, normal, uncertain}` (per-deployment fitted values); `cap_level(level, calibration_score)` — caps the level an expert may contribute by its measured calibration.
 
 **Deliverables.**
-
 - `src/elicitation/engine/aggregation.py` — `linear_pool`, `logarithmic_pool`, `cooke_pool`.
-- `src/elicitation/engine/ranked_nodes.py` — TNormal, weighted aggregation functions, CPT generator from ranked-node parameters.
-- `src/elicitation/engine/sensitivity.py` — `morris_screening`, `sobol_indices` (wrapping SALib), per-CPT-entry influence rankings.
-- `tests/elicitation/test_engine.py` — unit coverage of each primitive against published reference outputs.
+- `src/elicitation/engine/sensitivity.py` — `morris_screening`, `sobol_indices`, `posterior_variance_decomposition`.
+- `src/elicitation/engine/kappa.py` — the calibration→κ functions and the `{tight, normal, uncertain}` ladder.
+- `tests/elicitation/test_engine.py` — unit coverage against published reference outputs.
 
 **Validation.**
+- Linear and logarithmic pooling agree on degenerate inputs (single expert) and match hand-computed two-expert cases.
+- `cooke_pool` reproduces a published classical-model worked example.
+- Morris/Sobol outputs agree with SALib's reference outputs on a small test BN.
+- `kappa_from_seed_coverage` recovers a known `κ` on synthetic data sampled from a fixed Dirichlet.
+- `kappa_from_panel_spread` widens (lowers `κ`) monotonically as injected inter-agent correlation rises.
 
-- Linear and logarithmic pooling agree on degenerate inputs (single expert) and produce expected outputs on the simple two-expert symmetric/asymmetric cases.
-- Cooke weighted aggregation reproduces published examples from Cooke's classical-model textbook against the same seed questions.
-- Ranked-node CPT generation reproduces the Fenton & Neil 2007 paper's published examples.
-- Morris and Sobol outputs agree with SALib's reference outputs on a small test BN.
+### Layer 2 — Cooke elicitation + AI experts
 
-### Layer 2 — Protocol implementations: Cooke / IDEA / SHELF
+**Status.** ⬜
+**Resolves.** Diagnosis 8 (formal protocol), 2 (multi-expert aggregation), finding M6 (root priors elicited, not asserted). The minimal runnable elicitation pipeline. Methodology: [§3, §8](elicitation_methodology_and_defensibility.md).
 
-**Status.** ⬜ not started
-**Resolves.** Diagnosis item 8 (no support for multiple protocols).
+**Scope.** The Cooke workflow as a resumable state machine, plus the AI-expert capability that drives it in the AI-only operating mode. Because the panel is AI-only, the single-agent `LLMExpert` is **part of this layer** — without it there is no expert input at all.
 
-**Latent-regime impact.** Under the Plan 1 latent-regime topology (see `docs/01_latent_regime_plan.md`), the CPTs the protocols elicit change shape entirely. The old labelling CPT $P(S \mid D, T, P)$ is removed; the new emission CPTs $P(D \mid S, \ldots)$, $P(T \mid S, \ldots)$, $P(P \mid S, \ldots)$ are elicited from scratch, plus a regime prior $\pi(S)$. The elicitation questions become generative ("given the regime, what does damage look like?") rather than labelling ("given outcomes, which regime?"), which is easier to defend with domain experts. The `CPTColumnTarget` shape covers all of these; Layer 2 is topology-agnostic at the protocol level. The deployment configuration (Layer 0 YAML) names which CPTs are in scope for elicitation given the active topology.
+The protocol exposes:
+- `required_experts() -> tuple[int, int]` — min/max expert count (Cooke: 4–12).
+- `workflow() -> WorkflowSpec` — the ordered sequence of steps (seed elicitation → target elicitation, scoring deferred to aggregation).
+- `aggregate(expert_inputs) -> CPTColumn` — seed-scored, performance-weighted linear pool; experts below the calibration cutoff are zeroed.
+- `provenance_record() -> ProvenanceMetadata` — what is written to `cpt_provenance` at conclusion.
 
-**Scope.** Three configurable workflows, each implemented as a state machine persisted in `elicitation_session_events`. Resumable across browser sessions. Each protocol exposes:
+**Cooke runs once per panel, reused across all CPTs.** Seed scoring — the expensive step — is performed **once per panel per deployment**; the resulting weights are reused across every CPT column that panel elicits. There is no per-node "is this worth Cooke?" gate: the default is to elicit **every** in-scope CPT. Sensitivity analysis (Layer 1/6) prioritises review and κ-tightening effort, not whether elicitation happens.
 
-- `required_experts() -> tuple[int, int]` — min/max expert count.
-- `workflow() -> WorkflowSpec` — the ordered sequence of steps.
-- `aggregate(expert_inputs) -> CPTColumn` — protocol-specific aggregation.
-- `provenance_record() -> ProvenanceMetadata` — what gets written to `cpt_provenance` at conclusion.
+**Targets.** Each `workflow()` is parameterised by an `ElicitationTarget`. The single in-scope shape is a CPT column — `CPTColumnTarget`, eliciting one $P(Y \mid \text{Pa}(Y) = u)$, a categorical distribution on $|Y|$ states. The base class keeps the protocol target-agnostic so additional shapes can be added later.
 
-The three protocols differ along three axes (number of experts, per-expert workflow, aggregation method) but share the same state-machine infrastructure.
+**AI expert (single agent, this layer).** `LLMExpert` implements the *same* per-step `Expert` interface a human uses: answer a seed quantile question, answer a target distribution, etc. It obtains its provider access from the Layer 0 `CredentialResolver` (`ProviderCredential`) and is provider-agnostic. Seed scoring (Layer 1) applies identically to it. The *defensibility hardening* of the AI panel — multi-model diversity, decorrelation, contamination probes — is Layer 3; this layer establishes that a scored agent can drive Cooke end-to-end.
 
-- **`SHELFProtocol`.** Single expert (or small group). Quantile-based elicitation (5th, 50th, 95th percentiles per parameter). Roulette method or interactive distribution-fitting. Aggregation: identity for single expert, linear pool for small group. Best for moderate-stakes contexts and solo analyst work.
-- **`IDEAProtocol`.** 3-7 experts. Two-round iterative: private estimate → group discussion → private revised estimate → aggregation. Aggregation: linear or geometric pooling, selectable. Best for mid-stakes contexts with multi-analyst teams.
-- **`CookeProtocol`.** 4-12 experts. Calibration questions answered first; performance scores compute per-expert Cooke weights; target questions then weighted by calibration. Best for high-stakes regulatory contexts. Requires a deployment-specific calibration question set in the domain.
-
-Each protocol's `workflow()` is parameterised by an `ElicitationTarget`. The default target is a single CPT column (one $P(Y \mid \text{Pa}(Y) = u)$ at a time). One additional target shape is supported so the protocols cover the elicitation surfaces that Plans 3 and 5 require:
-
-- **`CPTColumnTarget`** — default. Elicits one row of a CPT. Shape: a categorical distribution on $|Y|$ states.
-- **`RankedNodeTarget`** — for Layer 5's visual ranked-node UI. Elicits the per-parent weights and aggregation function of a Fenton & Neil ranked node; the CPT is generated downstream from these weights.
-
-Both targets share the same state-machine infrastructure; they differ in the per-step UI components (Layer 3) and in the validation that the aggregated output is well-formed (CPT row vs ranked-node parameter set).
-
-A temporal `TransitionMatrixTarget` (row-stochastic transition matrices for an HMM extension) is **not in scope** because BN↔HMM integration is out of scope for all five plans; see `docs/master_plan.md` §6 (Gaps) and `docs/bn_hmm_integration.md`. If a temporal BN extension is eventually built, the `ElicitationTarget` abstraction is the right hook to add it without restructuring Layer 2.
+**Expert identity — `(base_model, role, config)`.** An AI expert is not just a model. Its identity is the tuple `(base_model, role, config)`, and **calibration is measured per tuple**, because a role-conditioned estimate is a different estimator: an agent seed-scored "neutral" but answering targets "in role" carries no valid calibration. Two rules follow. (i) Seed scoring and target elicitation must run in the **same** configuration, so a role used to set scored estimates is seed-scored in that role. (ii) Roles whose purpose is to surface considerations rather than to set the scored probability (e.g. a brainstorm/divergence pass) must not feed the scored estimate directly. Base-model diversity — not role/persona variety — is what counts for decorrelation (Layer 3, methodology §8.2).
 
 **Deliverables.**
-
-- `src/elicitation/protocols/base.py` — `ElicitationProtocol` abstract class, `WorkflowSpec`, `ProvenanceMetadata`, `ElicitationTarget` base class.
-- `src/elicitation/protocols/targets.py` — `CPTColumnTarget`, `RankedNodeTarget` and their validation/aggregation hooks.
-- `src/elicitation/protocols/shelf.py` — `SHELFProtocol` implementation.
-- `src/elicitation/protocols/idea.py` — `IDEAProtocol` implementation.
-- `src/elicitation/protocols/cooke.py` — `CookeProtocol` implementation, with calibration-question scoring helpers.
-- `tests/elicitation/test_protocols.py` — end-to-end protocol runs against synthetic expert inputs.
+- `src/elicitation/protocols/base.py` — `ElicitationProtocol`, `Expert` (human/AI), `WorkflowSpec`, `ProvenanceMetadata`, `ElicitationTarget`.
+- `src/elicitation/protocols/targets.py` — `CPTColumnTarget` with validation and aggregation hooks.
+- `src/elicitation/protocols/cooke.py` — `CookeProtocol`, seed-scoring (statistical accuracy × information), performance-weighted aggregation with cutoff zeroing.
+- `src/elicitation/agents/llm_expert.py` — single-agent `LLMExpert` on the `Expert` interface, identity `(base_model, role, config)`, consuming `ProviderCredential`.
+- `tests/elicitation/test_cooke.py` — end-to-end Cooke run with synthetic and `LLMExpert` inputs; seed scoring down-weights a poor expert and zeroes one below the cutoff; provenance is written.
 
 **Validation.**
+- Cooke runs end-to-end on a test network with an `LLMExpert` panel, producing a CPT with attached provenance.
+- The state machine persists across simulated restarts (kill mid-workflow, resume from the database).
+- Aggregation matches published classical-model references for canonical small examples.
+- An agent that fails the seeds is down-weighted; one below the cutoff is zeroed.
 
-- Each protocol runs end-to-end on a test network, producing a CPT with attached provenance.
-- State machine persists across simulated restarts (kill mid-workflow, resume from the database).
-- Aggregation outputs match the published methodology references for canonical small examples.
-- Cooke's protocol correctly down-weights an expert who fails the calibration questions and matches reference outputs from the classical-model literature.
+### Layer 3 — Multi-model panels & defensibility hardening
 
-### Layer 3 — UI layer (Streamlit)
+**Status.** ⬜
+**Resolves.** Extends diagnosis 1, 2, 3, 10 to make the AI-only panel **defensible**, not merely runnable. Methodology: [§8.2–§8.7](elicitation_methodology_and_defensibility.md).
 
-**Status.** ⬜ not started
-**Resolves.** Makes Layers 0–2 usable by non-engineer analysts and domain experts.
+**Scope.** Everything that turns a single scored agent (Layer 2) into a defensible multi-model panel. This is *not* optional polish: single-model naive pooling is the central AI-elicitation failure mode (correlated error, contamination), so this layer ships immediately after the core.
 
-**Scope.** Streamlit pages exposing the elicitation workflows. Streamlit-first because it is the fastest path to a usable interactive UI for v1. Replace with a dedicated frontend (React or similar) when scaling demand or feature complexity justifies the investment.
-
-Pages and tabs:
-
-- **New CPT elicitation.** Pick a node, pick a protocol, run the wizard step-by-step. Workflow state persists between page loads.
-- **CPT review and override.** Inspect a current CPT, compare to historical versions, override a single cell with a manual entry (records the override in `cpt_provenance` as a manual edit).
-- **Sources tab.** Shared with translator workflow from Plan 2's B1b. Single source-credibility registry serves both translation and elicitation contexts.
-- **HITL triage.** Shared with translator workflow from Plan 2's E1. Confidence-driven review queue serves both translator outputs and elicitation proposals.
-- **Calibration dashboard.** Per-expert Cooke weight history; per-CPT calibration over time (where outcome data exists); model-level calibration plots.
-- **CPT version history viewer.** Time-machine view of any CPT across all elicitation sessions that produced it.
+- **Multi-model orchestration.** Panels composed of genuinely different base models (not personas/temperatures of one). IDEA-style round-1-before-exposure discipline is preserved even for Cooke discussion-free runs.
+- **Roles and characters (additive, not a substitute for diversity).** Each base model may be assigned a role/persona — most importantly a red-team agent prompted to refute, plus optional perspective roles (base-rate thinker, escalation-pessimist, etc.) to widen consideration coverage. Roles compose with base-model diversity; they **do not** count toward independence (five personas on one model is still one correlated source — methodology §8.2). Each `(base_model, role, config)` is a distinct scored expert (Layer 2), so roles never bypass the calibration gate, and a role used to set scored estimates is seed-scored in that role.
+- **Decorrelation.** Estimate inter-agent correlation **across base models**; shrink the effective sample size and widen κ accordingly (consumes Layer 1's `kappa_from_panel_spread`). Roles/personas are excluded from the independence count.
+- **Contamination probes.** Source-attribution, perturbation/canary, in-corpus-vs-post-cutoff split scoring, and anomalously-low cross-model variance as a leakage alarm. Results written to `contamination_checks`. Seed calibration is treated as a **filter that removes poor agents, never a certificate of trust**; primary calibration is prospective (Layer 6 Tier 2/3), retrodictive post-cutoff seeds are a flagged bootstrap.
+- **Calibration reports.** Per-agent seed scores + panel-level report (model set, correlation, contamination summary), written to `cpt_provenance`.
+- **Judge independence.** Where an agent judges another agent, the judge must be a different base model; no self-grading.
 
 **Deliverables.**
-
-- `app/elicitation/` — Streamlit pages.
-- `app/elicitation/components/` — shared UI components (distribution editors, quantile pickers, calibration plots, version diff views).
-- `app/elicitation/styles.css` — separate stylesheet, loaded once.
+- `src/elicitation/agents/panel.py` — multi-model panel orchestration; Cooke runner over diverse LLM experts; role/persona assignment (red-team + optional perspective roles), with each `(base_model, role, config)` registered as its own scored expert.
+- `src/elicitation/agents/decorrelation.py` — correlation estimation and effective-weight/κ adjustment.
+- `src/elicitation/agents/contamination.py` — the probes; writes `contamination_checks`.
+- `src/elicitation/agents/calibration_report.py` — per-agent + panel report, written to `cpt_provenance`.
+- `tests/elicitation/test_panel.py` — same-model correlation is detected and lowers effective weight; a contaminated seed is caught by perturbation; leave-one-seed-out cross-validation does not degrade the aggregate versus equal weight (the Clemen test, applied to AI experts).
 
 **Validation.**
+- Same-model agents show high measured correlation; cross-model agents lower — effective weight and κ adjust accordingly.
+- Two roles on the **same** base model are *not* credited as independent: their combined effective weight stays ~1, not 2.
+- A role-conditioned expert seed-scored "neutral" is rejected from contributing scored estimates in-role (configuration-mismatch guard).
+- A planted contaminated seed is flagged by at least one probe.
+- A fully-automated panel's CPT lands within a stated tolerance of a reference CPT on a back-test set, with calibration reported.
+- Every AI-sourced CPT is flagged in `cpt_provenance` with calibration score, κ level, model set, correlation note, and contamination summary — a hard defensibility requirement.
 
-- Each protocol workflow runs end-to-end in the Streamlit UI.
-- Auth and per-deployment isolation work correctly (login screens, session management, no cross-deployment data leakage).
-- All visualisations render correctly across the supported browsers.
-- Walkthrough documentation exists for each workflow (`docs/elicitation_walkthroughs.md`).
+### Layer 4 — UI (Streamlit)
 
-### Layer 4 — Integration with inference
+**Status.** ⬜
+**Resolves.** Makes Layers 0–3 usable by non-engineer analysts. Completes the **v1 milestone**.
 
-**Status.** ⬜ not started
-**Resolves.** Diagnosis item 9 (no reuse across engagements). Couples Plan 4 to Plan 3's inference engine.
+**Scope.** Streamlit pages exposing the Cooke workflow and review surfaces:
+- **New CPT elicitation.** Pick a node, run the Cooke wizard step-by-step. State persists between page loads.
+- **CPT review and override.** Inspect a current CPT, compare to historical versions, override a cell (recorded as a manual edit in `cpt_provenance`).
+- **Sources tab.** Shared with the translator (Plan 2 B1b).
+- **HITL triage.** Shared with the translator (Plan 2 E1).
+- **Calibration dashboard.** Per-expert weight history; per-CPT κ level (`tight`/`normal`/`uncertain`); panel model-set, role assignments, and correlation/contamination summaries.
+- **CPT version history viewer.** Time-machine view of any CPT across the sessions that produced it.
+- **Provider settings.** A per-user surface to add a BYOK key (provider from the deployment allowlist only) and a per-deployment view of configured credential sources. Keys are write-only from the UI (never displayed back).
 
-**Scope.** Elicited CPTs export to Plan 3's `NetworkSpec`. Round-trip: elicit → save → load into `PgmpyBackend` or `PymcBackend` → run inference. Per-CPT $\kappa$ values from the elicitation provenance are respected by `PymcBackend`'s Dirichlet priors (closes M3 from the dashboard review for the elicited-CPT path).
+**Credential source is transparent to the UI.** The dashboard resolves LLM access through the Layer 0 `CredentialResolver` and is agnostic to whether the credential is a deployment key, OAuth, or BYOK — so *whatever is passed, the dashboard works*. The existing pgmpy inference and credible-interval views have **no LLM dependency** and must remain fully functional when no LLM credential is present; only the elicitation/proposal surfaces degrade gracefully (clear "add a provider credential" prompt) in that case.
 
-The export interface:
+**Deliverables.**
+- `app/elicitation/` — Streamlit pages, including the provider-settings surface.
+- `app/elicitation/components/` — distribution editors, quantile/roulette pickers, calibration plots, version diff views, κ-level badges.
+- `app/elicitation/styles.css`.
+
+**Validation.**
+- The Cooke workflow runs end-to-end in the UI under each credential source (deployment key, OAuth, BYOK).
+- With **no** LLM credential configured, the pgmpy dashboard and credible-interval views still render; elicitation surfaces show a graceful prompt rather than erroring.
+- A BYOK key entered in the UI is write-only (never rendered back) and refused for a non-allowlisted provider.
+- Auth and per-deployment isolation work (login, session management, no cross-deployment leakage).
+- Walkthrough documentation exists (`docs/elicitation_walkthroughs.md`).
+
+### Layer 5 — Inference integration
+
+**Status.** ⬜
+**Resolves.** Finding M3 (per-CPT κ carried from provenance into the engine). Couples elicited CPTs to inference and the live dashboard.
+
+**Scope.** Elicited CPTs export to a declarative `NetworkSpec`; round-trip elicit → save → load → run inference. Ships the **discrete** subset of `NetworkSpec` (`DiscreteNode`, `NetworkSpec`) in `src/network_spec.py`, authored so the later PyMC extension extends the same file.
+
+**Per-CPT κ — the concrete replacement of the global constant.** Today [`src/sensitivity.py`](../src/sensitivity.py) resamples every CPT with one scalar `concentration` (`_resample_cpd`). This layer changes `_resample_cpd` to accept a **per-CPT κ** read from `cpt_provenance` (via `DiscreteNode.kappa`), so the credible intervals the dashboard already renders become calibration-grounded rather than a uniform guess. Back-compatible: callers passing a single κ keep the old behaviour.
 
 ```python
 # src/elicitation/export/network_spec.py
-def cpts_to_network_spec(
-    network_id: int,
-    snapshot_at: datetime | None = None,
-) -> NetworkSpec:
+def cpts_to_network_spec(network_id: int, snapshot_at: datetime | None = None) -> NetworkSpec:
     """Build a NetworkSpec from this deployment's CPTs.
-    
+
     If snapshot_at is given, uses the CPT versions in force at that time;
-    otherwise uses current versions.
+    otherwise current versions. Each DiscreteNode carries its per-CPT kappa
+    from cpt_provenance.
     """
 ```
 
-The inverse direction (`network_spec_to_cpts`) is also supported, so that an existing `NetworkSpec` (e.g., the bootstrap Hormuz network from Plan 3 Phase 0) can be imported into the elicitation store as the starting point for refinement.
+The inverse (`network_spec_to_cpts`) is supported, so an existing `NetworkSpec` (e.g. the bootstrap Hormuz network in `src/network.py`) can be imported as a refinement starting point.
 
 **Deliverables.**
-
-- `src/elicitation/export/network_spec.py` — `cpts_to_network_spec` and `network_spec_to_cpts`.
-- `src/elicitation/export/cli.py` — command-line tools for export/import (useful for CI pipelines and customer migrations).
-- Integration tests exercising the round trip.
+- `src/network_spec.py` — discrete `NetworkSpec` (`DiscreteNode` with `kappa`, `NetworkSpec`, validation).
+- `src/elicitation/export/network_spec.py` — `cpts_to_network_spec`, `network_spec_to_cpts`.
+- Patch to `src/sensitivity.py` — `_resample_cpd` accepts per-CPT κ; back-compatible scalar default.
+- `src/elicitation/export/cli.py` — command-line export/import.
+- Integration tests for the round trip.
 
 **Validation.**
-
-- Round-trip: load Hormuz from `src/network.py` → store in elicitation DB → export back → resulting `NetworkSpec` is identical.
-- Per-CPT $\kappa$ values from `cpt_provenance` flow through to `PymcBackend`'s Dirichlet priors.
+- Round-trip: load Hormuz from `src/network.py` → store → export back → identical `NetworkSpec`.
+- Per-CPT κ flows into `DiscreteNode.kappa` and the resampling path; a CPT marked `uncertain` produces a visibly wider interval than one marked `tight`.
 - Snapshot-at-time queries return the historically-correct CPT version.
-- Both backends consume elicited CPTs and produce posteriors matching the current-model baseline (within MCMC error for PymcBackend).
+- The pgmpy engine produces posteriors matching the current baseline when κ is uniform.
 
-### Layer 5 — Advanced features
+### Layer 6 — Calibration tracking & confidence over time
 
-**Status.** ⬜ not started
-**Resolves.** Diagnosis items 1 (hardcoded CPTs replaced by elicited, calibrated CPTs), 2 (multi-expert aggregation now first-class), 3 (calibration tracking now infrastructure), 10 (LLM corpus coupling).
+**Status.** ⬜
+**Resolves.** Diagnosis 1 (hardcoded → elicited and *validated*), 3 (calibration tracking), 10 (translator coupling). This is the old "advanced features" layer, narrowed to one coherent idea: **how the calibrated numbers improve and get reported honestly over time.** Methodology: [§6–§7](elicitation_methodology_and_defensibility.md).
 
-**Scope.** Five advanced subsystems on top of the v1 platform:
+**Scope.** Five subsystems, in priority order:
 
-1. **LLM-proposed initial CPT values.** Couples to Plan 2's E2 (RAG memory). For a new CPT being elicited, the LLM retrieves the most relevant analog historical events from the translator audit log and proposes initial CPT values with span-grounded citations. The expert reviews, edits, or rejects. The proposal step does not commit anything; it gives the human elicitor a starting point.
-2. **Ranked-node visual UI.** The Fenton & Neil ranked-node methodology from Layer 1 gets a visual elicitation surface: instead of entering CPT cells, the expert specifies per-parent weights and an aggregation function (TNormal, weighted mean, etc.). The Streamlit UI generates the full CPT from these inputs and shows it to the expert for review.
-3. **Sensitivity-driven prioritization workflow.** Wraps Layer 1's Morris/Sobol primitives in an analyst-facing workflow: "show me which CPT entries dominate the scenario posterior under the current evidence." The output is a ranked list of CPT cells to elicit formally; the rest can stay as analyst placeholders.
-4. **Calibration Tier 2 — intermediate-node tracking.** For nodes where outcomes can be observed (e.g., "did `Tanker_Incidents = frequent` actually materialise in the month following the model's prediction?"), record the realised outcome in `outcomes` and compute Brier scores and calibration plots over time. Refines per-CPT $\kappa$ values via empirical updating.
-5. **Calibration Tier 3 — Bayes factor / regime trajectory.** For the latent-regime model (Plan 1), record log-Bayes-factor predictions for each evidence increment against expert-judged "true" regime trajectories on historical analog events. Reveals which CPT regions are systematically miscalibrated.
+1. **Confidence reporting (the payoff of the κ work).** Assembles the defensible final-outcome confidence statement ([§7](elicitation_methodology_and_defensibility.md)): point posterior, propagated credible interval, the variance decomposition, the empirical calibration track record (where it exists), and an IPCC-style confidence rating with an explicit structural-uncertainty caveat. A reporting layer over the existing propagation, not a new inference path. The *prospective* components are available as soon as Layer 5 lands; the empirical track record accrues with subsystems 3–4.
+2. **Sensitivity-driven prioritisation workflow.** Wraps Layer 1's variance decomposition in an analyst-facing view: which CPT entries dominate the posterior under current evidence, and where tightening κ would most reduce the output interval. Directs re-elicitation effort.
+3. **Calibration Tier 2 — intermediate-node tracking.** For nodes whose outcomes can be observed, record the realised outcome in `outcomes`, compute Brier scores and reliability diagrams over time, and refine per-CPT κ via empirical coverage updating.
+4. **Calibration Tier 3 — Bayes factor / regime trajectory.** For the latent-regime model, record log-Bayes-factor predictions for each evidence increment against expert-judged "true" regime trajectories on historical analogs. Reveals systematically miscalibrated CPT regions.
+5. **(Optional) LLM-proposed initial CPT values.** Couples to Plan 2's RAG memory (E2): the LLM retrieves relevant analog events and proposes initial values with span-grounded citations for an expert to review, edit, or reject. The proposal commits nothing.
 
-Subsystem 4 also feeds back into the Cooke protocol from Layer 2: experts who participate in CPT elicitation accrue calibration scores over time as their contributions' outcomes are observed, and their Cooke weights in future elicitations update accordingly.
-
-**Deliverables.**
-
-- `src/elicitation/proposals/llm.py` — RAG-augmented CPT proposal generator (consumes the translator's E2 index from Plan 2).
-- `src/elicitation/ranked_nodes/ui.py` — Streamlit components for ranked-node visual elicitation.
-- `src/elicitation/sensitivity/workflow.py` — analyst-facing prioritization workflow.
-- `src/elicitation/calibration/tier2.py` — intermediate-node outcome tracking and Brier scoring.
-- `src/elicitation/calibration/tier3.py` — Bayes factor calibration against historical trajectories.
-- `src/elicitation/calibration/expert_weights.py` — Cooke weight updates from accrued calibration data.
-
-**Validation.**
-
-- LLM proposals are reviewable in the Streamlit UI; analyst can accept, edit, or reject; the choice is logged.
-- Ranked-node UI generates CPTs matching Layer 1's pure-function output on the same inputs.
-- Sensitivity workflow ranks CPT entries in agreement with Sobol indices on a test network.
-- Tier 2 calibration data accumulates over a simulated history; Brier scores and calibration plots render correctly.
-- Tier 3 historical replays produce Bayes-factor trajectories that match expert-judged "true" trajectories on the historical analog events (within calibrated noise).
-- Cooke weights for experts update sensibly as their accrued predictions are scored against outcomes.
-
-### Layer 5.5 — Agentic AI experts (calibration-validated)
-
-**Status.** ⬜ not started — extension of Layer 5; optional. Ships only after the human protocols (Layer 2) and the calibration substrate (Layers 0 and 5) exist, because it *reuses* them.
-**Resolves.** Extends diagnosis items 1, 2, 3, 10 to the case where some or all "experts" are LLM agents — to accelerate and scale elicitation **without** sacrificing defensibility.
-
-**Positioning — "calibration-validated AI elicitation," not "AI replaces experts."** Layer 5.1 already uses an LLM as a *proposer*. This layer lets LLM agents act as *experts inside the protocols*, but strictly as far as their **measured calibration** licenses. The enabler is that Cooke's seed-question scoring (Layer 2) is itself a calibration test: an LLM "expert" answers the same known-answer seeds a human would, is scored identically (statistical accuracy × information), and is weighted — or zeroed below the cutoff — on that evidence. This turns "should we trust the AI's numbers?" from faith into a measured, auditable quantity. (Evidence base in Section E.2.)
-
-**Three modes (increasing autonomy, decreasing stakes-appropriateness):**
-
-1. **Proposer** (already Layer 5.1). LLM drafts CPTs via RAG; humans are the experts and sign off. Any stakes.
-2. **One scored voting member.** An LLM agent joins a human IDEA/Cooke panel as one more `expert` row with its own `expert_calibration` record from the seeds; its weight is its measured performance. Humans retain sign-off. Mid-stakes, or high-stakes as an adjunct.
-3. **Fully automated panel** (fast/cheap tier + red-team). A panel of *diverse* LLM agents runs an entire IDEA or Cooke workflow end-to-end (estimate → discuss → revise → aggregate, or seed-score → weight → pool), emitting a CPT plus a calibration report with no human in the loop. For low/medium-stakes bulk CPT generation and as an adversarial red-team that widens human panels' blind spots — **not** for regulatory high-stakes without human review.
-
-**The correlation problem (handled, not hidden).** LLM agents off the *same* base model are not independent — they share training data and biases, so naive pooling overstates confidence. Mitigations, all recorded in provenance: (i) compose panels from **genuinely different base models** (e.g., Claude + GPT + open-weights), not just personas/temperatures of one; (ii) estimate and report inter-agent correlation; (iii) shrink the effective sample size / down-weight accordingly. The empirical backbone: a *diverse 12-model ensemble* matched human crowds (Schoenegger et al. 2024) whereas a *single* GPT-4 did not (Schoenegger & Park 2023) — diversity is doing the work (Section E.2).
-
-**Why the existing abstractions already fit.** An LLM agent is just another `expert` (Layer 0) with an `expert_calibration` record, driven through the same `ElicitationProtocol` state machine and `CookeProtocol` seed-scoring (Layer 2). No restructuring — this layer is purely additive.
+Subsystems 3–4 feed back into Cooke (Layer 2): experts accrue calibration scores as their contributions' outcomes are observed, and their weights — and the contamination-aware κ caps — update accordingly.
 
 **Deliverables.**
-
-- `src/elicitation/agents/llm_expert.py` — `LLMExpert` adapter implementing the *same* per-step interface a human uses (answer a quantile question, revise after discussion, etc.).
-- `src/elicitation/agents/panel.py` — multi-model panel orchestration (diverse providers); IDEA/Cooke runners over LLM experts.
-- `src/elicitation/agents/decorrelation.py` — inter-agent correlation estimation and effective-weight adjustment.
-- `src/elicitation/agents/calibration_report.py` — per-agent seed-calibration scores + panel-level report, written to `cpt_provenance`.
-- `tests/elicitation/test_llm_experts.py` — seed-scoring on a known-answer set; a poorly-calibrated agent is down-weighted/zeroed; same-model correlation is detected.
+- `src/elicitation/reporting/confidence.py` — the assembled confidence statement.
+- `src/elicitation/sensitivity/workflow.py` — analyst-facing prioritisation.
+- `src/elicitation/calibration/tier2.py`, `tier3.py` — outcome tracking, Brier/reliability, Bayes-factor trajectories.
+- `src/elicitation/calibration/expert_weights.py` — weight and κ-cap updates from accrued calibration.
+- `src/elicitation/proposals/llm.py` — RAG-augmented proposal generator (consumes Plan 2's E2 index).
 
 **Validation.**
+- The confidence report renders all components and never collapses them to a single scalar.
+- Prioritisation ranks CPT entries in agreement with Sobol indices on a test network.
+- Tier 2 data accumulates over a simulated history; Brier scores and reliability diagrams render correctly.
+- Tier 3 replays produce Bayes-factor trajectories matching expert-judged trajectories within calibrated noise.
+- Cooke weights and κ caps update sensibly as accrued predictions are scored against outcomes.
 
-- An LLM expert scored on the deployment's seed set yields a calibration score; under **leave-one-seed-out cross-validation** its weighted contribution does not degrade the Decision Maker versus equal weight — the Clemen (2008) test (Section E.1), applied to AI experts.
-- Same-model agents show high measured correlation; cross-model agents lower — and the effective weight adjusts accordingly.
-- A fully-automated panel's CPT lands within a stated tolerance of a human-elicited reference CPT on a back-test set, with calibration reported.
-- Every AI-sourced CPT is flagged in `cpt_provenance` with its calibration score, model set, and correlation note — a hard defensibility requirement.
+## Section B — Design decisions
 
-### Layer 6 — Commercial layer (deferred)
+All decisions below are resolved. Arguments and references: [methodology doc](elicitation_methodology_and_defensibility.md).
 
-**Status.** ⬜ not started — deferred until paying customers exist.
-**Resolves.** Productisation: billing, onboarding, support.
-
-**Scope.** Out of scope for the engineering work in Layers 0–5. Included here as a placeholder so the layered architecture is complete. Includes billing integration (Stripe or similar), customer onboarding flows, tenant-level configuration UI (selecting which protocols are available, which calibration tiers are enabled), documentation portal, support ticketing integration.
-
-**Deliverables.** Deferred.
-
-**Validation.** Deferred.
-
-## Section B — Design decisions resolved
-
-The decisions below are resolved.
-
-1. **Platform positioning — Decided: methodology-as-product (Option B), open-core licensing.** Engine + protocols + math primitives are open-source under a permissive license. Commercial layer (deployment automation, hosted versions, premium integrations, support contracts) is closed. This matches standard B2B PPL-adjacent tooling and aids adoption while preserving monetisation.
-2. **Deployment shape — Decided: multi-deployment, single-tenant per deployment.** Each customer engagement gets its own isolated stack. No `tenant_id` columns. No SaaS data co-mingling. Matches the high-stakes regulatory and consulting-led nature of target use cases.
-3. **UI strategy — Decided: Streamlit for v1, upgrade later.** Streamlit forms are the fastest path to a usable interactive UI. Replace with a dedicated frontend (React or similar) when scaling demand or feature complexity justifies the investment. Do not over-engineer the UI before product-market fit.
-4. **Storage — Decided: SQLite for development, Postgres for production.** SQLAlchemy / SQLModel ORM. Alembic migrations. Per-deployment isolated database.
-5. **Audit log substrate — Decided: extend Plan 2's schema rather than duplicate.** The `articles`, `translations`, `analyst_actions`, and `sources` tables from Plan 2 are extended with elicitation-adjacent join tables rather than re-created. Single source of truth for shared concepts (sources, analyst actions, audit events).
-6. **Protocol coverage — Decided: Cooke, IDEA, SHELF all in Layer 2.** Three protocols, one platform, configurable at elicitation start. Cooke for high-stakes regulatory contexts (Hormuz-style); IDEA for mid-stakes corporate decisions; SHELF for solo analyst work.
-7. **CPT compression — Decided: ranked nodes (Fenton & Neil) as the primary compression method.** Implemented in Layer 1, exposed as a visual elicitation surface in Layer 5. Noisy-OR / Noisy-MAX deprioritised because most relationships in Hormuz-style models are non-additive.
-8. **Calibration tiers — Decided: three tiers with phased introduction.** Tier 1 (translator-level) shipped via Plan 2's D2. Tier 2 (intermediate-node) infrastructure in Layer 5 from day one; signal accumulates over months. Tier 3 (Bayes factor / regime trajectory) deferred until the latent regime (Plan 1) is in production.
-9. **Translator coupling — Decided: deep.** The translator's audit log (Plan 2 D3) is the source of analog historical events for anchored elicitation; the translator's RAG memory (Plan 2 E2) feeds LLM-proposed CPT values; the translator's HITL queue (Plan 2 E1) serves elicitation proposals.
-10. **Cooke calibration question set — Decided: per-deployment.** Each customer engagement constructs its own domain-relevant calibration question set during onboarding. Re-used across all Cooke protocol runs in that deployment. Mostly relevant for the Hormuz reference deployment in the near term; corporate deployments using IDEA or SHELF do not require it.
-11. **Agentic AI experts — Decided: calibration-validated, additive, attributable (Layer 5.5).** LLM agents may act as experts *only* via the same seed-scoring as humans; panels must be **multi-model** (decorrelation), every AI-sourced CPT is flagged in `cpt_provenance` with its calibration score, model set, and correlation note, and **human sign-off is required for high-stakes** work. Positioning is "calibration-validated AI elicitation," not replacement. The methodology rests on the peer-reviewed work catalogued in Section E.
+1. **Deployment shape — multi-deployment, single-tenant.** Own isolated stack per deployment; no `tenant_id`.
+2. **UI — Streamlit for v1**, upgrade later when scaling justifies it.
+3. **Storage — SQLite (dev), Postgres (prod)**; SQLAlchemy/SQLModel; Alembic.
+4. **Audit-log substrate — extend Plan 2's schema**, not duplicate.
+5. **`NetworkSpec` — this plan ships the discrete subset**; integrates with the existing pgmpy engine; the PyMC extension (Plan 3) extends the same file.
+6. **Protocol — Cooke only is built.** Cooke is the sole implementation target. IDEA and SHELF are documented (methodology §3) and retained behind the same `Protocol`/`Expert` interface for the future, but out of scope. No per-node elicitation gate: Cooke is scored once per panel and applied to all in-scope CPTs.
+7. **AI experts are on the critical path, hardened immediately after.** Because panels are AI-only, the single-agent `LLMExpert` is part of the elicitation core (Layer 2); multi-model diversity, decorrelation, and contamination probes follow directly (Layer 3) as a defensibility requirement, not a late add-on.
+8. **Per-CPT κ from calibration, reported on a three-level ordinal ladder** (`tight`/`normal`/`uncertain`). κ is estimated from panel disagreement (correlation-discounted) and/or seed coverage, then snapped to a level; an expert's measured calibration caps the level it may contribute. Replaces the current global `κ = 20`.
+9. **Confidence is reported as a vector, never a scalar** — point posterior + propagated credible interval + variance decomposition + empirical calibration track record + IPCC-style confidence rating + structural caveat.
+10. **Calibration tiers — three, phased.** Tier 1 (translator-level) via Plan 2 D2. Tier 2 (intermediate-node) from Layer 6; signal accumulates over months. Tier 3 (Bayes factor / regime trajectory) once the latent regime is in production.
+11. **Translator coupling — deep.** Audit log → analog events for anchored elicitation; RAG memory → optional LLM proposals; HITL queue → elicitation proposals.
+12. **Seed set — per-deployment, relevance-constrained.** Each deployment builds its own domain-relevant seed set, reused across all Cooke runs. Seeds must probe the same judgment as the targets.
+13. **AI-only panels (v1), human-capable interface.** Panel members are multi-model AI agents; human experts remain first-class via the identical `Expert` interface and are enabled per deployment. Human sign-off for high-stakes is mandatory.
+14. **AI-expert calibration — prospective-primary, retrodictive-bootstrap, probe-gated.** Seed scoring filters out bad agents; it does not license trust. Primary calibration is prospective (Tier 2/3); retrodictive post-cutoff seeds are a flagged bootstrap with active contamination probes. Panels must be multi-model; every AI-sourced CPT is attributed in `cpt_provenance`.
+15. **LLM provider credentials — three sources behind one interface.** A `CredentialResolver` (Layer 0) serves `ProviderCredential` from a deployment key, OAuth, or **policy-gated bring-your-own-key**. Secrets are envelope-encrypted, deployment-scoped, never logged, and redacted from all provenance (the model identity is recorded; the key never is). BYOK is restricted to a per-deployment provider allowlist and may be disabled entirely for high-sensitivity deployments — because a BYOK key routes the source material to that provider under the user's terms, which is a data-residency decision, not just a security one. The dashboard is agnostic to the credential source and its non-LLM views work with no credential present.
+16. **AI experts are `(base_model, role, config)` tuples; roles are additive.** Each tuple is a distinct scored expert with its own calibration record. Roles/personas (red-team, perspective roles) widen consideration coverage and compose with base-model diversity, but **do not** count toward independence in decorrelation, and never bypass the calibration gate — a role used to set scored estimates is seed-scored in that role.
 
 ## Section C — Open questions
 
-These do not block Layer 0 but should be resolved before the corresponding layer begins:
+These do not block Layer 0 but should be resolved before the corresponding layer begins.
 
 | Question | Block | Notes |
 | --- | --- | --- |
-| Per-deployment Postgres setup automation | Layer 0 | Docker Compose for the engineering MVP; Terraform / Helm for production. Choose toolchain. |
-| Auth provider for SSO integration | Layer 0 | Self-hosted (Keycloak, Authentik) vs hosted (Auth0, Clerk). Recommend hosted for v1 to ship faster. |
-| LLM model for proposal generation | Layer 5 | Anthropic API (Claude) or OpenAI? Coupled to Plan 2's translator provider choice. |
-| AI-panel model diversity & correlation handling | Layer 5.5 | How many distinct base models, and how to estimate/adjust for inter-agent correlation. Backed by Schoenegger et al. 2024 vs Schoenegger & Park 2023 (Section E.2). |
-| Leakage-free seed set for AI calibration | Layer 5.5 / Layer 2 | LLM training-data contamination can inflate seed scores; need rolling, post-cutoff seeds (ForecastBench-style; Section E.2) so AI-expert calibration can't be gamed. |
-| Cooke calibration question set design | Layer 2 | Hormuz-specific seed questions need authoring with domain experts. Bootstrapping cost. Defer until Layer 2 ships and the first Cooke deployment is concrete. |
-| UI upgrade trigger | Layer 3 | When does Streamlit stop being sufficient? Define the criterion (e.g., > N concurrent users per deployment, > M custom UI components needed). |
-| Open-source license choice | Layer 0 | MIT, Apache 2.0, BSD-3? Recommend Apache 2.0 for patent grant; compatible with open-core commercial layer. |
+| Per-deployment Postgres setup automation | Layer 0 | Docker Compose for the MVP; Terraform/Helm for production. |
+| Auth provider for SSO | Layer 0 | Self-hosted (Keycloak, Authentik) vs hosted (Auth0, Clerk). Recommend hosted for v1. |
+| Open-source license | Layer 0 | If released: recommend Apache 2.0 for its patent grant. |
+| Secret-store backend & BYOK allowlist | Layer 0 | Which KMS / secret manager for envelope encryption (cloud-managed vs self-hosted, e.g. Vault); and the per-deployment provider allowlist policy, including the high-sensitivity "BYOK disabled" tier. |
+| Role/persona catalogue | Layer 3 | Which roles beyond red-team add real consideration coverage, and whether any role-conditioned estimates feed scored CPTs (vs roles confined to a divergence pass). Validate that roles improve panel calibration rather than just adding correlated noise. |
+| Three-level κ ladder — fitted values | Layer 1 | Fit `tight`/`normal`/`uncertain` κ per deployment on the seed set. Validate the snap-and-cap logic against held-out coverage. |
+| Categorical coverage-fit for κ | Layer 1 | Natural for continuous seeds; the categorical-CPT analog (proper-scoring-based) needs specifying. See methodology §6. |
+| Cooke seed-set design | Layer 2 | Hormuz-specific seeds need authoring with domain input; relevance-constrained. Defer until the first Cooke deployment is concrete. |
+| LLM provider & model diversity | Layer 2 / 3 | Coupled to Plan 2's translator provider choice; panels require ≥2 distinct base models. How many, and how to estimate/adjust correlation. |
+| Leakage-free prospective seed pipeline | Layer 3 / 6 | Rolling, post-cutoff seeds plus the prospective-scoring loop; defines how AI-expert calibration stays un-gameable across model upgrades. |
+| UI upgrade trigger | Layer 4 | Define the criterion (concurrent users per deployment, custom components needed). |
 
-## Section D — Execution order summary table
-
-For coherence with the format used in Plans 2 and 3:
+## Section D — Execution order
 
 | Order | Layer | Resolves | Rationale |
 | --- | --- | --- | --- |
-| 1 | 0 — Data model and storage substrate | Foundation | Per-deployment isolation, versioning schema, auth scaffolding. Unblocks every subsequent layer. Extends rather than duplicates Plan 2's schema. |
-| 2 | 1 — Core engine | Diagnosis items 6, 7 | Aggregation primitives, ranked nodes, sensitivity analysis. Pure-function library; no UI or DB dependencies; fully unit-testable. |
-| 3 | 2 — Protocol implementations | Diagnosis item 8 | Cooke / IDEA / SHELF as state-machine workflows. Configurable at elicitation start. The methodological core of the platform. |
-| 4 | 3 — UI layer (Streamlit) | Usability | Makes Layers 0–2 accessible to analysts and domain experts. v1 milestone: end-to-end elicitation usable by non-engineers. |
-| 5 | 4 — Integration with inference | Diagnosis item 9 | Elicited CPTs → `NetworkSpec` → `PgmpyBackend` / `PymcBackend`. Round-trip with Plan 3's inference layer. |
-| 6 | 5 — Advanced features | Diagnosis items 1, 2, 3, 10 | LLM-proposed CPTs, ranked-node UI, sensitivity prioritization, calibration tiers 2 and 3, Cooke weight updates from outcomes. |
-| 6b | 5.5 — Agentic AI experts (extension, optional) | Items 1, 2, 3, 10 (AI-assisted) | LLM agents as calibration-scored experts; multi-model panels with decorrelation; provenance-flagged; human sign-off for high-stakes. Additive to Layer 5. |
-| 7 | 6 — Commercial layer | Productisation | Deferred until paying customers exist. Billing, onboarding, support, tenant config UI. |
+| 1 | 0 — Data model and storage | Diagnosis 4, 5, 9 | Per-deployment isolation, versioning, provenance, auth. Unblocks everything. |
+| 2 | 1 — Core engine | Diagnosis 6, 7 | Cooke aggregation, sensitivity, calibration→κ. Pure-function; fully unit-testable. |
+| 3 | 2 — Cooke elicitation + AI experts | Diagnosis 8, 2, finding M6 | Cooke state machine + single-agent `LLMExpert`. The minimal runnable pipeline. |
+| 4 | 3 — Multi-model panels & hardening | Diagnosis 1, 2, 3, 10 (AI) | Decorrelation, contamination probes, calibration reports. Makes the AI panel defensible. |
+| 5 | 4 — UI (Streamlit) | Usability | **v1 milestone**: usable, defensible, AI-only Cooke elicitation. |
+| 6 | 5 — Inference integration | Finding M3 | Elicited CPTs → `NetworkSpec` (per-CPT κ) → pgmpy + dashboard. Replaces the global κ. |
+| 7 | 6 — Calibration & confidence over time | Diagnosis 1, 3, 10 | Confidence report, prioritisation, calibration Tiers 2/3, weight/κ updates, optional LLM drafts. |
 
-## Section E — Related work and methodology provenance
+## Future directions
 
-All references below were verified against primary sources (focused search, June 2026). Each entry states what the work is, **how it supports** this plan's methodology, and **where it points to further research or stronger validation**. This section is the evidence base for Layers 2 (protocols), 5 (calibration), and 5.5 (agentic AI experts).
-
-### E.1 Structured expert judgment — the human protocols and their validity debate
-
-- **Aspinall (2010), *A route to more tractable expert advice*, Nature 463:294–295.** Opinion piece arguing for Cooke's performance-weighted ("classical model") elicitation; documents the Montserrat volcano crisis where a weighted expert panel produced usable guidance within ~2 hours.
-  - *Supports:* the case that structured, performance-weighted elicitation is decision-grade in high-stakes settings — the rationale for Cooke being Layer 2's regulatory-tier protocol.
-  - *Research/validation:* instrument our tooling to measure wall-clock from question to defensible CPT, and reproduce the "fast, usable guidance" property as a product metric.
-
-- **Hemming, Burgman, Hanea, McBride & Wintle (2018), *A practical guide to structured expert elicitation using the IDEA protocol*, Methods in Ecology and Evolution 9(1):169–180.** Step-by-step IDEA: investigate → individual estimates **with credible intervals** → feedback vs other experts → discuss → private revision → aggregate.
-  - *Supports:* the concrete IDEA state machine in Layer 2, including the interval-feedback step.
-  - *Research/validation:* adopt their interval-rescaling (extrapolate each expert's stated interval to a fixed 90% interval) as an explicit Layer 1 debiasing primitive, and A/B test its effect on our elicited CPTs.
-
-- **SHELF — Gosling (2018), *SHELF: The Sheffield Elicitation Framework* (in *Elicitation*, Springer); O'Hagan & Oakley, `SHELF` R package (CRAN).** Behavioural aggregation: a facilitator guides the group to a single consensus ("rational impartial observer") distribution; roulette and quantile elicitation modes.
-  - *Supports:* the SHELF protocol and its roulette/quantile UIs in Layers 2–3.
-  - *Research/validation:* use the CRAN `SHELF` distribution-fitting routines as a reference oracle to cross-check our Layer 1 fitters.
-
-- **Clemen (2008), *Comment on Cooke's classical method*, Reliability Engineering & System Safety 93(5):760–765**, with the defense in **Colson & Cooke (2018), *Expert Elicitation: Using the Classical Model to Validate Experts' Judgments*, Review of Environmental Economics and Policy 12(1):113–132.** The active cross-validation debate: does performance-weighting actually beat equal-weighting *out of sample*?
-  - *Supports:* makes leave-one-seed-out **cross-validation a first-class acceptance test** in our calibration layer, not an afterthought — and tells us to report performance-weight vs equal-weight head-to-head per deployment.
-  - *Research/validation:* implement leave-one-seed-out scoring (Layer 5) for both human and (Layer 5.5) AI panels; this is exactly the test Layer 5.5's validation invokes.
-
-### E.2 LLM forecasting and calibration — the basis for AI experts
-
-- **Kadavath et al. (2022), *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 (Anthropic).** Larger LMs are reasonably calibrated on multiple-choice / true-false when formatted correctly, and can partly self-predict whether they know an answer.
-  - *Supports:* the premise that an LLM's probabilities are *measurable and sometimes usable* — the precondition for seed-scoring an LLM expert (Layer 5.5).
-  - *Research/validation:* the "mostly" is the catch — measure our agents' calibration on **domain** seeds, not generic benchmarks, before granting them any weight.
-
-- **Lin, Hilton & Evans (2022), *Teaching Models to Express Their Uncertainty in Words*, arXiv:2205.14334.** Proof of concept that a model can emit **calibrated verbalized confidence** (e.g. "90% confident") on a task (CalibratedMath).
-  - *Supports:* lets an LLM expert answer the *same* verbalized-quantile questions a human does in SHELF/IDEA/Cooke.
-  - *Research/validation:* compare verbalized vs logit-derived confidence for our categorical CPT columns; fit and recalibrate the agent's stated quantiles.
-
-- **Halawi, Zhang, Yueh-Han & Steinhardt (2024), *Approaching Human-Level Forecasting with Language Models*, arXiv:2402.18563.** A retrieval-augmented LM forecasting system that, on post-cutoff questions, **nears (and sometimes beats) the competitive-human crowd aggregate**.
-  - *Supports:* the RAG-augmented proposer (Layer 5.1) and the viability of LLM experts — *provided they retrieve, not merely recall*.
-  - *Research/validation:* wire agent elicitation to Plan 2's RAG memory (E2) and test whether retrieval measurably improves seed-calibration.
-
-- **Schoenegger et al. (2024), *Wisdom of the Silicon Crowd*, Science Advances (arXiv:2402.19379)** and **Schoenegger & Park (2023), *Large Language Model Prediction Capabilities*, arXiv:2310.13014.** A **diverse 12-model ensemble** matched a 925-person human crowd; a **single GPT-4** was no better than chance (50%-everything).
-  - *Supports:* the **multi-model-diversity requirement** for AI panels (Layer 5.5) — the empirical backbone of the correlated-error argument.
-  - *Research/validation:* quantify the diversity↔accuracy trade-off on our domain; find the minimum viable model-diversity for a calibrated panel.
-
-- **Karger et al. (2024), *ForecastBench: A Dynamic Benchmark of AI Forecasting Capabilities*, arXiv:2409.19839 (ICLR 2025).** Leakage-free, continuously-updated forecasting benchmark; on a held-out subset **expert humans still beat the best LLM (p = 0.01)**.
-  - *Supports:* honest positioning — AI experts are an **adjunct, not a replacement**, especially high-stakes (Layer 5.5 mode limits).
-  - *Research/validation:* adopt a ForecastBench-style **rolling, post-cutoff seed set** per deployment so AI-expert calibration cannot be inflated by training-data contamination.
-
-### E.3 Multi-agent LLMs and LLM-elicited priors
-
-- **Du, Li, Torralba, Tenenbaum & Mordatch (2023), *Improving Factuality and Reasoning in Language Models through Multiagent Debate*, arXiv:2305.14325 (ICML 2024).** Multiple LLM instances propose and **debate over rounds**, improving reasoning/factuality and reducing hallucination.
-  - *Supports:* the "discuss" phase of an automated IDEA panel (Layer 5.5 mode 3).
-  - *Research/validation:* test whether debate genuinely *adds information* or merely amplifies the shared-prior (correlation) failure — measure post-debate calibration against round-1. (This paper reports gains; the correlation risk is our open question, not its finding.)
-
-- **Capstick, Krishnan & Barnaghi (2024), *AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling*, arXiv:2411.17284 (ICML 2025).** LLMs produce **Gaussian priors (mean + sd) for linear-model parameters**; priors are informative, natural-language-refinable, and beat in-context learning (case study saved ~6 months of labelling).
-  - *Supports:* the closest published precedent for "LLM → Bayesian prior"; validates both the proposer (Layer 5.1) and the (θ̂, κ) → Dirichlet-prior path (Layer 4).
-  - *Research/validation:* **extend AutoElicit's linear-Gaussian result to categorical CPT columns / Dirichlet priors** — our actual target, and an open, publishable step.
-
-### E.4 The gap this plan occupies
-
-A focused June 2026 search did not surface a standardized, published method that **marries Cooke's classical model (seed-validated, performance-weighted, poor experts zeroed) to an *LLM* expert panel feeding a Bayesian network's CPTs.** The components above are validated *separately* — structured expert judgment (E.1), LLM forecasting/calibration (E.2), multi-agent aggregation and LLM-elicited priors (E.3). Layer 5.5 assembles them. This is both the **differentiation** (a defensible, calibration-validated AI-elicitation product) and a genuine **research contribution** (we cannot prove the negative, but the configuration appears under-occupied). It should be validated with the same rigour the SEJ literature demands: domain seed sets, leave-one-seed-out cross-validation, and explicit correlation accounting.
+- **Additional protocols (documented, not built).** IDEA and SHELF are specified in the [methodology companion](elicitation_methodology_and_defensibility.md) §3 and slot in behind the `Protocol`/`Expert` interface when a mid- or moderate-stakes deployment needs them. No restructuring required.
+- **Ranked-node CPT compression (out of scope).** The Fenton & Neil ranked-node method collapses a high-fan-in *ordinal* CPT to a few per-parent weights. Deliberately left out: the current Hormuz topology has no CPT large enough to need it (emission CPTs are single-parent; the latent regime is categorical, so ineligible — ranked nodes require an ordinal child). If a future engagement involves high-fan-in ordinal nodes, add it as an optional Layer 1 engine primitive first, validated against the Fenton & Neil worked examples. Applicability is gated on monotonic parent→child relationships.
+- **Additional `ElicitationTarget` shapes.** The base class exists so shapes beyond `CPTColumnTarget` can be added without restructuring — most notably a temporal `TransitionMatrixTarget` if a BN↔HMM extension is ever built ([`docs/bn_hmm_integration.md`](bn_hmm_integration.md)).
 
 ---
 
-**End of plan.** Companion plans: `docs/02_translator_robustification.md` (Plan 2, evidence ingestion) and `docs/03_pymc_integration_plan.md` (Plan 3, inference engine). Math context: `docs/01_latent_regime_plan.md` Section A.8. Methodology provenance: Section E above.
+**End of plan.** Methodology, design rationale, defensibility argument, and references: [`docs/elicitation_methodology_and_defensibility.md`](elicitation_methodology_and_defensibility.md). Companion plans: [`docs/01_latent_regime_plan.md`](01_latent_regime_plan.md) (topology), [`docs/02_translator_robustification.md`](02_translator_robustification.md) (substrate), [`docs/03_pymc_integration_plan.md`](03_pymc_integration_plan.md) (PyMC inference extension).

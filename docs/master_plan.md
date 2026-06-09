@@ -69,7 +69,7 @@ The platform consists of four layered concerns:
 The arrows in the diagram represent runtime data flow:
 
 - Plan 2 produces structured evidence; Plan 3 consumes it.
-- Plan 4 produces calibrated CPTs; Plan 3 consumes them via `NetworkSpec`.
+- Plan 4 produces calibrated CPTs, exported via `NetworkSpec`. Plan 3 (PyMC) is postponed, so in the interim Plan 4 owns the discrete `NetworkSpec` and feeds the existing pgmpy engine; Plan 3 consumes the same export once it lands.
 - Plan 3 produces posteriors; Plan 5 visualises them.
 - Plans 2 and 4 share the audit log, HITL queue, and source-credibility registry; Plan 2 builds these, Plan 4 extends them.
 
@@ -139,16 +139,17 @@ Mathematical context for the migration lives in `docs/01_latent_regime_plan.md` 
 
 ### Plan 4 — Methodology layer: `docs/04_elicitation_tool_plan.md`
 
-CPTs in the current model are inline literals chosen by one author without protocol. This plan delivers a multi-protocol elicitation platform: Cooke's classical model for regulatory contexts, IDEA for corporate decisions, SHELF for solo analysts. Includes versioned CPTs with full provenance, multi-expert aggregation, ranked-node compression, sensitivity-driven prioritisation, three-tier calibration tracking, and LLM-proposed CPT initial values via retrieval from Plan 2's audit log.
+CPTs in the current model are inline literals chosen by one author without protocol. This plan delivers a multi-protocol elicitation platform: Cooke's classical model for regulatory contexts, IDEA for corporate decisions, SHELF for solo analysts. Includes versioned CPTs with full provenance, multi-expert aggregation, sensitivity-driven prioritisation, three-tier calibration tracking, LLM-proposed CPT initial values via retrieval from Plan 2's audit log, and calibration-validated AI experts. (Ranked-node CPT compression was considered and is out of scope for now — the current topology has no CPT large enough to need it; see Plan 4 Future directions.)
 
-Layers 0–5 in scope (6 layers); Layer 6 (commercial: billing, onboarding, support) deferred until paying customers exist:
+Seven layers (0–6), all in scope and core. Layers 0–3 are the v1 milestone; Layers 4–6 build on it. Plan 3 (PyMC) is postponed, so Plan 4 ships the minimal discrete `NetworkSpec` itself (Layer 4) and integrates with the existing pgmpy engine; the PyMC-specific path activates when Plan 3 lands.
 
 - **Layer 0**: data model and storage substrate; extends Plan 2's audit schema.
-- **Layer 1**: core engine (aggregation primitives, ranked nodes, sensitivity analysis).
-- **Layer 2**: protocol implementations.
+- **Layer 1**: core engine (aggregation primitives, sensitivity analysis).
+- **Layer 2**: protocol implementations (Cooke / IDEA / SHELF).
 - **Layer 3**: Streamlit UI.
-- **Layer 4**: integration with Plan 3's inference engine.
+- **Layer 4**: integration with the inference engine; ships the discrete `NetworkSpec` (Plan 3 postponed).
 - **Layer 5**: advanced features (LLM-proposed CPTs, calibration tiers 2 and 3, Cooke weight updates from accrued outcomes).
+- **Layer 6**: agentic AI experts — calibration-validated LLM panels, multi-model decorrelation, provenance-flagged, human sign-off for high-stakes. Core, not optional.
 
 ### Plan 5 — Dashboard UI and polish: `docs/05_dashboard_ui_plan.md`
 
