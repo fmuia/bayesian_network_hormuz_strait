@@ -28,6 +28,10 @@ claude-agent-sdk = ">=0.1.0"
 graphviz = ">=0.20,<1"
 streamlit-agraph = ">=0.0.45"
 altair = ">=5.0,<6"
+sqlalchemy = ">=2.0,<3"      # elicitation platform (Plan 4, Layer 0)
+alembic = ">=1.13"           # elicitation schema migrations
+pyyaml = ">=6.0"             # per-deployment config loader
+cryptography = ">=43"        # credential envelope encryption
 
 [tasks]
 test = "pytest -q"

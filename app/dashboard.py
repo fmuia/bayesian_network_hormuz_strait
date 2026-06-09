@@ -54,6 +54,12 @@ from src.translator import (
 )
 from src.translator_pipeline import run_structured
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
+from src.elicitation.export import spec_from_dict
+
+# Ensure sibling modules (elicitation_panel) import under both `streamlit run`
+# and the test harness.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import elicitation_panel  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -465,18 +471,45 @@ TOPOLOGY = "latent_regime"
 
 
 @st.cache_resource
-def get_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
+def _bootstrap_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
     return BNInferenceEngine(build_network(topology))
+
+
+def _locked_spec_json() -> str:
+    """The locked elicited network as a JSON string, or '' for the bootstrap."""
+    return st.session_state.get("locked_spec_json", "") or ""
+
+
+def _network_and_concentration(topology: str, locked_spec_json: str):
+    """(base_network, concentration) for the active config. A locked elicitation
+    wins (its per-CPT kappa map, defaulting other nodes to 20); otherwise the
+    bootstrap network for the selected topology at scalar kappa=20."""
+    if locked_spec_json:
+        spec = spec_from_dict(json.loads(locked_spec_json))
+        net = spec.to_pgmpy()
+        km = spec.kappa_map()
+        return net, {v: km.get(v, 20.0) for v in net.nodes()}
+    return build_network(topology), 20.0
+
+
+def get_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
+    """The inference engine for the active network: a locked elicitation when one
+    is set (Plan 4), else the bootstrap network for the selected topology."""
+    locked = _locked_spec_json()
+    if locked:
+        return BNInferenceEngine(spec_from_dict(json.loads(locked)).to_pgmpy())
+    return _bootstrap_engine(topology)
 
 
 @st.cache_data(show_spinner=False)
 def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     topology: str = TOPOLOGY,
+    locked_spec_json: str = "",
 ) -> Dict[str, Tuple[float, float, float]]:
+    base, concentration = _network_and_concentration(topology, locked_spec_json)
     return scenario_credible_intervals(
-        dict(evidence_items), m=200, concentration=20.0,
-        base_network=build_network(topology),
+        dict(evidence_items), m=200, concentration=concentration, base_network=base
     )
 
 
@@ -485,14 +518,16 @@ def cached_node_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
     topology: str = TOPOLOGY,
+    locked_spec_json: str = "",
 ) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
     soft = {node: dict(dist) for node, dist in soft_evidence_items}
+    base, concentration = _network_and_concentration(topology, locked_spec_json)
     return node_credible_intervals(
         dict(evidence_items),
         soft_evidence=soft,
         m=200,
-        concentration=20.0,
-        base_network=build_network(topology),
+        concentration=concentration,
+        base_network=base,
     )
 
 
@@ -509,6 +544,8 @@ _SS_DEFAULTS = {
     "pending_article": None,
     "selected_node": None,
     "review_queue": [],          # T12: translations awaiting analyst review
+    "locked_spec_json": "",       # Plan 4 elicitation layer: locked elicited network
+    "current_run_dict": None,     # the elicitation run being inspected
 }
 for _k, _v in _SS_DEFAULTS.items():
     if _k not in st.session_state:
@@ -1103,6 +1140,13 @@ with st.sidebar:
 # MAIN COMPUTATION
 # ===========================================================================
 
+# Plan 4 elicitation layer: run/load an elicitation, inspect reasonings & scores,
+# override columns, and lock it — the rest of the dashboard then runs on it.
+with st.expander(
+    "🧪 Elicitation layer — run / load / override / lock the CPTs", expanded=False
+):
+    elicitation_panel.render(st, topology=TOPOLOGY)
+
 engine = get_engine(TOPOLOGY)
 engine.clear_evidence()
 evidence, soft_evidence = _merged_evidence()
@@ -1116,7 +1160,9 @@ ci_evidence = dict(evidence)
 for node, dist in soft_evidence.items():
     ci_evidence[node] = max(dist, key=dist.get)
 with st.spinner("Quantifying parameter uncertainty…"):
-    ci_table = cached_credible_intervals(tuple(sorted(ci_evidence.items())), TOPOLOGY)
+    ci_table = cached_credible_intervals(
+        tuple(sorted(ci_evidence.items())), TOPOLOGY, _locked_spec_json()
+    )
 
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
@@ -1128,6 +1174,7 @@ node_ci_table = cached_node_credible_intervals(
     tuple(sorted(evidence.items())),
     soft_evidence_ci_items,
     TOPOLOGY,
+    _locked_spec_json(),
 )
 
 # Map each observed node to the latest day it was set.
@@ -1280,7 +1327,7 @@ with st.container(border=True):
         engine_h = get_engine(TOPOLOGY)
         engine_h.clear_evidence()
         priors = engine_h.get_prior_probabilities()
-        prior_ci = cached_credible_intervals(tuple(), TOPOLOGY)
+        prior_ci = cached_credible_intervals(tuple(), TOPOLOGY, _locked_spec_json())
         history_rows.append({
             "Day": 0, "HeadlinesOnDay": "(prior)", "n_obs": 0,
             "ci": prior_ci, **priors,
@@ -1314,7 +1361,7 @@ with st.container(border=True):
                 for node, dist in cum_soft.items():
                     day_ci_evidence[node] = max(dist, key=dist.get)
                 day_ci = cached_credible_intervals(
-                    tuple(sorted(day_ci_evidence.items())), TOPOLOGY
+                    tuple(sorted(day_ci_evidence.items())), TOPOLOGY, _locked_spec_json()
                 )
                 history_rows.append({
                     "Day": day,
