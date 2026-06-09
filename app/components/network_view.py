@@ -8,7 +8,9 @@ from typing import Dict
 
 from streamlit_agraph import agraph
 
-import state
+# import the function (not the module): the override loop binds a local `state`,
+# which would shadow a `state` module import.
+from state import record_observation
 from components.ci_charts import (
     _ci_dataframe, _dumbbell_chart, _flat_bar_chart, _robustness_badge_html,
 )
@@ -167,7 +169,7 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                     # Collapse to a hard assignment when a single state is 100%.
                     if max(vals.values()) == 100:
                         pinned = next(s for s, v in vals.items() if v == 100)
-                        state.record_observation(
+                        record_observation(
                             headline=note.strip() or f"Manual: {sel} = {pinned}",
                             assignments={sel: pinned},
                             rationale="Set directly by the analyst via the network.",
@@ -176,7 +178,7 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         )
                     else:
                         dist = {s: v / 100.0 for s, v in vals.items()}
-                        state.record_observation(
+                        record_observation(
                             headline=note.strip()
                                 or f"Manual soft: {sel} ({pretty})",
                             assignments={},
