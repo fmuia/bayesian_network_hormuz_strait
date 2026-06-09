@@ -402,6 +402,34 @@ This plan is the north-star design. A pragmatic **v1 of the AI-panel elicitation
 - **Calibration scope.** Only the retrodictive-bootstrap tier is built. Categorical/Brier seed scoring and the prospective-seed loop — the format-matched and contamination-proof upgrades — remain open (Section C; methodology §6.1, §8.3).
 - **Probes.** Of the four §8.3 contamination probes, only source-attribution is wired; perturbation/canary and cross-model-variance are specified but not invoked.
 
+### Remaining work (prioritised, as of this build)
+
+Verified against the code. Group **A** raises the defensibility of *what already ships* and is cheap; group **B** is the larger roadmap; the caveats are flags, not tasks.
+
+**A — Loose ends in the shipped v1 (do first):**
+
+| # | Item | Why it matters | Status / where specified |
+| --- | --- | --- | --- |
+| A1 | **Leave-one-seed-out cross-validation** (performance-weight vs equal-weight) | The methodology's *own* acceptance test — the only way to show the Cooke weights beat equal weighting on the seeds. | **Not built anywhere.** Methodology §3.4; plan Layer 3. |
+| A2 | **Surface the variance decomposition** (which CPTs drive the output-interval width) | Tells the analyst *where* to spend re-elicitation / κ-tightening effort. | Engine `posterior_variance_decomposition` / Sobol **exist but are dormant** (not called by the app). Methodology §7 (3). |
+| A3 | **Wire-or-prune dormant code** | Unused parallel paths rot and mislead. | `kappa_from_seed_coverage` (Route A κ), the Sobol/Morris engine, and the duplicate `LLMExpert` vs integration `clients.py` are all written-but-unused. |
+| A4 | **Real end-to-end run verification** | The real Claude/OpenAI path is `# pragma: no cover` — only `ScriptedClient` is tested; one probe call ≠ a full live run. | Manual smoke run on `latent_regime` with the new prompts + parallelism + contamination basis field. |
+
+**B — Roadmap (larger builds):**
+
+| # | Item | Notes |
+| --- | --- | --- |
+| B5 | **Categorical / Brier seed scoring** (format-matched seeds) | Closes the seed↔target *format* gap. Methodology §6.1 (open). "3a" in the working notes. |
+| B6 | **Prospective-seed loop** (contamination-proof calibration) | The only contamination-*proof* tier; deferred resolution + scoring. Methodology §8.3; Layer 6 Tier 2/3. "3b". Depends on B5 to score binary outcomes. |
+| B7 | **Storage decision** | Migrate JSON artifacts → Layer-0 Postgres tables (`cpt_provenance`, `contamination_checks`, …), **or** formally bless the JSON store as v1 and downgrade the DB layers here. |
+| B8 | **Unified confidence report** | The §7 IPCC two-dimensional statement: point + CI + variance-decomp + track record in one artifact. Currently only CI + robustness badges are surfaced. |
+| B9 | **Remaining contamination probes** | perturbation/canary, cross-model-variance, in-corpus-vs-post-cutoff split. Only source-attribution is wired. Methodology §8.3. |
+| B10 | **Multi-model panels in practice** | Default is Claude-only → correlated agents; real decorrelation needs a 2nd base model routinely used. Methodology §8.2. |
+
+**Caveats (flags, not tasks):**
+- **Seed realizations are approximate/illustrative.** Several defaults (closure threats ≈8, vessels ≈6, 2019 war-risk premium ≈0.4%) are defensible-but-fuzzy. Vet against primary sources before any real use.
+- **Latent Scenario elicitation** is only meaningful if the regime *states* are clearly defined in the network; the emission CPTs (concrete observables) are the more trustworthy targets in the latent-regime topology.
+
 The plan layers remain the target architecture; this section shrinks as the integration migrates onto the Layer-0 storage and the Layer-2 protocol objects.
 
 ## Future directions
