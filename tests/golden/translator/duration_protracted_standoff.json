@@ -1,0 +1,66 @@
+{
+  "id": "duration_protracted_standoff",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "escalation",
+  "note": "Protracted standoff -> long duration, narrowing path.",
+  "article": {
+    "headline": "Pentagon official says Gulf military standoff with Iran could drag on for many months"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Conflict_Duration",
+        "state": "long"
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "narrowing"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Conflict_Duration",
+        "state": "long",
+        "reason": "A Pentagon official explicitly forecasts the standoff dragging on for many months, pointing to a long conflict duration.",
+        "state_probs": [
+          {
+            "state": "short",
+            "value": 0.05
+          },
+          {
+            "state": "medium",
+            "value": 0.5
+          },
+          {
+            "state": "long",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "narrowing",
+        "reason": "An expectation of a months-long military standoff implies diplomacy is not delivering a near-term off-ramp, narrowing the resolution path.",
+        "state_probs": [
+          {
+            "state": "open",
+            "value": 0.2
+          },
+          {
+            "state": "narrowing",
+            "value": 1.0
+          },
+          {
+            "state": "closed",
+            "value": 0.4
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "The headline frames an enduring military confrontation with Iran lasting many months, signalling a long conflict and a diminishing near-term diplomatic exit without yet indicating outright closure of the strait."
+  }
+}

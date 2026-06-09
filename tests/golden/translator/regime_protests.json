@@ -1,0 +1,43 @@
+{
+  "id": "regime_protests",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "mixed",
+  "note": "Nationwide protests + crackdown = pressured (still coercive control).",
+  "article": {
+    "headline": "Mass protests erupt across Iranian cities as regime orders crackdown"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Iranian_Regime_Stability",
+        "state": "pressured"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Iranian_Regime_Stability",
+        "state": "pressured",
+        "reason": "Mass protests across multiple cities plus an ordered crackdown signal serious domestic challenge to the regime, but a crackdown also indicates the regime still retains coercive control rather than having lost it outright.",
+        "state_probs": [
+          {
+            "state": "stable",
+            "value": 0.1
+          },
+          {
+            "state": "pressured",
+            "value": 1.0
+          },
+          {
+            "state": "unstable",
+            "value": 0.7
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Nationwide protests met with a state crackdown point to a regime under significant internal pressure, with a meaningful chance of tipping toward instability though not yet collapse."
+  }
+}

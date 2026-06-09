@@ -1,0 +1,154 @@
+{
+  "n_records": 11,
+  "gate": "contract-only",
+  "node_precision": 1.0,
+  "node_recall": 1.0,
+  "node_f1": 1.0,
+  "state_accuracy_given_node_match": 0.96,
+  "abstention_precision": 1.0,
+  "abstention_recall": 1.0,
+  "nodes_covered": [
+    "Conflict_Duration",
+    "Diplomatic_Resolution_Path",
+    "Energy_Infrastructure_Damage",
+    "Iran_Aligned_Militia_Attacks",
+    "Iranian_Regime_Stability",
+    "Oil_Price_Regime",
+    "Sanctions_Trajectory",
+    "Strait_Operationally_Closed",
+    "Tanker_Incidents",
+    "Third_Party_Mediation",
+    "US_Iran_Negotiations",
+    "US_Military_Response"
+  ],
+  "n_nodes_covered": 12,
+  "n_observable_nodes": 12,
+  "per_record": [
+    {
+      "id": "deescalation_oman_talks",
+      "predicted": {
+        "Third_Party_Mediation": "active",
+        "US_Iran_Negotiations": "stalled",
+        "Diplomatic_Resolution_Path": "open"
+      },
+      "expected": {
+        "Third_Party_Mediation": "active",
+        "US_Iran_Negotiations": "stalled",
+        "Diplomatic_Resolution_Path": "open"
+      }
+    },
+    {
+      "id": "deescalation_sanctions_waiver",
+      "predicted": {
+        "Sanctions_Trajectory": "easing",
+        "Diplomatic_Resolution_Path": "open"
+      },
+      "expected": {
+        "Sanctions_Trajectory": "easing",
+        "Diplomatic_Resolution_Path": "open"
+      }
+    },
+    {
+      "id": "duration_protracted_standoff",
+      "predicted": {
+        "Conflict_Duration": "long",
+        "Diplomatic_Resolution_Path": "narrowing"
+      },
+      "expected": {
+        "Conflict_Duration": "long",
+        "Diplomatic_Resolution_Path": "narrowing"
+      }
+    },
+    {
+      "id": "escalation_tanker_incidents",
+      "predicted": {
+        "Tanker_Incidents": "frequent",
+        "Iran_Aligned_Militia_Attacks": "elevated"
+      },
+      "expected": {
+        "Tanker_Incidents": "frequent",
+        "Iran_Aligned_Militia_Attacks": "high"
+      }
+    },
+    {
+      "id": "escalation_terminal_fire",
+      "predicted": {
+        "Energy_Infrastructure_Damage": "severe",
+        "Strait_Operationally_Closed": "full",
+        "Iran_Aligned_Militia_Attacks": "high",
+        "Oil_Price_Regime": "above_120"
+      },
+      "expected": {
+        "Energy_Infrastructure_Damage": "severe",
+        "Strait_Operationally_Closed": "full",
+        "Iran_Aligned_Militia_Attacks": "high",
+        "Oil_Price_Regime": "above_120"
+      }
+    },
+    {
+      "id": "escalation_us_strikes",
+      "predicted": {
+        "US_Military_Response": "major",
+        "Tanker_Incidents": "isolated",
+        "Iran_Aligned_Militia_Attacks": "elevated",
+        "US_Iran_Negotiations": "breakdown"
+      },
+      "expected": {
+        "US_Military_Response": "major",
+        "Tanker_Incidents": "isolated",
+        "Iran_Aligned_Militia_Attacks": "elevated",
+        "US_Iran_Negotiations": "breakdown"
+      }
+    },
+    {
+      "id": "hedged_unconfirmed_blast",
+      "predicted": {
+        "Tanker_Incidents": "isolated"
+      },
+      "expected": {
+        "Tanker_Incidents": "isolated"
+      }
+    },
+    {
+      "id": "mixed_irgc_inspection",
+      "predicted": {
+        "Strait_Operationally_Closed": "partial",
+        "Tanker_Incidents": "isolated",
+        "Diplomatic_Resolution_Path": "narrowing"
+      },
+      "expected": {
+        "Strait_Operationally_Closed": "partial",
+        "Tanker_Incidents": "isolated",
+        "Diplomatic_Resolution_Path": "narrowing"
+      }
+    },
+    {
+      "id": "offtopic_football",
+      "predicted": {},
+      "expected": {}
+    },
+    {
+      "id": "regime_protests",
+      "predicted": {
+        "Iranian_Regime_Stability": "pressured"
+      },
+      "expected": {
+        "Iranian_Regime_Stability": "pressured"
+      }
+    },
+    {
+      "id": "statemedia_denial",
+      "predicted": {
+        "US_Military_Response": "limited",
+        "Energy_Infrastructure_Damage": "none",
+        "Strait_Operationally_Closed": "no"
+      },
+      "expected": {
+        "US_Military_Response": "limited",
+        "Energy_Infrastructure_Damage": "none",
+        "Strait_Operationally_Closed": "no"
+      }
+    }
+  ],
+  "notes": "Contract-only gate at this corpus size. Accuracy numbers are n-annotated, not gated. Brier/calibration deferred until corpus >= ~100 (R-cal)."
+}

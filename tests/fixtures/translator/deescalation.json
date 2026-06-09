@@ -1,0 +1,20 @@
+{
+  "match": ["talks", "negotiat", "deal", "agreement", "ceasefire", "diplomac"],
+  "kind": "wellformed",
+  "note": "Diplomatic de-escalation headline. A1 ε form, A2 {state, value} shape.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "success",
+        "reason": "Diplomatic progress reported (fake fixture).",
+        "state_probs": [
+          {"state": "success", "value": 1.00},
+          {"state": "stalled", "value": 0.30},
+          {"state": "breakdown", "value": 0.05}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: de-escalation fixture."
+  }
+}

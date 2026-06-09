@@ -17,6 +17,7 @@ previous sidebar manual picker.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 from dataclasses import asdict
@@ -41,12 +42,17 @@ from src.sensitivity import (
     scenario_credible_intervals,
 )
 from src.translator import (
+    SOURCE_TYPE_CREDIBILITY,
+    Article,
     TranslatorError,
     TranslatorResult,
     available_providers,
+    fake_forced_by_env,
     is_available as translator_available,
-    translate_headline,
+    structured_enabled,
+    translate_article,
 )
+from src.translator_pipeline import run_structured
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload, render_network_png
 from src.elicitation.export import spec_from_dict
 
@@ -465,7 +471,7 @@ TOPOLOGY = "latent_regime"
 
 
 @st.cache_resource
-def _bootstrap_engine(topology: str = "labelling") -> BNInferenceEngine:
+def _bootstrap_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
     return BNInferenceEngine(build_network(topology))
 
 
@@ -486,7 +492,7 @@ def _network_and_concentration(topology: str, locked_spec_json: str):
     return build_network(topology), 20.0
 
 
-def get_engine(topology: str = "labelling") -> BNInferenceEngine:
+def get_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
     """The inference engine for the active network: a locked elicitation when one
     is set (Plan 4), else the bootstrap network for the selected topology."""
     locked = _locked_spec_json()
@@ -498,7 +504,7 @@ def get_engine(topology: str = "labelling") -> BNInferenceEngine:
 @st.cache_data(show_spinner=False)
 def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
-    topology: str = "labelling",
+    topology: str = TOPOLOGY,
     locked_spec_json: str = "",
 ) -> Dict[str, Tuple[float, float, float]]:
     base, concentration = _network_and_concentration(topology, locked_spec_json)
@@ -511,7 +517,7 @@ def cached_credible_intervals(
 def cached_node_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
-    topology: str = "labelling",
+    topology: str = TOPOLOGY,
     locked_spec_json: str = "",
 ) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
     soft = {node: dict(dist) for node, dist in soft_evidence_items}
@@ -535,8 +541,9 @@ _SS_DEFAULTS = {
     "last_translation": None,
     "translator_error": None,
     "translator_raw": "",
-    "pending_headline": None,
+    "pending_article": None,
     "selected_node": None,
+    "review_queue": [],          # T12: translations awaiting analyst review
     "locked_spec_json": "",       # Plan 4 elicitation layer: locked elicited network
     "current_run_dict": None,     # the elicitation run being inspected
 }
@@ -635,7 +642,7 @@ def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
     return hard_merged, soft_merged
 
 
-def _render_model_overview(topology: str = "labelling") -> None:
+def _render_model_overview(topology: str = TOPOLOGY) -> None:
     if topology == "latent_regime":
         scenario_clause = (
             "a latent <b>Scenario</b> regime that <i>generates</i> the damage, "
@@ -748,7 +755,70 @@ STAGE_LABEL = {
 }
 
 
-def _run_translator(headline: str, stream_slot) -> None:
+# Sidebar source-type options -> (Article.source_type, explicit credibility).
+# "(unspecified)" = analyst paste at full trust (w=1.0); the rest defer to the
+# per-source-type table (credibility=None -> looked up in translate_article).
+_FULL_TRUST_LABEL = "(unspecified — full trust)"
+_SOURCE_TYPE_OPTIONS = [_FULL_TRUST_LABEL] + list(SOURCE_TYPE_CREDIBILITY.keys())
+
+
+def _resolve_source(label: str):
+    """Map a sidebar source-type label to (source_type, credibility-or-None)."""
+    if label == _FULL_TRUST_LABEL:
+        return "unknown", 1.0
+    return label, None  # None -> translate_article looks up the table
+
+
+# --- T12: in-session human-in-the-loop review -------------------------------
+_OVERRIDE_FLOOR = 0.01  # ε floor for non-chosen states when the analyst edits
+
+
+def _build_review_item(result: TranslatorResult) -> dict:
+    """Normalise a translation into a review-queue entry (JSON-friendly)."""
+    return {
+        "id": uuid.uuid4().hex,
+        "headline": result.headline,
+        "day": st.session_state.current_day,
+        "relevance": result.relevance,
+        "model": result.model,
+        "provider": result.provider,
+        "rationale": result.rationale,
+        "assignments": [
+            {"node": a.node, "state": a.state,
+             "state_probs": dict(a.state_probs), "reason": a.reason}
+            for a in result.assignments
+        ],
+    }
+
+
+def _inject_review_item(item: dict, *, state_overrides: Optional[dict] = None) -> None:
+    """Commit a review item as an observation (optionally with edited states)."""
+    overrides = state_overrides or {}
+    soft: Dict[str, Dict[str, float]] = {}
+    reasons: Dict[str, str] = {}
+    for a in item["assignments"]:
+        node = a["node"]
+        chosen = overrides.get(node, a["state"])
+        if node in overrides and chosen != a["state"]:
+            # analyst override -> confident soft evidence on the chosen state
+            soft[node] = {s: (1.0 if s == chosen else _OVERRIDE_FLOOR) for s in STATES[node]}
+            reasons[node] = f"{a['reason']} (analyst-edited: {a['state']} → {chosen})"
+        else:
+            soft[node] = dict(a["state_probs"])
+            reasons[node] = a["reason"]
+    _append_observation(
+        headline=item["headline"], assignments={}, soft_assignments=soft,
+        rationale=item["rationale"], per_assignment_reasons=reasons, source="translator",
+    )
+
+
+def _remove_from_review(item_id: str) -> None:
+    st.session_state.review_queue = [
+        x for x in st.session_state.review_queue if x["id"] != item_id
+    ]
+
+
+def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str] = None) -> None:
     def _write(kind: str, stage: str, detail: str) -> None:
         icon = STAGE_ICON.get(stage, "•")
         label = STAGE_LABEL.get(stage, stage.capitalize())
@@ -767,8 +837,30 @@ def _run_translator(headline: str, stream_slot) -> None:
     def on_step(stage: str, detail: str) -> None:
         _write("live", stage, detail)
 
+    source_type, credibility = _resolve_source(
+        article_fields.get("source_type_label", _FULL_TRUST_LABEL)
+    )
+    article = Article(
+        headline=article_fields["headline"],
+        body=article_fields.get("body", ""),
+        source=article_fields.get("source", ""),
+        source_type=source_type,
+    )
+    # T06e: when the structured toggle is on, the structured pipeline (extract →
+    # map → aggregate) PRODUCES the injected assignments; otherwise the single-
+    # call path does. Structured costs 2 LLM calls and derives relevance as
+    # yes/no (no "partial"); the single-call path keeps the richer relevance.
+    use_structured = st.session_state.get("use_structured")
+    claims = mappings = None
     try:
-        result: TranslatorResult = translate_headline(headline, on_step=on_step)
+        if use_structured:
+            result, claims, mappings = run_structured(
+                article, credibility=credibility, provider=provider, on_step=on_step
+            )
+        else:
+            result = translate_article(
+                article, credibility=credibility, provider=provider, on_step=on_step
+            )
     except TranslatorError as exc:
         raw = getattr(exc, "raw_response", "")
         _write("err", "validated", f"failed: {exc}")
@@ -785,23 +877,42 @@ def _run_translator(headline: str, stream_slot) -> None:
         "rationale": result.rationale,
         "model": result.model,
         "provider": result.provider,
+        "relevance": result.relevance,
     }
+    if use_structured:
+        st.session_state.last_translation["claims"] = [asdict(c) for c in claims]
+        st.session_state.last_translation["claim_mappings"] = [asdict(m) for m in mappings]
+        st.session_state.last_translation["structured_assignments"] = [
+            asdict(a) for a in result.assignments
+        ]
+
+    # B3: an off-topic article abstains — logged, but no evidence injected.
+    if result.relevance == "no":
+        _write("done", "validated", "not relevant — no evidence injected")
+        return
+
     if result.assignments:
-        soft_assignments = {
-            a.node: dict(a.state_probs) for a in result.assignments
-        }
-        _append_observation(
-            headline=result.headline,
-            assignments={},
-            soft_assignments=soft_assignments,
-            rationale=result.rationale,
-            per_assignment_reasons={a.node: a.reason for a in result.assignments},
-            source="translator",
+        # T12: route to HITL review when flagged (partial) or when the analyst
+        # has turned on "review before inject"; otherwise auto-approve (inject).
+        needs_review = (
+            result.relevance == "partial"
+            or st.session_state.get("review_before_inject", False)
         )
-        _write(
-            "done", "validated",
-            f"{len(result.assignments)} assignment(s) · model {result.model}",
-        )
+        st.session_state.last_translation["pending_review"] = needs_review
+        item = _build_review_item(result)
+        if needs_review:
+            st.session_state.review_queue.append(item)
+            _write(
+                "done", "validated",
+                f"{len(result.assignments)} assignment(s) → queued for review "
+                f"(not yet injected) · see the Triage view",
+            )
+        else:
+            _inject_review_item(item)
+            _write(
+                "done", "validated",
+                f"{len(result.assignments)} assignment(s) · auto-approved · model {result.model}",
+            )
     else:
         st.session_state.translator_error = (
             "Translator returned no assignments — the headline does not map "
@@ -815,9 +926,18 @@ def _run_translator(headline: str, stream_slot) -> None:
 # SIDEBAR
 # ===========================================================================
 
-translator_on = translator_available()
 providers = available_providers()
 provider_labels = {"claude-code": "Claude Code", "openai": "OpenAI API"}
+
+# Offline `fake` translator (deterministic fixtures, no network). Default the
+# dev toggle on when TRANSLATOR_PROVIDER=fake forces it, or when no real backend
+# is available (so the app is always playable). The toggle widget owns the state.
+if "use_fake_translator" not in st.session_state:
+    st.session_state.use_fake_translator = (
+        fake_forced_by_env() or not translator_available()
+    )
+if "use_structured" not in st.session_state:
+    st.session_state.use_structured = structured_enabled()
 
 with st.sidebar:
     st.markdown(
@@ -828,8 +948,38 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # -- Fake-translator dev toggle (offline, deterministic) ---------------
+    use_fake = st.toggle(
+        "Use fake translator (offline)",
+        key="use_fake_translator",
+        help="Deterministic fixtures, no network or API key. For dev / manual "
+             "verification without spending LLM calls.",
+    )
+    use_structured = st.toggle(
+        "Experimental: structured pipeline",
+        key="use_structured",
+        help="Span-grounded structured reasoning (B2): extract atomic claims → map "
+             "each to a node → aggregate. When on, this PRODUCES the injected "
+             "assignments (every one cites verbatim spans) and resists prompt "
+             "injection. Costs 2 LLM calls and derives relevance as yes/no only. "
+             "Off = the single-call path (1 call, richer relevance).",
+    )
+    review_before_inject = st.toggle(
+        "Require review before inject",
+        key="review_before_inject",
+        help="Human-in-the-loop: hold every translation in the Triage view for "
+             "approve / edit / reject before it affects the model. Partial-relevance "
+             "translations are always held regardless of this toggle.",
+    )
+    translator_on = use_fake or translator_available()
+
     # -- Provider chip (one line) ------------------------------------------
-    if translator_on:
+    if use_fake:
+        st.markdown(
+            "<div class='sb-provider'>● Translator: fake (offline dev)</div>",
+            unsafe_allow_html=True,
+        )
+    elif translator_on:
         primary = provider_labels[providers[0]]
         st.markdown(
             f"<div class='sb-provider'>● Translator: {primary}</div>",
@@ -838,6 +988,13 @@ with st.sidebar:
     else:
         st.markdown(
             "<div class='sb-provider warn'>⚠ No translator backend</div>",
+            unsafe_allow_html=True,
+        )
+
+    _n_review = len(st.session_state.review_queue)
+    if _n_review:
+        st.markdown(
+            f"<div class='sb-provider warn'>⏳ {_n_review} awaiting review — see Triage</div>",
             unsafe_allow_html=True,
         )
 
@@ -858,7 +1015,7 @@ with st.sidebar:
             st.session_state.current_day += 1
             st.rerun()
 
-    st.markdown("<div class='sb-title'>Translate a headline</div>",
+    st.markdown("<div class='sb-title'>Translate a headline or article</div>",
                 unsafe_allow_html=True)
 
     with st.form("headline_form", clear_on_submit=True):
@@ -869,21 +1026,45 @@ with st.sidebar:
             disabled=not translator_on,
             label_visibility="collapsed",
         )
+        with st.expander("Add article body & source (optional)"):
+            body_input = st.text_area(
+                "Article body",
+                placeholder="Paste the article body — qualifiers in the body "
+                            "(e.g. 'third such incident this week', 'no injuries') "
+                            "disambiguate states the headline alone can't.",
+                height=120,
+                disabled=not translator_on,
+            )
+            source_input = st.text_input(
+                "Source (outlet or domain)", placeholder="e.g. Reuters",
+                disabled=not translator_on,
+            )
+            source_type_input = st.selectbox(
+                "Source type (sets credibility weight w)",
+                _SOURCE_TYPE_OPTIONS, index=0, disabled=not translator_on,
+            )
         submitted = st.form_submit_button(
             "Translate & observe", type="primary",
             disabled=not translator_on, width="stretch",
         )
         if submitted and headline_input.strip():
-            st.session_state.pending_headline = headline_input.strip()
+            st.session_state.pending_article = {
+                "headline": headline_input.strip(),
+                "body": body_input.strip(),
+                "source": source_input.strip(),
+                "source_type_label": source_type_input,
+            }
 
     # Stream slot lives just below the form — compact, single-line.
     stream_slot = st.empty()
 
     # Run translator *after* the slot is in the sidebar, so updates appear here.
-    if st.session_state.pending_headline is not None:
-        headline = st.session_state.pending_headline
-        st.session_state.pending_headline = None
-        _run_translator(headline, stream_slot)
+    if st.session_state.pending_article is not None:
+        article_fields = st.session_state.pending_article
+        st.session_state.pending_article = None
+        _run_translator(
+            article_fields, stream_slot, provider="fake" if use_fake else None
+        )
 
     with st.expander("Examples", expanded=False):
         for idx, ex in enumerate(EXAMPLE_HEADLINES):
@@ -891,7 +1072,10 @@ with st.sidebar:
                 ex.text, key=f"ex_{idx}",
                 width="stretch", disabled=not translator_on,
             ):
-                st.session_state.pending_headline = ex.text
+                st.session_state.pending_article = {
+                    "headline": ex.text, "body": "", "source": "",
+                    "source_type_label": _FULL_TRUST_LABEL,
+                }
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1006,10 +1190,35 @@ for obs in st.session_state.observations:
 # HEADER
 # ===========================================================================
 
+
+def _load_eval_badge() -> Optional[str]:
+    """Header badge from the committed translator-eval snapshot (T03/D2).
+
+    Returns None if the snapshot is missing (e.g. before `pixi run translator-eval`).
+    """
+    snap = ROOT / "tests" / "golden" / "translator" / "_eval_snapshot.json"
+    try:
+        m = json.loads(snap.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    f1, acc = m.get("node_f1"), m.get("state_accuracy_given_node_match")
+    f1s = f"{f1:.2f}" if isinstance(f1, (int, float)) else "—"
+    accs = f"{acc:.2f}" if isinstance(acc, (int, float)) else "—"
+    return (
+        "<div class='sb-provider' style='display:inline-block;margin:0 0 0.4rem;'>"
+        f"📏 translator eval: n={m.get('n_records', '?')} ({m.get('gate', '?')}) · "
+        f"node-F1 {f1s} · state-acc {accs} · "
+        f"{m.get('n_nodes_covered', '?')}/{m.get('n_observable_nodes', '?')} nodes</div>"
+    )
+
+
 st.markdown(
     "<div class='demo-title'>Adaptive Scenario Probability Framework — Strait of Hormuz</div>",
     unsafe_allow_html=True,
 )
+_eval_badge = _load_eval_badge()
+if _eval_badge:
+    st.markdown(_eval_badge, unsafe_allow_html=True)
 with st.expander("How this model works", expanded=False):
     _render_model_overview(TOPOLOGY)
 
@@ -1093,7 +1302,7 @@ with st.container(border=True):
         err_chart = (
             err_rule + err_caps_lo + err_caps_hi + err_pts
         ).properties(height=170).configure_view(stroke=None)
-        st.altair_chart(err_chart, use_container_width=True)
+        st.altair_chart(err_chart, width="stretch")
         st.caption(
             "Intervals come from resampling CPT parameters (Dirichlet, "
             "concentration = 20, m = 200) and re-running inference."
@@ -1225,7 +1434,7 @@ with st.container(border=True):
         chart = (bands + lines + tooltip).properties(height=260).configure_view(
             stroke=None,
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
         st.caption(
             "Lines are the Dirichlet-resample posterior mean (matching the "
             "scenario cards above). Shaded bands are the 80% credible "
@@ -1381,20 +1590,40 @@ def _robustness_badge_html(
 
 
 # ===========================================================================
-# TABS — Network & model / Observations / Audit trail
+# TOP-LEVEL VIEW NAV — Network & model / Observations / Audit trail / Edges
 # ===========================================================================
+# Deliberately NOT st.tabs: st.tabs keeps every tab body mounted and merely
+# CSS-hides the inactive ones. That breaks the vis.js (streamlit-agraph) DAG
+# canvas — when the Network tab is re-shown, vis.js refits against a stale /
+# zero-size container and renders zoomed-in or blank. A session-state-driven
+# selector with conditional rendering re-mounts only the active view on each
+# switch, so the graph always sizes correctly. (agraph exposes no `key`, so
+# this is the only way to force the clean remount.)
 
-tab_net, tab_obs, tab_audit, tab_edges = st.tabs(
-    ["🕸️  Network & model", "📝  Observations",
-     "🔎  Audit trail", "🧭  Edge rationale"]
+_VIEW_NET = "🕸️  Network & model"
+_VIEW_OBS = "📝  Observations"
+_VIEW_TRIAGE = "🧪  Triage"
+_VIEW_AUDIT = "🔎  Audit trail"
+_VIEW_EDGES = "🧭  Edge rationale"
+
+active_view = st.segmented_control(
+    "View",
+    [_VIEW_NET, _VIEW_OBS, _VIEW_TRIAGE, _VIEW_AUDIT, _VIEW_EDGES],
+    default=_VIEW_NET,
+    key="active_view",
+    label_visibility="collapsed",
 )
+# Single-select segmented_control lets the user deselect the active chip
+# (returns None); keep exactly one view active, the way tabs behave.
+if not active_view:
+    active_view = _VIEW_NET
 
 
 # ---------------------------------------------------------------------------
 # TAB 1 — Network & model (interactive graph + click-to-override / explain)
 # ---------------------------------------------------------------------------
 
-with tab_net:
+if active_view == _VIEW_NET:
     net_col, detail_col = st.columns([2.35, 1.0], gap="large")
 
     with net_col:
@@ -1453,8 +1682,8 @@ with tab_net:
                     dist = soft_evidence[sel]
                     top_state = max(dist, key=dist.get)
                     tip_text = (
-                        f"Soft evidence from headlines: {top_state} "
-                        f"({dist[top_state]*100:0.1f}%, "
+                        f"Soft evidence from headlines: best-supported state "
+                        f"{top_state} (likelihood ratios ε, scaled to 1.0; "
                         f"day {observed_day_map.get(sel, '?')}). "
                         "Intervals show how the posterior shifts when "
                         "CPT parameters are resampled (Dirichlet, "
@@ -1480,7 +1709,7 @@ with tab_net:
                 if sel in evidence:
                     st.altair_chart(
                         _flat_bar_chart(marginal, sorted_states),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 else:
                     node_ci = node_ci_table[sel]
@@ -1491,7 +1720,7 @@ with tab_net:
                     ci_df = _ci_dataframe(node_ci, sorted_states)
                     st.altair_chart(
                         _dumbbell_chart(ci_df, sorted_states),
-                        use_container_width=True,
+                        width="stretch",
                     )
             else:
                 st.markdown(
@@ -1724,7 +1953,7 @@ def _fmt_node(name: str) -> str:
     return name.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
 
 
-with tab_edges:
+if active_view == _VIEW_EDGES:
     st.markdown(
         "<div class='card-title'>Why each arrow is (or isn't) in the "
         "network</div>",
@@ -1763,10 +1992,76 @@ with tab_edges:
 
 
 # ---------------------------------------------------------------------------
+# TRIAGE — human-in-the-loop review queue (T12, in-session)
+# ---------------------------------------------------------------------------
+
+if active_view == _VIEW_TRIAGE:
+    st.markdown(
+        "<div class='card-title'>Triage — translations awaiting review</div>"
+        "<div class='card-sub'>Flagged translations (partial relevance, or all of "
+        "them when “Require review before inject” is on) wait here and do "
+        "<b>not</b> affect the model until you act. Approve, edit a state, or "
+        "reject.</div>",
+        unsafe_allow_html=True,
+    )
+    _queue = st.session_state.review_queue
+    if not _queue:
+        st.info(
+            "Nothing awaiting review. Clearly-relevant translations auto-inject; "
+            "off-topic ones abstain. Turn on “Require review before inject” in the "
+            "sidebar to route everything here first."
+        )
+    for _item in list(_queue):
+        with st.container(border=True):
+            _rel = _item.get("relevance", "yes")
+            _badge = (
+                " <span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
+                "⚠ partial</span>" if _rel == "partial" else ""
+            )
+            st.markdown(
+                f"<div class='translator-headline'>“{_item['headline']}”{_badge}</div>"
+                f"<div class='meta'>day {_item['day']} · {_item['provider']} · "
+                f"{_item['model']}</div>",
+                unsafe_allow_html=True,
+            )
+            chips = "".join(
+                f"<span class='assign-chip'>{a['node'].replace('_',' ')} = {a['state']}</span>"
+                for a in _item["assignments"]
+            )
+            st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
+
+            a_col, r_col = st.columns(2, gap="small")
+            if a_col.button("✓ Approve", key=f"appr_{_item['id']}", width="stretch",
+                            type="primary"):
+                _inject_review_item(_item)
+                _remove_from_review(_item["id"])
+                st.rerun()
+            if r_col.button("✕ Reject", key=f"rej_{_item['id']}", width="stretch"):
+                _remove_from_review(_item["id"])
+                st.rerun()
+
+            with st.expander("Edit states before approving"):
+                _overrides = {}
+                for a in _item["assignments"]:
+                    node = a["node"]
+                    _overrides[node] = st.selectbox(
+                        node.replace("_", " "),
+                        STATES[node],
+                        index=STATES[node].index(a["state"]),
+                        key=f"edit_{_item['id']}_{node}",
+                    )
+                if st.button("✓ Approve with edits", key=f"appredit_{_item['id']}",
+                             width="stretch"):
+                    _inject_review_item(_item, state_overrides=_overrides)
+                    _remove_from_review(_item["id"])
+                    st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # TAB 3 — Observations (latest translation + day-grouped log)
 # ---------------------------------------------------------------------------
 
-with tab_obs:
+if active_view == _VIEW_OBS:
     trans_col, log_col = st.columns([1.0, 1.1], gap="large")
 
     with trans_col:
@@ -1792,29 +2087,89 @@ with tab_obs:
                 f"{a['node'].replace('_',' ')} = {a['state']}</span>"
                 for a in t["assignments"]
             ) or "<span style='color:#9CA3AF;'>No assignments</span>"
+            # B3 relevance badge.
+            _rel = t.get("relevance", "yes")
+            _rel_badge = {
+                "no": "<span class='assign-chip' style='background:#FEE2E2;color:#991B1B;'>"
+                      "⛔ not relevant — not injected</span>",
+                "partial": "<span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
+                           "⚠ partial relevance — review before relying on it</span>",
+            }.get(_rel, "")
             st.markdown(
                 f"""
                 <div class='translator-headline'>“{t['headline']}”</div>
                 <div class='translator-rationale'>{t['rationale']}</div>
-                <div>{chips_html}</div>
+                <div>{_rel_badge}{chips_html}</div>
                 <div class='meta'>provider: {t.get('provider','?')} ·
-                model: {t['model']}</div>
+                model: {t['model']} · relevance: {_rel}</div>
                 """,
                 unsafe_allow_html=True,
             )
+            if t.get("pending_review"):
+                st.warning(
+                    "⏳ **Pending review — not yet injected.** Approve, edit a state, "
+                    "or reject it in the **🧪 Triage** view; until then it does not "
+                    "affect the model."
+                )
+            if "claims" in t:
+                _claims = t["claims"]
+                _maps = t.get("claim_mappings", [])
+                _by_span = {m["supporting_span"]: m for m in _maps if m.get("supporting_span")}
+                with st.expander(
+                    f"Structured pipeline (experimental) — {len(_claims)} claim(s), "
+                    f"{len(_maps)} mapped",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Span-grounded atomic claims (B2 step 1) mapped to BN nodes "
+                        "(step 2) then aggregated (step 3). Each claim cites a verbatim "
+                        "span copied from the article; ungrounded claims are dropped. "
+                        "The aggregated output below **is** what was injected."
+                    )
+                    if t.get("claims_error"):
+                        st.warning(f"Structured pipeline failed: {t['claims_error']}")
+                    for c in _claims:
+                        span = c["verbatim_span"]
+                        m = _by_span.get(span)
+                        if m:
+                            mapped = (
+                                f" → **{m['node'].replace('_',' ')} = {m['state']}**"
+                            )
+                        else:
+                            mapped = " → <span style='color:#9CA3AF;'>(no node)</span>"
+                        st.markdown(f"- “{span}”{mapped}", unsafe_allow_html=True)
+                    if not _claims and not t.get("claims_error"):
+                        st.markdown("_No grounded claims extracted._")
+                    _agg = t.get("structured_assignments")
+                    if _agg is not None:
+                        st.markdown("**Aggregated pipeline output (injected):**")
+                        if _agg:
+                            for a in _agg:
+                                st.markdown(
+                                    f"- {a['node'].replace('_',' ')} = **{a['state']}**"
+                                )
+                        else:
+                            st.markdown("_No nodes mapped — abstained._")
             if t["assignments"]:
-                with st.expander("Per-assignment evidence input (translator soft evidence)"):
+                with st.expander("Per-assignment likelihood ratios (translator soft evidence)"):
+                    st.caption(
+                        "ε = relative likelihood of the article given each state "
+                        "(best-supported state pinned to 1.0); injected as soft "
+                        "evidence, not a probability distribution."
+                    )
                     for a in t["assignments"]:
                         probs = a.get("state_probs", {})
-                        probs_text = " · ".join(
-                            f"{k.replace('_',' ')}: {float(v)*100:0.1f}%"
+                        eps_text = " · ".join(
+                            (f"**{k.replace('_',' ')}: {float(v):.2f}**"
+                             if abs(float(v) - 1.0) < 1e-6
+                             else f"{k.replace('_',' ')}: {float(v):.2f}")
                             for k, v in probs.items()
                         )
-                        probs_suffix = f"  \n  {probs_text}" if probs_text else ""
+                        eps_suffix = f"  \n  ε: {eps_text}" if eps_text else ""
                         st.markdown(
                             f"- **{a['node'].replace('_',' ')} = "
                             f"`{a['state']}`** — {a['reason']}"
-                            f"{probs_suffix}"
+                            f"{eps_suffix}"
                         )
         if st.session_state.translator_raw:
             with st.expander("Raw model response (debug)"):
@@ -1886,7 +2241,7 @@ with tab_obs:
 # TAB 4 — Audit trail (full width, grouped tables)
 # ---------------------------------------------------------------------------
 
-with tab_audit:
+if active_view == _VIEW_AUDIT:
     st.markdown("<div class='card-title'>Updates by day (injected evidence inputs)</div>",
                 unsafe_allow_html=True)
     if not st.session_state.observations:
@@ -1918,7 +2273,7 @@ with tab_audit:
         st.dataframe(
             pd.DataFrame(update_rows),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Day": st.column_config.NumberColumn("Day", width="small"),
                 "Node": st.column_config.TextColumn("Node", width="medium"),
@@ -1958,7 +2313,7 @@ with tab_audit:
             if not observed_label and node in soft_evidence:
                 dist = soft_evidence[node]
                 top_state = max(dist, key=dist.get)
-                observed_label = f"{top_state} ({dist[top_state]*100:0.0f}%, soft)"
+                observed_label = f"{top_state} (soft)"
             row = {
                 "Node": node.replace("_", " "),
                 "Injected evidence": observed_label,
@@ -1978,7 +2333,7 @@ with tab_audit:
                 s, format="%.1f%%", min_value=0.0, max_value=100.0,
             )
         st.dataframe(
-            df, hide_index=True, use_container_width=True,
+            df, hide_index=True, width="stretch",
             column_config=col_cfg,
         )
 

@@ -1,0 +1,43 @@
+{
+  "id": "hedged_unconfirmed_blast",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "mixed",
+  "note": "Edge case: hedged/unconfirmed single incident -> isolated, nothing else.",
+  "article": {
+    "headline": "Unconfirmed reports of a blast near a tanker off Fujairah; no injuries cited"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated",
+        "reason": "A single reported blast near one tanker off Fujairah, unconfirmed and with no injuries, points to an isolated incident rather than a frequent campaign or a clean record.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.25
+          },
+          {
+            "state": "isolated",
+            "value": 1.0
+          },
+          {
+            "state": "frequent",
+            "value": 0.15
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "An unconfirmed, low-severity single-tanker blast near Fujairah reads as an isolated maritime incident; too thin and unverified to imply a broader escalation pattern or other nodes."
+  }
+}

@@ -325,7 +325,7 @@ The order in which hidden variables are eliminated affects computational cost bu
 
 - **`update_evidence(evidence)`**: merges new hard `{node: state}` pairs into the stored evidence dict. Validates every node name against `STATES` and every state value against `STATES[node]`. If the same node is set again, the new value overwrites the old one.
 
-- **`update_soft_evidence(soft_evidence)`**: merges new soft evidence `{node: {state: prob}}`, normalizes each node distribution, and converts it to pgmpy virtual evidence at query time.
+- **`update_soft_evidence(soft_evidence)`**: merges new soft evidence `{node: {state: ε}}` as **likelihood ratios** (A1 semantics, see §4.2): max-normalises each node vector (best state → 1.0, preserving ratios) and converts it to a pgmpy virtual-evidence factor at query time. pgmpy treats the factor as a likelihood and multiplies the node's prior exactly once.
 
 - **`clear_evidence()`**: resets hard and soft evidence to empty — returns the model to the prior.
 
@@ -364,11 +364,19 @@ The LLM response is validated in two stages:
 The result is a `TranslatorResult` containing validated `TranslatorAssignment` objects, each with:
 
 - `node`
-- `state` (top state)
+- `state` (the best-supported state)
 - `reason`
-- `state_probs` (full probability vector over allowed states)
+- `state_probs` — the per-state **likelihood ratios** ε (see the A1 contract below). *(Field name retained pending the A2 schema cleanup; it holds ε, not probabilities.)*
 
-If a provider omits probabilities, validation falls back to one-hot (`100/0/...`) for compatibility.
+If a provider omits a state, validation floors it to a small value (`0.01`, "essentially ruled out") rather than zero.
+
+#### Likelihood-ratio contract (A1)
+
+The translator emits, per node, a vector of **likelihood ratios** rather than a posterior distribution:
+
+$$\varepsilon_i = \frac{P(\text{article} \mid \text{state} = s_i)}{\max_{i'} P(\text{article} \mid \text{state} = s_{i'})} \in (0, 1],$$
+
+with the single best-supported state pinned to $\varepsilon = 1.0$. This is **not** a probability distribution and does **not** sum to 1. It maps directly onto pgmpy's virtual-evidence convention, which interprets the injected vector as a likelihood and multiplies the node's prior **exactly once** — $P(s_i \mid \text{article}) \propto \varepsilon_i\, P(s_i)$ — as Bayes prescribes. (The earlier interface asked for a sum-to-1 *posterior*, which pgmpy then multiplied by the prior a second time, squaring it — finding M2/C5.) The validator rejects $\varepsilon = 0$ (a state asserted strictly impossible would zero its posterior irrecoverably) and rejects vectors with no state at 1.0. Pre-A1 audit records are tagged `semantics_version = "pre-A1-posterior"`; A1-and-later records carry `"likelihood-ratio"`.
 
 
 ### 4.3 How evidence flows in the dashboard
@@ -384,7 +392,7 @@ In `app/dashboard.py`:
 
 Important UI interpretation:
 
-- Translator percentages are **injected evidence inputs**.
+- Translator outputs are **likelihood ratios** (ε) injected as soft-evidence inputs — not probabilities (§4.2).
 - Network node percentages are **posterior outputs after BN propagation**.
 - Audit/log tables report **injected evidence**, not final node posteriors.
 

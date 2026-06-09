@@ -1,0 +1,20 @@
+{
+  "match": [],
+  "kind": "wellformed",
+  "note": "Fallback for any unmatched headline. A1 likelihood-ratio (ε) form, A2 canonical {state, value} shape: best state pinned to 1.0, others in (0,1], not a distribution.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated",
+        "reason": "Generic Gulf maritime tension (fake default fixture).",
+        "state_probs": [
+          {"state": "none", "value": 0.50},
+          {"state": "isolated", "value": 1.00},
+          {"state": "frequent", "value": 0.40}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake default translation (offline fixture)."
+  }
+}

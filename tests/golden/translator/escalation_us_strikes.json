@@ -1,0 +1,112 @@
+{
+  "id": "escalation_us_strikes",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "escalation",
+  "note": "Direct US strikes on IRGC = major response + diplomatic breakdown.",
+  "article": {
+    "headline": "US conducts strikes against IRGC naval assets after tanker attack"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "US_Military_Response",
+        "state": "major"
+      },
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated"
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "elevated"
+      },
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "breakdown"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "US_Military_Response",
+        "state": "major",
+        "reason": "Direct US strikes against IRGC naval assets represent a significant kinetic military response, beyond limited defensive action.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.01
+          },
+          {
+            "state": "limited",
+            "value": 0.5
+          },
+          {
+            "state": "major",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated",
+        "reason": "The headline cites a tanker attack as the precipitating event; one referenced incident suggests an isolated event rather than a sustained frequent campaign.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.02
+          },
+          {
+            "state": "isolated",
+            "value": 1.0
+          },
+          {
+            "state": "frequent",
+            "value": 0.6
+          }
+        ]
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "elevated",
+        "reason": "A tanker attack triggering US strikes signals heightened Iran-aligned hostile activity in the maritime domain.",
+        "state_probs": [
+          {
+            "state": "low",
+            "value": 0.05
+          },
+          {
+            "state": "elevated",
+            "value": 1.0
+          },
+          {
+            "state": "high",
+            "value": 0.7
+          }
+        ]
+      },
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "breakdown",
+        "reason": "Direct military strikes against IRGC assets indicate a collapse of any diplomatic track rather than mere stalling.",
+        "state_probs": [
+          {
+            "state": "success",
+            "value": 0.01
+          },
+          {
+            "state": "stalled",
+            "value": 0.4
+          },
+          {
+            "state": "breakdown",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "US strikes on IRGC naval assets following a tanker attack mark a major military escalation and breakdown in diplomacy, raising risk of conflict in the strait."
+  }
+}

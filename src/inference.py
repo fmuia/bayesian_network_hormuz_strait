@@ -13,6 +13,25 @@ from .network import STATES, build_network
 SCENARIO = "Scenario"
 
 
+def _require_latent_regime(network: DiscreteBayesianNetwork) -> None:
+    """Raise unless ``network`` is the latent-regime topology.
+
+    Regime Bayes factors are only meaningful when ``Scenario`` is a latent cause
+    that *generates* the outcomes (i.e. has children). On the labelling topology
+    ``Scenario`` is a leaf, so this query would silently return plausible-looking
+    but meaningless numbers — fail loudly instead. Note this guards the regime
+    *Bayes-factor* path only; :func:`clamped_scenario_likelihoods` is a
+    deliberately topology-agnostic primitive (used on both topologies to
+    contrast their likelihoods) and is intentionally left unguarded.
+    """
+    if not list(network.successors(SCENARIO)):
+        raise ValueError(
+            "scenario_bayes_factors requires the latent-regime topology "
+            "(build_network('latent_regime')); on the labelling topology "
+            f"{SCENARIO!r} is a leaf and regime Bayes factors are undefined."
+        )
+
+
 def _scenario_virtual_cpds(
     soft_evidence: Optional[Mapping[str, Mapping[str, float]]],
 ) -> list[TabularCPD]:
@@ -45,6 +64,7 @@ def scenario_bayes_factors(
     cancels), which is exact for hard *and* soft evidence. For an algebraically
     independent cross-check on hard evidence see :func:`clamped_scenario_likelihoods`.
     """
+    _require_latent_regime(network)
     evidence = dict(evidence or {})
     ve = VariableElimination(network)
 
@@ -129,6 +149,14 @@ class BNInferenceEngine:
     def update_soft_evidence(
         self, soft_evidence: Mapping[str, Mapping[str, float]]
     ) -> None:
+        """Store per-node soft evidence as **likelihood ratios** (A1 semantics).
+
+        Values are normalised by their max (the best-supported state → 1.0), not
+        by their sum: pgmpy's virtual-evidence treats the column as a likelihood
+        and applies it proportionally, so max-pinning is mathematically
+        equivalent to sum-normalising for inference while keeping the stored
+        values interpretable as the ε vector the translator emitted.
+        """
         for node, dist in soft_evidence.items():
             if node not in STATES:
                 raise KeyError(f"Unknown node: {node}")
@@ -136,12 +164,12 @@ class BNInferenceEngine:
             for state in STATES[node]:
                 p = float(dist.get(state, 0.0))
                 if p < 0.0:
-                    raise ValueError(f"Negative probability for {node}.{state}: {p}")
+                    raise ValueError(f"Negative likelihood for {node}.{state}: {p}")
                 probs[state] = p
-            total = sum(probs.values())
-            if total <= 0.0:
-                raise ValueError(f"Soft evidence for {node} sums to zero.")
-            probs = {k: v / total for k, v in probs.items()}
+            peak = max(probs.values())
+            if peak <= 0.0:
+                raise ValueError(f"Soft evidence for {node} is all-zero.")
+            probs = {k: v / peak for k, v in probs.items()}
             self._evidence.pop(node, None)
             self._soft_evidence[node] = probs
 

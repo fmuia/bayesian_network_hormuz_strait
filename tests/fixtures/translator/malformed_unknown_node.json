@@ -1,0 +1,18 @@
+{
+  "match": ["malformed", "__malformed__"],
+  "kind": "malformed",
+  "note": "Triggers the validator's unknown-node rejection. Paste a headline containing 'malformed' to exercise error handling in the app.",
+  "payload": {
+    "assignments": [
+      {
+        "node": "Nonexistent_Node",
+        "state": "frequent",
+        "reason": "This node is not in the BN schema and must be rejected.",
+        "state_probs": [
+          {"state": "frequent", "value": 1.0}
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: malformed fixture (unknown node)."
+  }
+}
