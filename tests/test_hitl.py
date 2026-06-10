@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from streamlit.testing.v1 import AppTest
 
-_TRIAGE = "🧪  Triage"  # must match _VIEW_TRIAGE in dashboard.py
+_TRIAGE = "⚖️  Triage"  # must match _VIEW_TRIAGE in dashboard.py
 _PARTIAL = {  # fake partial_ambiguous fixture -> relevance "partial"
     "headline": "Brent crude prices climb on Gulf jitters",
     "body": "", "source": "", "source_type_label": "(unspecified — full trust)",

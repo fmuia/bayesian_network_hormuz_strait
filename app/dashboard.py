@@ -265,7 +265,7 @@ evolution_chart.render_evolution_chart(
 
 _VIEW_NET = "🕸️  Network & model"
 _VIEW_OBS = "📝  Observations"
-_VIEW_TRIAGE = "🧪  Triage"
+_VIEW_TRIAGE = "⚖️  Triage"
 _VIEW_AUDIT = "🔎  Audit trail"
 _VIEW_EDGES = "🧭  Edge rationale"
 

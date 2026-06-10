@@ -55,7 +55,7 @@ def render(st):
             if t.get("pending_review"):
                 st.warning(
                     "⏳ **Pending review — not yet injected.** Approve, edit a state, "
-                    "or reject it in the **🧪 Triage** view; until then it does not "
+                    "or reject it in the **⚖️ Triage** view; until then it does not "
                     "affect the model."
                 )
             structured_panel.render(st, t)
