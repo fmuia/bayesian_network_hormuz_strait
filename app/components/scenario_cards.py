@@ -36,7 +36,6 @@ def render_scenario_outlook(st, ci_table, deltas=None):
             mean, lo, hi = ci_table[scenario]
             color = SCENARIO_COLOR[scenario]
             label = SCENARIO_LABEL[scenario]
-            narrative = SCENARIO_NARRATIVES[scenario]
             delta_html = (_delta_chip(deltas[scenario]) if deltas is not None
                           and scenario in deltas else "")
             cards_html += (
@@ -45,11 +44,21 @@ def render_scenario_outlook(st, ci_table, deltas=None):
                 f"  <div class='scenario-prob' style='color:{color};'>{mean*100:0.1f}%</div>"
                 f"  <div class='scenario-ci'>80% CI: {lo*100:0.1f}% – {hi*100:0.1f}%</div>"
                 f"  {delta_html}"
-                f"  <div class='scenario-narrative'>{narrative}</div>"
                 f"</div>"
             )
         cards_html += "</div>"
         st.markdown(cards_html, unsafe_allow_html=True)
+
+        # Narratives moved off the always-on card (Plan 5 P11 / C12 / V14): they are
+        # identical on day 0 and day 30, so decoration in the persistent view —
+        # kept one click away instead.
+        with st.expander("What each scenario means", expanded=False):
+            for s in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
+                st.markdown(
+                    f"<b style='color:{SCENARIO_COLOR[s]};'>{SCENARIO_LABEL[s]}</b> — "
+                    f"{SCENARIO_NARRATIVES[s]}",
+                    unsafe_allow_html=True,
+                )
 
         with st.expander("Uncertainty detail — 80% credible intervals", expanded=False):
             ci_df = pd.DataFrame([

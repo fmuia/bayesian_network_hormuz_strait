@@ -49,3 +49,17 @@ def test_removing_the_observation_clears_the_chips():
     at.session_state["observations"] = []   # remove / undo
     at.run()
     assert _chips(at) == []                  # restored cleanly
+
+
+# ===== P11 — narratives moved off the card into an expander (C12 / V14) =====
+
+
+def test_narratives_off_card_but_reachable_in_expander():
+    from src.network import SCENARIO_NARRATIVES
+    snippet = SCENARIO_NARRATIVES["Severe_Closure"][:40]   # distinctive chunk
+    at = _app()
+    cards = [m.value for m in at.markdown if "class='scenario-grid'" in m.value]
+    assert cards                                           # the always-on cards element
+    assert all(snippet not in c for c in cards)            # narrative NOT on the card
+    assert "What each scenario means" in [e.label for e in at.get("expander")]
+    assert any(snippet in m.value for m in at.markdown)    # and rendered (reachable)
