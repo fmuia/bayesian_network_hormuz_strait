@@ -21,7 +21,7 @@
 | **1** | Embedding-based translator features (relevance pre-filter, paraphrase dedup, retrieval index) | Plan 2 (B3/T05, B2/T06a, E2/T13) | LLM-only equivalents / deferred reach item | Throughput or calibration data shows the LLM-only path is insufficient |
 | **2** | PyMC / continuous-variable inference backend (dual backend, hierarchical priors, continuous Oil_Price, per-CPT κ) | Plan 3 (all phases) | Stay on the existing pgmpy discrete path | A continuous variable or hierarchical-prior calibration becomes necessary |
 | **3** | Plan 2 institutional layer (ensemble, prompt versioning, sqlite provenance, source-credibility history, multi-model cross-check, RAG, riders) | Plan 2 (T07, T08, T09, T10, T11, T13, R-judge/R-cal/R-pair) | POC ships T00–T06 + a slim in-session HITL (T12); in-session audit + saved sessions cover provenance | Moving from POC to a paying/production engagement |
-| **4** | Plan 5 dashboard remainder (engine-caching for multi-user, topological DAG levels, cache bounds + evolution memoisation, drag-to-simplex sliders, band styling, stacked-bar `state_probs`, multi-line tooltips, flex/grid canvas, continuous Oil_Price, D-hygiene) | Plan 5 (A3, A4, B1, B2, C3, C6, C8, C10, C13, C14, D1–D5) | POC slice ships A1/A2/A5 + C1/C2/C4/C7/C9/C11/C12/C15 + tests | Per-item triggers (hosted deployment, next node added, observed latency/misreads, Plan 3 revival) — detailed in [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md) |
+| **4** | Plan 5 dashboard remainder (engine-caching for multi-user, topological DAG levels, cache bounds + evolution memoisation, drag-to-simplex sliders, band styling, stacked-bar `state_probs`, CVD-safe palette, multi-line tooltips, flex/grid canvas, continuous Oil_Price, D-hygiene) | Plan 5 (A3, A4, B1, B2, C3, C6, C8, C9, C10, C13, C14, D1–D5) | POC slice ships A1/A2/A5 + C1/C2/C4/C7/C11/C12/C15 + tests | Per-item triggers (hosted deployment, next node added, observed latency/misreads, Plan 3 revival) — detailed in [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md) |
 
 ---
 
@@ -111,12 +111,12 @@ The master-plan matrix rows for M2/M3/M4 are annotated to point here.
 **What was deferred (skeptical-gate decision, 2026-06-09).** Plan 5 was split into a POC slice ([`05_dashboard_ui_plan.md`](05_dashboard_ui_plan.md)) and this remainder. An item ships in the POC only if a single-presenter committee viewer **sees it** and **trusts the model more for it** (or it is foundation the visible items need). The remainder is everything else:
 
 - **Architecture / performance (invisible in a demo):** A3 (engine-caching fix — only bites under multi-user hosting), A4 (topological DAG levels — a maintenance hazard, not a visible defect), B1 (cache bounds — long-session memory), B2 (evolution memoisation — latency; promote early if the demo lags).
-- **Secondary UX:** C3 (drag-to-simplex sliders), C6 (param-vs-forecast band styling), C8 (stacked-bar `state_probs`), C10 (multi-line tooltips), C13 (flex/grid canvas — already a deferred decision).
+- **Secondary UX:** C3 (drag-to-simplex sliders), C6 (param-vs-forecast band styling), C8 (stacked-bar `state_probs`), C9 (CVD-safe palette — forgone for the first pass, 2026-06-10), C10 (multi-line tooltips), C13 (flex/grid canvas — already a deferred decision).
 - **Blocked upstream:** C14 (continuous Oil_Price) — needs Plan 3, which is shelved (§2 above).
 - **Code hygiene (invisible):** D1 (`render_network_png` dead code), D2 (`Observation.tone`), D3 residual (expand the guard comment), D4 (deduplicate sensitivity functions), D5 (TODO on the `dot -c` workaround).
 
 **Already addressed (not deferred, just done):** B3 (the override already button-commits) and D3 (the `+1e-6` guard already carries a comment) — see the deferred file's "already addressed" note.
 
-**Substitute in force now.** The POC slice (A1/A2/A5 + C1/C2/C4/C7/C9/C11/C12/C15 + tests) makes the dashboard committee-ready on the single-presenter pgmpy / latent-regime path; the deferred items are real but invisible-in-demo, secondary, or upstream-blocked.
+**Substitute in force now.** The POC slice (A1/A2/A5 + C1/C2/C4/C7/C11/C12/C15 + tests) makes the dashboard committee-ready on the single-presenter pgmpy / latent-regime path; the deferred items are real but invisible-in-demo, secondary, or upstream-blocked.
 
 **Re-introduction trigger.** Per-item (see the deferred file): a **hosted/multi-user deployment** (A3, B1), the **next node added** (A4), **observed latency** (B2) or **misreads** (C6), **heavy override use** (C3), a **UI-framework migration** (C13), or **Plan 3 revival** (C14).

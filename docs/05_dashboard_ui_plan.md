@@ -21,7 +21,6 @@
 | V3 | C2 | smooth robustness gradient (no hard emoji flips) |
 | V5 | C4 | rich observed-node panel + first-class Bayes-factor contribution (Plan 1) |
 | V9 | C7 | before/after delta chips on a new observation |
-| V11 | C9 | colourblind-safe palette + line-style encoding |
 | V13 | C11 | edge rationale on hover in the DAG |
 | V14 | C12 | hide the static scenario narratives (interim) |
 | (new) | C15 | consistency pass so the Plan-2/4 surfaces match |
@@ -34,7 +33,7 @@
 1. **Category-A refactor precedes the visuals** — split + CSS first, so each visual lands in a clean module.
 2. **Engine caching** — *deferred* (A3, R-A3 in the companion): the POC keeps the current cached-engine pattern, which is safe for a single presenter.
 3. **Robustness encoding** — smooth gradient; emoji retained as a coarse summary.
-4. **Palette** — Wong CVD-safe set `#0072B2` / `#E69F00` / `#D55E00`, plus solid/dashed/dotted line encoding.
+4. **Palette** — *deferred for the first pass* (R-C9 in the companion): keep the current green/amber/red; the Wong CVD-safe set + line-style encoding lands when accessibility becomes a requirement.
 5. **Scenario narratives** — removed from the always-on card, behind an expander.
 6. **Edge rationale** — hover tooltips in the DAG **plus** the existing tab (the tab keeps the omitted-edges discussion).
 7. **Bayes-factor panel** — first-class (Plan 1 latent default; `src/inference.py:scenario_bayes_factors`), guarded to the latent topology (it raises on labelling).
@@ -76,38 +75,33 @@
 **Acceptance gate.** Unit test of the gradient function: monotonic colour vs half-width; boundary cases (7pp vs 9pp produce *close* colours, not a category flip).
 **Manual verification.** A node moving 7→9pp shows a smooth shift, not a flip.
 
-#### ⬜ P7 — Colourblind-safe palette (C9 · V11)
-**Scope.** Centralise `SCENARIO_COLOR` to the Wong set (`#0072B2` / `#E69F00` / `#D55E00`); update all Altair scales; add solid/dashed/dotted line styles on the evolution chart.
-**Acceptance gate.** A test asserts the palette constants and that every scenario chart uses the scale; `AppTest` renders.
-**Manual verification.** CVD-simulator check (Coblis); scenarios stay distinct in greyscale.
-
-#### ⬜ P8 — Right-size cards, enlarge the evolution chart (C1 · V2)
+#### ⬜ P7 — Right-size cards, enlarge the evolution chart (C1 · V2)
 **Scope.** Compress the scenario cards to a vertical strip (~1/5 viewport) in `scenario_cards.py`; reallocate space to the evolution chart.
 **Acceptance gate.** `AppTest` renders the new layout; card-helper tests still pass.
 **Manual verification.** Evolution chart ≥1.5× larger; cards legible at common breakpoints.
 
-#### ⬜ P9 — Rich observed-node panel + Bayes-factor (C4 · V5)
+#### ⬜ P8 — Rich observed-node panel + Bayes-factor (C4 · V5)
 **Scope.** Replace the flat 100%/0% bar with `app/components/observed_node_panel.py`: observed value + source + day; downstream posterior change; previous posterior; and the **Bayes-factor contribution** (`scenario_bayes_factors`, guarded to the latent topology).
 **Acceptance gate.** Component test: the panel reads value/source/day; the Bayes-factor wiring returns values on the latent topology and is cleanly skipped on labelling.
 **Manual verification.** On the canonical escalation, the observed-node panel shows the contribution.
 
-#### ⬜ P10 — Before/after delta chips (C7 · V9)
+#### ⬜ P9 — Before/after delta chips (C7 · V9)
 **Scope.** Store previous-observation scenario probabilities in `state.py`; render `▲ +5pp Severe` / `▼ -3pp Stress` chips on the cards when a new observation commits.
 **Acceptance gate.** Unit test of the delta computation (prev vs current → signed pp); undo/remove restores the prior state cleanly.
 **Manual verification.** Committing an observation shows visible deltas; removing it clears them.
 
-#### ⬜ P11 — Edge rationale on hover (C11 · V13)
+#### ⬜ P10 — Edge rationale on hover (C11 · V13)
 **Scope.** Populate `streamlit_agraph` edge titles from `_EDGE_RATIONALE` in `build_agraph_payload`; keep the Edge-rationale view for the full list + omitted edges.
 **Acceptance gate.** `tests/test_viz.py` asserts every edge in the payload carries its rationale title.
 **Manual verification.** Hovering any edge shows the rationale.
 
-#### ⬜ P12 — Hide the static narratives (C12 · V14)
+#### ⬜ P11 — Hide the static narratives (C12 · V14)
 **Scope.** Move the fixed scenario-narrative paragraph off the always-on card into an expander.
 **Acceptance gate.** `AppTest`: the card no longer always-renders the narrative; it is reachable via the expander.
 **Manual verification.** Cards denser; narrative on click.
 
-#### ⬜ P13 — Consistency pass over the Plan-2/4 surfaces (C15 · new)
-**Scope.** Apply the CVD palette (P7), smooth robustness encoding (P6), and card density to the **Triage**, translator-relevance, structured-pipeline, and **elicitation** surfaces; ensure they consume `styles.css` (P1) and the component conventions (P4).
+#### ⬜ P12 — Consistency pass over the Plan-2/4 surfaces (C15 · new)
+**Scope.** Apply the current palette, the smooth robustness encoding (P6), and card density to the **Triage**, translator-relevance, structured-pipeline, and **elicitation** surfaces; ensure they consume `styles.css` (P1) and the component conventions (P4). *(The CVD-safe palette sweep is deferred with R-C9.)*
 **Acceptance gate.** `AppTest` renders all surfaces; a visual pass confirms one palette + one robustness encoding across surfaces.
 **Manual verification.** Triage / translator / structured / elicitation match the scenario cards' look.
 
@@ -121,14 +115,14 @@
 | P4 | Remaining views; orchestration-only `dashboard.py` | A1 | C2 |
 | P5 | IA consolidation (🧪 fix) | A5 | (new) |
 | P6 | Smooth robustness gradient | C2 | V3 |
-| P7 | CVD-safe palette | C9 | V11 |
-| P8 | Right-size cards / bigger evolution chart | C1 | V2 |
-| P9 | Rich observed-node panel + Bayes | C4 | V5 |
-| P10 | Before/after delta chips | C7 | V9 |
-| P11 | Edge rationale on hover | C11 | V13 |
-| P12 | Hide static narratives | C12 | V14 |
-| P13 | Consistency pass | C15 | (new) |
+| P7 | Right-size cards / bigger evolution chart | C1 | V2 |
+| P8 | Rich observed-node panel + Bayes | C4 | V5 |
+| P9 | Before/after delta chips | C7 | V9 |
+| P10 | Edge rationale on hover | C11 | V13 |
+| P11 | Hide static narratives | C12 | V14 |
+| P12 | Consistency pass | C15 | (new) |
+| ~~CVD-safe palette~~ | 🅿️ **deferred 2026-06-10** (R-C9) | C9 | V11 |
 
 ## After the POC
 
-The deferred remainder — engine-caching for multi-user (A3), topological DAG levels (A4), cache bounds + evolution memoisation (B1/B2), drag-to-simplex sliders (C3), param/forecast band styling (C6), stacked-bar `state_probs` (C8), multi-line tooltips (C10), flex/grid canvas (C13), continuous Oil_Price (C14, Plan 3), and the D-hygiene items — lives in [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md), each with its deferral reason, re-introduction trigger, and a commit-wise acceptance gate. Indexed from [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §4.
+The deferred remainder — engine-caching for multi-user (A3), topological DAG levels (A4), cache bounds + evolution memoisation (B1/B2), drag-to-simplex sliders (C3), param/forecast band styling (C6), stacked-bar `state_probs` (C8), **CVD-safe palette (C9, deferred 2026-06-10)**, multi-line tooltips (C10), flex/grid canvas (C13), continuous Oil_Price (C14, Plan 3), and the D-hygiene items — lives in [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md), each with its deferral reason, re-introduction trigger, and a commit-wise acceptance gate. Indexed from [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §4.

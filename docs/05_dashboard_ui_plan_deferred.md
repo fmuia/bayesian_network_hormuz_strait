@@ -59,6 +59,12 @@
 **Scope.** Inline ~60px stacked bar per `state_probs`; fold the structured-pipeline (claims→mappings) detail into the same `translator_panel.py` so the per-observation view is one coherent panel. Text retained on hover.
 **Acceptance gate.** A helper test builds the stacked-bar data correctly; the text values remain accessible on hover.
 
+### ⬜ R-C9 — Colourblind-safe palette *(V11 · C9)* — moved out of the POC 2026-06-10
+**Why deferred.** **Forgone for the first pass** (analyst decision): the current green/amber/red reads fine for a single-presenter demo; CVD-safe colours are an accessibility refinement, not a comprehension blocker. The P6 smooth-robustness gradient already removed the hard-bucket flip on its own anchors.
+**Re-introduction trigger.** Accessibility becomes a requirement (a CVD-affected stakeholder, a public/contractual deployment, or a greyscale-print need).
+**Scope.** Centralise `SCENARIO_COLOR` (in `app/theme.py`) to Wong's set `#0072B2` / `#E69F00` / `#D55E00`; update every Altair scale; add solid/dashed/dotted line styles on the evolution chart; re-anchor `ci_charts.robustness_color`; sweep the Triage / relevance / stream surfaces (the C15 colour half).
+**Acceptance gate.** A test asserts the palette constants + that every scenario chart uses the scale; a CVD-simulator (Coblis) check shows the three scenarios stay distinct in greyscale.
+
 ### ⬜ R-C10 — Multi-line evolution tooltips *(V12 · C10)*
 **Why deferred.** **Minor** truncation polish.
 **Re-introduction trigger.** Tooltips clip headlines in real use.
@@ -120,6 +126,7 @@
 | 5 | R-C3 — drag-to-simplex | heavy override use |
 | 6 | R-C6 — band styling | observed misreads |
 | 7 | R-C8 — stacked-bar `state_probs` | opportunistic |
+| 7b | R-C9 — CVD-safe palette | accessibility requirement |
 | 8 | R-C10 — multi-line tooltips | observed clipping |
 | 9 | R-D1…R-D5 — hygiene | opportunistic |
 | 10 | R-C13 — flex/grid canvas | UI-framework migration |
