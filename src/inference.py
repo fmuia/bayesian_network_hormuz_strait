@@ -239,6 +239,17 @@ class BNInferenceEngine:
             self._network, self._evidence, self._soft_evidence
         )
 
+    def standalone_bayes_factors(
+        self,
+        evidence: Mapping[str, str],
+        soft_evidence: Optional[Mapping[str, Mapping[str, float]]] = None,
+    ) -> Dict[str, object]:
+        """Regime Bayes factors for a *specific* evidence set (not the engine's
+        accumulated one) — used to attribute a single observation's contribution
+        to the latent regime. Raises on a non-latent-regime network.
+        """
+        return scenario_bayes_factors(self._network, evidence, soft_evidence)
+
     # -- helpers -------------------------------------------------------------
 
     @staticmethod

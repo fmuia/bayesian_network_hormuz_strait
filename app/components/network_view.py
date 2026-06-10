@@ -11,8 +11,9 @@ from streamlit_agraph import agraph
 # import the function (not the module): the override loop binds a local `state`,
 # which would shadow a `state` module import.
 from state import record_observation
+from components import observed_node_panel
 from components.ci_charts import (
-    _ci_dataframe, _dumbbell_chart, _flat_bar_chart, _robustness_badge_html,
+    _ci_dataframe, _dumbbell_chart, _robustness_badge_html,
 )
 from src.network import STATES
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload
@@ -20,7 +21,7 @@ from theme import GREEN, MUTED, NAVY, RED, ROOT_DRIVER_STYLE
 
 
 def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
-           observed_day_map, topology):
+           observed_day_map, observed_meta, selected_bayes, topology):
     net_col, detail_col = st.columns([2.35, 1.0], gap="large")
 
     with net_col:
@@ -104,9 +105,10 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                     unsafe_allow_html=True,
                 )
                 if sel in evidence:
-                    st.altair_chart(
-                        _flat_bar_chart(marginal, sorted_states),
-                        width="stretch",
+                    observed_node_panel.render(
+                        st, observed_state=evidence[sel],
+                        meta=observed_meta.get(sel, {}), bayes=selected_bayes,
+                        marginal=marginal, sorted_states=sorted_states,
                     )
                 else:
                     node_ci = node_ci_table[sel]

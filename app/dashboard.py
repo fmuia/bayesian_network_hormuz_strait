@@ -193,13 +193,26 @@ node_ci_table = cached_node_credible_intervals(
     _locked_spec_json(),
 )
 
-# Map each observed node to the latest day it was set.
+# Map each observed node to the latest observation that set it (day for the agraph
+# payload; full meta — day / source / headline — for the observed-node panel, P8).
 observed_day_map: Dict[str, int] = {}
+observed_meta: Dict[str, dict] = {}
 for obs in st.session_state.observations:
-    for node in obs.get("assignments", {}):
+    for node in {**obs.get("assignments", {}), **obs.get("soft_assignments", {})}:
         observed_day_map[node] = obs["day"]
-    for node in obs.get("soft_assignments", {}):
-        observed_day_map[node] = obs["day"]
+        observed_meta[node] = {"day": obs["day"], "source": obs["source"],
+                               "headline": obs["headline"]}
+
+# Standalone Bayes-factor contribution of the selected hard-observed node (P8 / C4):
+# what that single observation alone says about the latent regime. Only meaningful
+# on a latent-regime network — scenario_bayes_factors raises otherwise, so skip.
+_sel_node = st.session_state.selected_node
+selected_bayes = None
+if _sel_node and _sel_node in evidence:
+    try:
+        selected_bayes = engine.standalone_bayes_factors({_sel_node: evidence[_sel_node]})
+    except ValueError:
+        selected_bayes = None
 
 
 # ===========================================================================
@@ -290,7 +303,8 @@ if active_view == _VIEW_NET:
     network_view.render(
         st, all_marginals=all_marginals, evidence=evidence,
         soft_evidence=soft_evidence, node_ci_table=node_ci_table,
-        observed_day_map=observed_day_map, topology=TOPOLOGY,
+        observed_day_map=observed_day_map, observed_meta=observed_meta,
+        selected_bayes=selected_bayes, topology=TOPOLOGY,
     )
 
     with st.expander("Appendix — math and implementation details", expanded=False):

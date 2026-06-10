@@ -67,3 +67,27 @@ def test_stale_scenario_observation_does_not_crash():
         day=1, headline="bad", assignments={"Scenario": "Severe_Closure"}, item_id="x")]
     at.run()
     assert not at.exception
+
+
+def test_observed_node_panel_shows_value_and_bayes():
+    """P8: selecting a hard-observed node shows its value + the standalone
+    Bayes-factor contribution to the regime (not the bare flat bar)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+    import state  # noqa: E402
+
+    at = AppTest.from_file("app/dashboard.py", default_timeout=90)
+    at.session_state["use_fake_translator"] = True
+    at.run()
+    at.session_state["observations"] = [state.make_observation(
+        day=2, headline="Fourth tanker incident this week", source="translator",
+        assignments={"Tanker_Incidents": "frequent"}, item_id="x")]
+    at.run()
+    at.session_state["selected_node"] = "Tanker_Incidents"
+    at.run()
+    assert not at.exception
+    md = " ".join(m.value for m in at.markdown)
+    assert "Observed:" in md and "frequent" in md            # value + source
+    assert "What this observation alone says" in md          # Bayes contribution
+    assert "Bayes factor" in md
