@@ -201,7 +201,11 @@ h1, h2, h3, h4 { color: #1B2A3D; font-weight: 600; }
   font-size: 1.7rem; font-weight: 700; line-height: 1.0;
   margin-bottom: 0.1rem;
 }
-.scenario-ci { font-size: 0.72rem; color: #6B7280; margin-bottom: 0.4rem; }
+.scenario-ci { font-size: 0.72rem; color: #6B7280; margin-bottom: 0.25rem; }
+.scenario-delta {
+  font-size: 0.72rem; font-weight: 600; color: #4B5563;
+  margin-bottom: 0.4rem; cursor: default;
+}
 .scenario-narrative {
   font-size: 0.76rem; color: #1B2A3D; line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;

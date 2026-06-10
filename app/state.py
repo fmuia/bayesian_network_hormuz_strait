@@ -76,6 +76,19 @@ def merged_evidence(
     return hard_merged, soft_merged
 
 
+def scenario_deltas(
+    current_means: Dict[str, float],
+    prev_means: Dict[str, float],
+) -> Dict[str, float]:
+    """Signed percentage-point change per scenario, ``(current - prev) * 100``
+    (Plan 5 P9 / C7 / V9) — the effect of the most recent observation. A scenario
+    missing from ``prev_means`` is treated as unchanged."""
+    return {
+        s: (current_means[s] - prev_means.get(s, current_means[s])) * 100.0
+        for s in current_means
+    }
+
+
 def make_observation(
     *,
     day: int,

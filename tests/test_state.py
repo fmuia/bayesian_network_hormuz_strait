@@ -73,6 +73,23 @@ def test_soft_values_coerced_to_float():
     assert all(isinstance(v, float) for v in soft["Tanker_Incidents"].values())
 
 
+# ===== P9 — before/after scenario deltas ===================================
+
+
+def test_scenario_deltas_signed_pp_and_conserve():
+    cur = {"A": 0.50, "B": 0.30, "C": 0.20}
+    prev = {"A": 0.45, "B": 0.35, "C": 0.20}
+    d = state.scenario_deltas(cur, prev)
+    assert abs(d["A"] - 5.0) < 1e-9        # +5 pp
+    assert abs(d["B"] + 5.0) < 1e-9        # -5 pp
+    assert abs(d["C"]) < 1e-9              # unchanged
+    assert abs(sum(d.values())) < 1e-9     # probability conserved -> deltas sum to 0
+
+
+def test_scenario_deltas_missing_prev_is_zero():
+    assert state.scenario_deltas({"A": 0.6}, {})["A"] == 0.0   # no prior -> no delta
+
+
 # ===== observation + review-queue helpers ==================================
 
 

@@ -11,7 +11,22 @@ from src.network import SCENARIO_NARRATIVES
 from theme import AMBER, GREEN, NAVY, RED, SCENARIO_COLOR, SCENARIO_LABEL
 
 
-def render_scenario_outlook(st, ci_table):
+def _delta_chip(pp: float) -> str:
+    """Before/after delta chip for a scenario card (Plan 5 P9 / C7 / V9).
+
+    Direction-neutral (▲/▼ convey the sign; colour does not imply good/bad).
+    """
+    if pp >= 0.05:
+        txt = f"▲ +{pp:.1f} pp"
+    elif pp <= -0.05:
+        txt = f"▼ −{abs(pp):.1f} pp"
+    else:
+        txt = "•  0.0 pp"
+    return (f"<div class='scenario-delta' "
+            f"title='change since before the most recent observation'>{txt}</div>")
+
+
+def render_scenario_outlook(st, ci_table, deltas=None):
     with st.container(border=True):
         st.markdown("<div class='card-title'>Scenario outlook</div>",
                     unsafe_allow_html=True)
@@ -22,11 +37,14 @@ def render_scenario_outlook(st, ci_table):
             color = SCENARIO_COLOR[scenario]
             label = SCENARIO_LABEL[scenario]
             narrative = SCENARIO_NARRATIVES[scenario]
+            delta_html = (_delta_chip(deltas[scenario]) if deltas is not None
+                          and scenario in deltas else "")
             cards_html += (
                 f"<div class='scenario-card' style='border-left-color:{color};'>"
                 f"  <div class='scenario-name' style='color:{color};'>{label}</div>"
                 f"  <div class='scenario-prob' style='color:{color};'>{mean*100:0.1f}%</div>"
                 f"  <div class='scenario-ci'>80% CI: {lo*100:0.1f}% – {hi*100:0.1f}%</div>"
+                f"  {delta_html}"
                 f"  <div class='scenario-narrative'>{narrative}</div>"
                 f"</div>"
             )

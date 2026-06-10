@@ -180,6 +180,23 @@ with st.spinner("Quantifying parameter uncertainty…"):
         tuple(sorted(ci_evidence.items())), TOPOLOGY, _locked_spec_json()
     )
 
+# Before/after deltas (P9 / C7 / V9): the effect of the most recent observation —
+# the current scenario means minus the means with that one observation removed.
+scenario_deltas_now = None
+_obs = st.session_state.observations
+if _obs:
+    _ph, _ps = state.merged_evidence(_obs[:-1])
+    _prev_ci_ev = dict(_ph)
+    for _node, _dist in _ps.items():
+        _prev_ci_ev[_node] = max(_dist, key=_dist.get)
+    _prev_ci = cached_credible_intervals(
+        tuple(sorted(_prev_ci_ev.items())), TOPOLOGY, _locked_spec_json()
+    )
+    scenario_deltas_now = state.scenario_deltas(
+        {s: ci_table[s][0] for s in ci_table},
+        {s: _prev_ci[s][0] for s in _prev_ci},
+    )
+
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
 soft_evidence_ci_items = tuple(
@@ -260,7 +277,7 @@ with st.expander("How this model works", expanded=False):
 # PINNED TOP BAND — scenario cards + probability evolution
 # ===========================================================================
 
-scenario_cards.render_scenario_outlook(st, ci_table)
+scenario_cards.render_scenario_outlook(st, ci_table, deltas=scenario_deltas_now)
 
 evolution_chart.render_evolution_chart(
     st, st.session_state.observations,
