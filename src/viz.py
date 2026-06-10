@@ -339,6 +339,7 @@ def build_agraph_payload(
     observed_day: Mapping[str, int] = {},
     edges: Optional[Iterable[tuple]] = None,
     node_level: Optional[Mapping[str, int]] = None,
+    edge_titles: Optional[Mapping[tuple, str]] = None,
 ):
     """Return ``(nodes, edges, config)`` for ``streamlit_agraph.agraph``.
 
@@ -413,6 +414,7 @@ def build_agraph_payload(
             )
         )
 
+    titles = edge_titles or {}
     edges = []
     for src, dst in edge_list:
         highlight = src in observed or dst in observed
@@ -427,6 +429,7 @@ def build_agraph_payload(
                 target=dst,
                 color=edge_color,
                 width=edge_width,
+                title=titles.get((src, dst), ""),  # vis.js hover tooltip (P10 / C11)
             )
         )
 

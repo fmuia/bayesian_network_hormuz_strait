@@ -151,6 +151,15 @@ def _fmt_node(name: str) -> str:
     return name.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
 
 
+def edge_title_map(topology) -> dict:
+    """``{(parent, child): rationale}`` for the *present* edges of a topology —
+    used to populate the agraph edge hover tooltips (Plan 5 P10 / C11 / V13).
+    Omitted edges are not in the graph, so they are not included.
+    """
+    rationale, _omissions = _RATIONALE_BY_TOPOLOGY[topology]
+    return {(parent, child): reason for parent, child, reason in rationale}
+
+
 def render(st, topology):
     st.markdown(
         "<div class='card-title'>Why each arrow is (or isn't) in the "
