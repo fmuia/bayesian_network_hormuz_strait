@@ -91,3 +91,21 @@ def test_observed_node_panel_shows_value_and_bayes():
     assert "Observed:" in md and "frequent" in md            # value + source
     assert "What this observation alone says" in md          # Bayes contribution
     assert "Bayes factor" in md
+
+
+def test_soft_observed_node_shows_bayes_contribution():
+    """A soft (translator ε) observation also shows the standalone Bayes-factor
+    contribution — on the CI (dumbbell) panel, not just the hard-observed panel."""
+    at = AppTest.from_file("app/dashboard.py", default_timeout=90)
+    at.session_state["use_fake_translator"] = True
+    at.run()
+    at.session_state["pending_article"] = {
+        "headline": "Tanker struck in the Strait of Hormuz", "body": "",
+        "source": "", "source_type_label": "(unspecified — full trust)"}
+    at.run()
+    at.session_state["selected_node"] = "Tanker_Incidents"   # now soft-observed
+    at.run()
+    assert not at.exception
+    md = " ".join(m.value for m in at.markdown)
+    assert "What this observation alone says" in md
+    assert "Most consistent with" in md

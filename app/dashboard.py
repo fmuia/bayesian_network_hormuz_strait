@@ -203,16 +203,20 @@ for obs in st.session_state.observations:
         observed_meta[node] = {"day": obs["day"], "source": obs["source"],
                                "headline": obs["headline"]}
 
-# Standalone Bayes-factor contribution of the selected hard-observed node (P8 / C4):
-# what that single observation alone says about the latent regime. Only meaningful
-# on a latent-regime network — scenario_bayes_factors raises otherwise, so skip.
+# Standalone Bayes-factor contribution of the selected observed node (P8 / C4):
+# what that single observation alone says about the latent regime — hard (a state
+# pin) or soft (the translator's ε vector). Only meaningful on a latent-regime
+# network — scenario_bayes_factors raises otherwise, so skip.
 _sel_node = st.session_state.selected_node
 selected_bayes = None
-if _sel_node and _sel_node in evidence:
-    try:
+try:
+    if _sel_node and _sel_node in evidence:
         selected_bayes = engine.standalone_bayes_factors({_sel_node: evidence[_sel_node]})
-    except ValueError:
-        selected_bayes = None
+    elif _sel_node and _sel_node in soft_evidence:
+        selected_bayes = engine.standalone_bayes_factors(
+            {}, {_sel_node: soft_evidence[_sel_node]})
+except ValueError:
+    selected_bayes = None
 
 
 # ===========================================================================

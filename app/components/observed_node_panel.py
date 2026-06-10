@@ -47,6 +47,15 @@ def _bayes_html(bayes: dict) -> str:
     )
 
 
+def render_bayes_contribution(st, bayes) -> None:
+    """Render the standalone Bayes-factor block. Shared by the hard-observed panel
+    (below) and the soft-observed CI panel in network_view. No-op if ``bayes`` is
+    falsy (e.g. a non-latent topology or an unobserved node)."""
+    html = _bayes_html(bayes) if bayes else ""
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+
+
 def render(st, *, observed_state, meta, bayes, marginal, sorted_states):
     src = meta.get("source", "?")
     day = meta.get("day")
@@ -60,5 +69,4 @@ def render(st, *, observed_state, meta, bayes, marginal, sorted_states):
         unsafe_allow_html=True,
     )
     st.altair_chart(_flat_bar_chart(marginal, sorted_states), width="stretch")
-    if bayes:
-        st.markdown(_bayes_html(bayes), unsafe_allow_html=True)
+    render_bayes_contribution(st, bayes)

@@ -17,7 +17,7 @@ from components.ci_charts import (
 )
 from src.network import STATES
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload
-from theme import GREEN, MUTED, NAVY, RED, ROOT_DRIVER_STYLE
+from theme import GREEN, MUTED, RED, ROOT_DRIVER_STYLE
 
 
 def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
@@ -121,6 +121,10 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         _dumbbell_chart(ci_df, sorted_states),
                         width="stretch",
                     )
+                    # Soft-observed node: show its standalone Bayes-factor
+                    # contribution too (selected_bayes is None for unobserved).
+                    if sel in soft_evidence:
+                        observed_node_panel.render_bayes_contribution(st, selected_bayes)
             else:
                 st.markdown(
                     "<div class='card-sub'>Click a node in the graph to inspect "
