@@ -1,5 +1,7 @@
 # Dashboard UI Plan — POC Slice (commit-wise)
 
+> **✅ POC SLICE SHIPPED — 2026-06-10.** All twelve commits **P1–P12** landed on `explorations-dev-plan-5` (full suite 265 green; `dashboard.py` 2,350 → 335 lines, a clean `app/components/` library). The CVD-safe palette (C9) was deferred mid-flight as **R-C9**; the rest of the backlog is in [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md).
+>
 > **What this is.** The **stakeholder-POC execution slice** of the dashboard plan, reordered into commit-by-commit **testable units**. The deferred remainder (with per-item reasons + triggers) lives in the companion file [`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md). Reconciled against the merged code on `explorations-dev-plan-5`, **2026-06-09**.
 >
 > **Why a POC slice.** After a skeptical gate (the same one applied to Plan 2), Plan 5's 29 items split into the demo-critical subset shipped here and a deferred backlog. An item earns POC inclusion only if a committee viewer **(a) sees it** and **(b) trusts/understands the model more for it** — or it is **foundation the visible items can't be built cleanly without**. Everything else is deferred *with a trigger* in the companion file; nothing is deleted.
@@ -43,64 +45,64 @@
 
 ### Phase 1 — Foundation (split, CSS, IA)
 
-#### ⬜ P1 — Extract CSS to `app/styles.css` (A2 · V8)
+#### ✅ P1 — Extract CSS to `app/styles.css` (A2 · V8)
 **Scope.** Move the single inline `st.markdown("<style>…")` block (~356 lines) to `app/styles.css`; load it at startup. Organise with section comments matching the current structure (sidebar, cards, sliders, translator stream, and the `.assign-chip` / Triage / structured / eval-badge classes).
 **Acceptance gate.** `AppTest` boots exception-free and the page renders; no inline `<style>` block remains in `app/dashboard.py`; `app/styles.css` is loaded.
 **Manual verification.** `pixi run app` — visual parity; editing `styles.css` + reload changes styling without a Python edit.
 
-#### ⬜ P2 — Extract `app/state.py` + state tests (A1a · E1 · E3-state)
+#### ✅ P2 — Extract `app/state.py` + state tests (A1a · E1 · E3-state)
 **Scope.** Move session defaults (incl. `review_queue`, `locked_spec_json`), `_merged_evidence`, `_append_observation`, named-session save/load, and the Triage helpers (`_build_review_item`, `_inject_review_item`, `_remove_from_review`) into `app/state.py`. Keep them pure (no Streamlit context where avoidable).
 **Acceptance gate.** New `tests/test_state.py` (importable without a Streamlit context) covers the `_merged_evidence` soft↔hard ordering invariants (hard→soft→hard, soft→hard→soft, two-node, removal-recompute), the save/load round-trip, and the Triage helpers; full suite green.
 **Manual verification.** Translate / override / save / load / Triage all behave as before.
 
-#### ⬜ P3 — Extract chart components + viz tests (A1b · E2 · E3-charts)
+#### ✅ P3 — Extract chart components + viz tests (A1b · E2 · E3-charts)
 **Scope.** Extract `app/components/scenario_cards.py`, `ci_charts.py` (dumbbell + robustness badge + `_ci_dataframe` + `_width_category`), and `evolution_chart.py`. Add `tests/test_viz.py` for `build_agraph_payload` (node/edge counts, observed-fill colour, root-driver colour family) on **both** topologies.
 **Acceptance gate.** `tests/test_viz.py` + chart-helper tests green; `AppTest` renders the pinned band identically.
 **Manual verification.** Cards + CI dumbbell + evolution chart unchanged.
 
-#### ⬜ P4 — Extract the remaining views; reduce `dashboard.py` to orchestration (A1c · C2)
+#### ✅ P4 — Extract the remaining views; reduce `dashboard.py` to orchestration (A1c · C2)
 **Scope.** Extract `network_view.py`, `observation_log.py`, `edge_rationale.py`, `audit_view.py`, `triage_view.py`, `translator_stream.py`, `structured_panel.py`. `app/dashboard.py` keeps page setup, session wiring, and the `st.segmented_control` routing only. `app/elicitation_panel.py` (Plan 4) stays; align its imports/styles.
 **Acceptance gate.** `AppTest` renders every nav view exception-free; `app/dashboard.py` drops below ~300 lines; each component's pure helpers import without a Streamlit context.
 **Manual verification.** Every view + the elicitation expander render and behave as before.
 
-#### ⬜ P5 — Consolidate the information architecture (A5 · new)
+#### ✅ P5 — Consolidate the information architecture (A5 · new)
 **Scope.** Fix the **🧪 emoji collision** (the Triage view and the Elicitation expander both use 🧪 → distinct icons); ensure every top-level surface registers through the one `st.segmented_control`; record the IA decision (which surface is nav vs sidebar vs expander) in an `app/components/README`.
 **Acceptance gate.** `AppTest` asserts the nav lists all views with **distinct** icons; no two surfaces share an icon.
 **Manual verification.** Nav reads cleanly; each surface has one obvious home.
 
 ### Phase 2 — Demo visuals (each a testable commit on the now-clean components)
 
-#### ⬜ P6 — Smooth robustness gradient (C2 · V3)
+#### ✅ P6 — Smooth robustness gradient (C2 · V3)
 **Scope.** Replace the 3-bucket 🟢🟡🔴 (`±8/±20`) with a continuous LERP over half-width in `ci_charts.py`; keep a coarse emoji + a numeric readout.
 **Acceptance gate.** Unit test of the gradient function: monotonic colour vs half-width; boundary cases (7pp vs 9pp produce *close* colours, not a category flip).
 **Manual verification.** A node moving 7→9pp shows a smooth shift, not a flip.
 
-#### ⬜ P7 — Right-size cards, enlarge the evolution chart (C1 · V2)
+#### ✅ P7 — Right-size cards, enlarge the evolution chart (C1 · V2)
 **Scope.** Compress the scenario cards to a vertical strip (~1/5 viewport) in `scenario_cards.py`; reallocate space to the evolution chart.
 **Acceptance gate.** `AppTest` renders the new layout; card-helper tests still pass.
 **Manual verification.** Evolution chart ≥1.5× larger; cards legible at common breakpoints.
 
-#### ⬜ P8 — Rich observed-node panel + Bayes-factor (C4 · V5)
+#### ✅ P8 — Rich observed-node panel + Bayes-factor (C4 · V5)
 **Scope.** Replace the flat 100%/0% bar with `app/components/observed_node_panel.py`: observed value + source + day; downstream posterior change; previous posterior; and the **Bayes-factor contribution** (`scenario_bayes_factors`, guarded to the latent topology).
 **Acceptance gate.** Component test: the panel reads value/source/day; the Bayes-factor wiring returns values on the latent topology and is cleanly skipped on labelling.
 **Manual verification.** On the canonical escalation, the observed-node panel shows the contribution.
 
-#### ⬜ P9 — Before/after delta chips (C7 · V9)
+#### ✅ P9 — Before/after delta chips (C7 · V9)
 **Scope.** Store previous-observation scenario probabilities in `state.py`; render `▲ +5pp Severe` / `▼ -3pp Stress` chips on the cards when a new observation commits.
 **Acceptance gate.** Unit test of the delta computation (prev vs current → signed pp); undo/remove restores the prior state cleanly.
 **Manual verification.** Committing an observation shows visible deltas; removing it clears them.
 
-#### ⬜ P10 — Edge rationale on hover (C11 · V13)
+#### ✅ P10 — Edge rationale on hover (C11 · V13)
 **Scope.** Populate `streamlit_agraph` edge titles from `_EDGE_RATIONALE` in `build_agraph_payload`; keep the Edge-rationale view for the full list + omitted edges.
 **Acceptance gate.** `tests/test_viz.py` asserts every edge in the payload carries its rationale title.
 **Manual verification.** Hovering any edge shows the rationale.
 
-#### ⬜ P11 — Hide the static narratives (C12 · V14)
+#### ✅ P11 — Hide the static narratives (C12 · V14)
 **Scope.** Move the fixed scenario-narrative paragraph off the always-on card into an expander.
 **Acceptance gate.** `AppTest`: the card no longer always-renders the narrative; it is reachable via the expander.
 **Manual verification.** Cards denser; narrative on click.
 
-#### ⬜ P12 — Consistency pass over the Plan-2/4 surfaces (C15 · new)
+#### ✅ P12 — Consistency pass over the Plan-2/4 surfaces (C15 · new)
 **Scope.** Apply the current palette, the smooth robustness encoding (P6), and card density to the **Triage**, translator-relevance, structured-pipeline, and **elicitation** surfaces; ensure they consume `styles.css` (P1) and the component conventions (P4). *(The CVD-safe palette sweep is deferred with R-C9.)*
 **Acceptance gate.** `AppTest` renders all surfaces; a visual pass confirms one palette + one robustness encoding across surfaces.
 **Manual verification.** Triage / translator / structured / elicitation match the scenario cards' look.

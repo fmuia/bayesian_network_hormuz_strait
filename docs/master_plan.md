@@ -159,7 +159,7 @@ Seven layers (0–6), all in scope and core. Layers 0–3 are the v1 milestone; 
 
 ### Plan 5 — Dashboard UI and polish: `docs/05_dashboard_ui_plan.md`
 
-> **Reconciled + split (2026-06-09).** After a skeptical gate, Plan 5 is split into a **POC slice** ([`05_dashboard_ui_plan.md`](05_dashboard_ui_plan.md) — commit-wise, A1/A2/A5 + C1/C2/C4/C7/C11/C12/C15 + tests) and a **deferred remainder** ([`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md) — A3/A4/B1/B2/C3/C6/C8/C9/C10/C13/C14/D1–D5, each with a trigger; indexed in [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §4). B3 is already satisfied and D3 near-done.
+> **POC slice SHIPPED (2026-06-10).** After a skeptical gate, Plan 5 was split into a **POC slice** ([`05_dashboard_ui_plan.md`](05_dashboard_ui_plan.md) — commit-wise, A1/A2/A5 + C1/C2/C4/C7/C11/C12/C15 + tests) and a **deferred remainder** ([`05_dashboard_ui_plan_deferred.md`](05_dashboard_ui_plan_deferred.md) — A3/A4/B1/B2/C3/C6/C8/C9/C10/C13/C14/D1–D5, each with a trigger; indexed in [`06_dropped_to_simplify.md`](06_dropped_to_simplify.md) §4). The slice landed as twelve commits **P1–P12** on `explorations-dev-plan-5` (split the 2,350-line monolith into `app/components/`; full suite 265 green); C9 (CVD palette) was deferred mid-flight as R-C9. B3 is already satisfied and D3 near-done.
 
 Closes the visualisation, dashboard-architecture, performance, code-hygiene, and test-coverage findings that the three backend plans leave open.
 
