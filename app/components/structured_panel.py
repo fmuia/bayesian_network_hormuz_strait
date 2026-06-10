@@ -30,7 +30,7 @@ def render(st, t):
                         f" → **{m['node'].replace('_',' ')} = {m['state']}**"
                     )
                 else:
-                    mapped = " → <span style='color:#9CA3AF;'>(no node)</span>"
+                    mapped = " → <span class='muted-note'>(no node)</span>"
                 st.markdown(f"- “{span}”{mapped}", unsafe_allow_html=True)
             if not _claims and not t.get("claims_error"):
                 st.markdown("_No grounded claims extracted._")

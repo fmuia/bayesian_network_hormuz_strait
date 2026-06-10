@@ -37,3 +37,29 @@ def test_dashboard_injects_stylesheet_on_boot():
     assert not at.exception
     blob = " ".join(m.value for m in at.markdown)
     assert "<style>" in blob and "stSidebarCollapseButton" in blob
+
+
+# ===== P12 — consistency pass: shared relevance/flag badge classes (C15) ====
+
+
+def test_relevance_badges_consolidated_to_css_classes():
+    css = (ROOT / "app" / "styles.css").read_text(encoding="utf-8")
+    assert ".chip-warn" in css and ".chip-danger" in css and ".muted-note" in css
+    # the badge colours are no longer duplicated inline across the surfaces
+    for comp in ("triage_view.py", "observation_log.py", "structured_panel.py"):
+        src = (ROOT / "app" / "components" / comp).read_text(encoding="utf-8")
+        assert not any(h in src for h in ("#FEF3C7", "#FEE2E2", "#9CA3AF"))
+
+
+def test_partial_relevance_badge_uses_shared_chip_class():
+    at = AppTest.from_file("app/dashboard.py", default_timeout=90)
+    at.session_state["use_fake_translator"] = True
+    at.run()
+    at.session_state["pending_article"] = {            # fake -> relevance "partial"
+        "headline": "Brent crude prices climb on Gulf jitters", "body": "",
+        "source": "", "source_type_label": "(unspecified — full trust)"}
+    at.run()
+    at.session_state["active_view"] = "📝  Observations"
+    at.run()
+    md = " ".join(m.value for m in at.markdown)
+    assert "assign-chip chip-warn" in md               # the consolidated badge class

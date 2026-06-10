@@ -291,6 +291,12 @@ h1, h2, h3, h4 { color: #1B2A3D; font-weight: 600; }
   border-radius: 12px; background: #EAF4F2; color: #1A7A6D;
   font-size: 0.78rem; font-weight: 600; margin: 0.15rem 0.3rem 0.15rem 0;
 }
+/* Shared relevance / flag badge variants (Plan 5 P12 / C15): one source of truth
+   for the colours that were duplicated inline across the Triage, relevance, and
+   structured-pipeline surfaces. (CVD-safe recolouring is deferred — R-C9.) */
+.chip-warn { background: #FEF3C7; color: #92400E; }
+.chip-danger { background: #FEE2E2; color: #991B1B; }
+.muted-note { color: #9CA3AF; }
 .root-chip {
   display: inline-block;
   padding: 0.2rem 0.55rem;

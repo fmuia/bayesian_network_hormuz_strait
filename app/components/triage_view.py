@@ -25,8 +25,8 @@ def render(st):
         with st.container(border=True):
             _rel = _item.get("relevance", "yes")
             _badge = (
-                " <span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
-                "⚠ partial</span>" if _rel == "partial" else ""
+                " <span class='assign-chip chip-warn'>⚠ partial</span>"
+                if _rel == "partial" else ""
             )
             st.markdown(
                 f"<div class='translator-headline'>“{_item['headline']}”{_badge}</div>"

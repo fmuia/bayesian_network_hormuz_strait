@@ -33,13 +33,13 @@ def render(st):
                 f"<span class='assign-chip'>"
                 f"{a['node'].replace('_',' ')} = {a['state']}</span>"
                 for a in t["assignments"]
-            ) or "<span style='color:#9CA3AF;'>No assignments</span>"
+            ) or "<span class='muted-note'>No assignments</span>"
             # B3 relevance badge.
             _rel = t.get("relevance", "yes")
             _rel_badge = {
-                "no": "<span class='assign-chip' style='background:#FEE2E2;color:#991B1B;'>"
+                "no": "<span class='assign-chip chip-danger'>"
                       "⛔ not relevant — not injected</span>",
-                "partial": "<span class='assign-chip' style='background:#FEF3C7;color:#92400E;'>"
+                "partial": "<span class='assign-chip chip-warn'>"
                            "⚠ partial relevance — review before relying on it</span>",
             }.get(_rel, "")
             st.markdown(
