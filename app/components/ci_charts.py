@@ -32,6 +32,31 @@ def _width_category(half_width_pp: float) -> str:
     return "fragile"
 
 
+# --- Continuous robustness colour (Plan 5 P6 / C2) -------------------------
+# Smooth green -> amber -> red over the CI half-width (pp): the badge colour now
+# shifts continuously instead of flipping at the ±8 / ±20 bucket boundaries (V3).
+_ROBUST_AMBER_AT = 14.0   # half-width (pp) at full amber (centre of the old 8-20 band)
+_ROBUST_RED_AT = 28.0     # half-width (pp) at/above which the colour is full red
+
+
+def _lerp_hex(c1: str, c2: str, t: float) -> str:
+    a = tuple(int(c1[i:i + 2], 16) for i in (1, 3, 5))
+    b = tuple(int(c2[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02X%02X%02X" % tuple(round(a[k] + (b[k] - a[k]) * t) for k in range(3))
+
+
+def robustness_color(half_width_pp: float, *,
+                     amber_at: float = _ROBUST_AMBER_AT,
+                     red_at: float = _ROBUST_RED_AT) -> str:
+    """Continuous green→amber→red hex for a CI half-width (pp). No bucket flips."""
+    x = max(0.0, float(half_width_pp))
+    if x <= amber_at:
+        return _lerp_hex(GREEN, AMBER, x / amber_at)
+    if x >= red_at:
+        return RED
+    return _lerp_hex(AMBER, RED, (x - amber_at) / (red_at - amber_at))
+
+
 def _ci_dataframe(
     ci_dict: Dict[str, Tuple[float, float, float]],
     sorted_states: List[str],
@@ -133,17 +158,17 @@ def _robustness_badge_html(
     )
     mean_w, lo_w, hi_w = ci_dict[widest_state]
     half_w_pp = (hi_w - lo_w) * 50.0
-    cat = _width_category(half_w_pp)
-    if cat == "narrow":
-        emoji, label, color = "🟢", "robust", GREEN
-    elif cat == "moderate":
-        emoji, label, color = "🟡", "moderate", AMBER
-    else:
-        emoji, label, color = "🔴", "fragile", RED
+    color = robustness_color(half_w_pp)          # smooth gradient (P6 / C2 / V3)
+    # The colour + the ±pp readout are the real signal; the emoji/label stay as a
+    # de-emphasised coarse summary (per design decision 4).
+    emoji, label = {"narrow": ("🟢", "robust"),
+                    "moderate": ("🟡", "moderate"),
+                    "fragile": ("🔴", "fragile")}[_width_category(half_w_pp)]
     return (
         f"<div style='font-size:0.82rem; margin:0.2rem 0 0.55rem 0; "
         f"color:{color}; font-weight:600;'>"
-        f"{emoji} {label} · widest CI ±{half_w_pp:0.1f} pp "
+        f"<span style='font-size:0.78rem; opacity:0.7;'>{emoji}</span> "
+        f"{label} · widest CI ±{half_w_pp:0.1f} pp "
         f"<span style='color:{MUTED}; font-weight:400;'>"
         f"(state: {widest_state})</span></div>"
     )
