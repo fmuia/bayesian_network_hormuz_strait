@@ -79,3 +79,11 @@ def test_robustness_color_monotone_within_segments():
     assert _dist(rc(3), GREEN) < _dist(rc(6), GREEN) < _dist(rc(12), GREEN)
     # amber→red leg: colour moves steadily toward red
     assert _dist(rc(16), RED) > _dist(rc(22), RED) > _dist(rc(27), RED)
+
+
+# ===== P7 — right-size cards / enlarge evolution chart (C1 / V2) ============
+
+
+def test_evolution_chart_enlarged():
+    from components import evolution_chart
+    assert evolution_chart._CHART_HEIGHT >= 390   # ≥ 1.5× the old 260px

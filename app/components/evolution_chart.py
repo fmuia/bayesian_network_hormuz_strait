@@ -12,6 +12,10 @@ import pandas as pd
 
 from theme import AMBER, GREEN, MUTED, NAVY, RED, SCENARIO_LABEL
 
+# The evolution chart is the locus of attention, so it gets the reallocated space
+# from the compacted scenario cards (Plan 5 P7 / C1 / V2) — ≥1.5× the old 260px.
+_CHART_HEIGHT = 400
+
 
 def render_evolution_chart(st, observations, *, engine, cached_ci,
                            locked_spec_json, topology):
@@ -135,9 +139,9 @@ def render_evolution_chart(st, observations, *, engine, cached_ci,
                     alt.Tooltip("HeadlinesOnDay:N", title="Headlines"),
                 ],
             ).add_params(hover)
-            chart = (bands + lines + tooltip).properties(height=260).configure_view(
-                stroke=None,
-            )
+            chart = (bands + lines + tooltip).properties(
+                height=_CHART_HEIGHT,
+            ).configure_view(stroke=None)
             st.altair_chart(chart, width="stretch")
             st.caption(
                 "Lines are the Dirichlet-resample posterior mean (matching the "
