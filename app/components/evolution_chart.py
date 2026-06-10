@@ -147,7 +147,8 @@ def render_evolution_chart(st, observations, *, engine, cached_ci,
                 "Lines are the Dirichlet-resample posterior mean (matching the "
                 "scenario cards above). Shaded bands are the 80% credible "
                 "interval from CPT resampling at each day's evidence state "
-                "(concentration = 20, m = 200). They reflect parameter "
+                "(per-CPT κ — calibrated when an elicitation is locked, else "
+                "20; m = 200). They reflect parameter "
                 "uncertainty **at that day**, not forecast uncertainty about "
                 "future trajectories."
             )

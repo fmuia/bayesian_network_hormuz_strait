@@ -85,14 +85,16 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         f"{top_state} (likelihood ratios ε, scaled to 1.0; "
                         f"day {observed_day_map.get(sel, '?')}). "
                         "Intervals show how the posterior shifts when "
-                        "CPT parameters are resampled (Dirichlet, "
-                        "concentration = 20, m = 200)."
+                        "CPT parameters are resampled (Dirichlet, per-CPT κ — "
+                        "calibrated when an elicitation is locked, else 20; "
+                        "m = 200)."
                     )
                 else:
                     tip_text = (
                         "Posterior marginal after propagating all injected "
                         "evidence. Intervals come from CPT resampling "
-                        "(Dirichlet, concentration = 20, m = 200)."
+                        "(Dirichlet, per-CPT κ — calibrated when an elicitation "
+                        "is locked, else 20; m = 200)."
                     )
                 tip_attr = tip_text.replace("'", "&#39;")
                 st.markdown(
@@ -154,10 +156,19 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                 for i, state in enumerate(states):
                     key = f"soft_{sel}_{state}"
                     init = default_pct + (remainder if i == 0 else 0)
-                    vals[state] = st.slider(
+                    # State name to the LEFT of the slider (not above) so the
+                    # value bubble at 0 can't collide with the label.
+                    lbl_col, sld_col = st.columns(
+                        [1, 3], gap="small", vertical_alignment="center",
+                    )
+                    lbl_col.markdown(
+                        f"<div class='slider-label'>{state}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    vals[state] = sld_col.slider(
                         state, 0, 100,
                         value=st.session_state.get(key, init),
-                        step=1, key=key,
+                        step=1, key=key, label_visibility="collapsed",
                     )
                 total = sum(vals.values())
                 colour = GREEN if total == 100 else RED

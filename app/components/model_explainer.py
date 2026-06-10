@@ -86,10 +86,10 @@ def render_appendix(st) -> None:
 
         $$
         \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot}),
-        \qquad \alpha_{j,\cdot} = \kappa \cdot \theta_{j,\cdot}^{\text{point}}
+        \qquad \alpha_{j,\cdot} = \kappa_j \cdot \theta_{j,\cdot}^{\text{point}}
         $$
 
-        with concentration $\kappa = 20$ and $m = 200$ draws. Each draw perturbs **all** CPTs jointly and the full network is re-run under the current evidence, so the resulting posterior samples reflect *global* parameter uncertainty, not a per-node local variation.
+        with a **per-CPT** concentration $\kappa_j$ — calibrated from elicitation quality when an elicitation is locked (so more-trusted CPTs are perturbed less), otherwise the bootstrap default $\kappa_j = 20$ — and $m = 200$ draws. Each draw perturbs **all** CPTs jointly and the full network is re-run under the current evidence, so the resulting posterior samples reflect *global* parameter uncertainty, not a per-node local variation.
 
         The 10th–90th percentiles across samples give an 80% credible interval per node per state, exposed in two places:
 

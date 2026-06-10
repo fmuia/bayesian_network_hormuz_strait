@@ -8,6 +8,12 @@ html, body, [class*="css"] {
   color: #1B2A3D;
 }
 /* Keep Streamlit header/toolbar visible so sidebar can always be reopened. */
+/* Header is transparent but still occupies the top strip with a high z-index.
+   Let clicks fall through to the content beneath it (the elicitation expander
+   is now the first main-area element and was being click-blocked); the sidebar
+   collapse controls below re-enable pointer events for themselves. */
+[data-testid="stHeader"],
+[data-testid="stHeader"] * { pointer-events: none !important; }
 [data-testid="stHeader"] { background: transparent; }
 [data-testid="stToolbar"] {
   display: flex;
@@ -33,6 +39,7 @@ html, body, [class*="css"] {
 [data-testid="stSidebarCollapsedControl"] button,
 [data-testid="stSidebarCollapsedControl"] > button,
 [data-testid="stSidebarCollapsedControl"] [role="button"] {
+  pointer-events: auto !important;   /* the toggle button itself stays clickable */
   position: relative !important;
   display: flex !important;
   align-items: center !important;
@@ -116,6 +123,10 @@ html, body, [class*="css"] {
   top: 0.6rem !important;
   left: 0.7rem !important;
   z-index: 10000 !important;
+  /* The wrapper is forced-visible and fixed at the top-left, overlapping the
+     first main-area widget. Make the wrapper itself click-through; only its
+     inner 1.9rem button (rule above) keeps pointer events. */
+  pointer-events: none !important;
 }
 [data-testid="stSidebarCollapseButton"] {
   position: absolute !important;
@@ -123,6 +134,7 @@ html, body, [class*="css"] {
   right: 0.55rem !important;
   z-index: 20 !important;
   visibility: visible !important;
+  pointer-events: auto !important;
 }
 
 /* Align sidebar and main content with the top of the page. */
@@ -259,6 +271,11 @@ h1, h2, h3, h4 { color: #1B2A3D; font-weight: 600; }
 .stream-done { border-color: #2E8B57; background: #F0FAF5; color: #2E8B57; }
 .stream-error { border-color: #B22222; background: #FEF2F2; color: #B22222; }
 
+/* Override soft-evidence sliders — state name sits left of the slider */
+.slider-label {
+  font-size: 0.84rem; font-weight: 600; color: #1B2A3D;
+  white-space: nowrap; text-align: right; padding-right: 0.3rem;
+}
 /* Compact sliders for the override panel. Tightened so the
    override box stacks to roughly the height of the DAG box. */
 [data-testid="stSlider"] {
@@ -273,8 +290,15 @@ h1, h2, h3, h4 { color: #1B2A3D; font-weight: 600; }
   margin: 0 !important;
   line-height: 1.1 !important;
 }
-[data-testid="stSlider"] [data-testid="stTickBar"] {
-  display: none !important;
+/* Nudge ONLY the numbers toward their own slider (P9 follow-up). These are
+   pure visual transforms — they don't affect layout, so the tight row spacing
+   is unchanged. The value bubble drops closer above its track; the 0 / 100
+   ticks rise closer below it. */
+[data-testid="stSliderThumbValue"] {
+  transform: translateY(0.3rem) !important;
+}
+[data-testid="stSliderTickBar"] {
+  transform: translateY(-0.35rem) !important;
 }
 
 /* Translator output panel */

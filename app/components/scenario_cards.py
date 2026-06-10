@@ -117,5 +117,6 @@ def render_scenario_outlook(st, ci_table, deltas=None):
             st.altair_chart(err_chart, width="stretch")
             st.caption(
                 "Intervals come from resampling CPT parameters (Dirichlet, "
-                "concentration = 20, m = 200) and re-running inference."
+                "per-CPT concentration κ — calibrated when an elicitation is "
+                "locked, else κ = 20; m = 200) and re-running inference."
             )
