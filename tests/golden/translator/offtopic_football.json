@@ -1,0 +1,18 @@
+{
+  "id": "offtopic_football",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "mixed",
+  "note": "Edge case: off-topic -> abstain (empty assignments, relevance=no).",
+  "article": {
+    "headline": "Champions League: Madrid edges past rivals in extra time"
+  },
+  "expected": {
+    "relevance": "no",
+    "assignments": []
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [],
+    "overall_rationale": "This headline is about a Champions League football match and has no bearing on any Strait of Hormuz geopolitical or energy node."
+  }
+}

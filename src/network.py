@@ -56,6 +56,21 @@ EDGES: List[Tuple[str, str]] = [
     ("Diplomatic_Resolution_Path", "Scenario"),
 ]
 
+# Latent-regime topology (Plan 1): reverse the Scenario arrows and give S the
+# downstream-most mediator parents Pa(S) = {US_Military_Response,
+# Strait_Operationally_Closed}. Drop {D,T,P}->S; add S->{D,T,P}, M->S, C->S.
+# The upstream chain and Oil_Price_Regime are structurally untouched.
+_S = "Scenario"
+_D, _T, _P = (
+    "Energy_Infrastructure_Damage",
+    "Conflict_Duration",
+    "Diplomatic_Resolution_Path",
+)
+_M, _C = "US_Military_Response", "Strait_Operationally_Closed"
+_S_REMOVE = {(_D, _S), (_T, _S), (_P, _S)}
+_S_ADD = [(_S, _D), (_S, _T), (_S, _P), (_M, _S), (_C, _S)]
+EDGES_LATENT: List[Tuple[str, str]] = [e for e in EDGES if e not in _S_REMOVE] + _S_ADD
+
 
 def _cpd(
     var: str,
@@ -376,25 +391,56 @@ SCENARIO_NARRATIVES: Dict[str, str] = {
     ),
 }
 
+# Modal (most-probable) outcome signature each regime generates, written
+# (Energy_Infrastructure_Damage, Conflict_Duration, Diplomatic_Resolution_Path).
+# Under the latent-regime reading (Plan §A.2.4) these are the *modes* of each regime's
+# emission distribution, not definitions of it. Used as the narrative-mode invariant in
+# validation. NOTE: the v1 bootstrap reproduces every extreme-scenario mode; only
+# Prolonged_Conflict's duration mode lands on 'medium' rather than 'long' (the documented
+# poorly-identified middle regime), pending Plan 4 elicitation.
+SCENARIO_SIGNATURES: Dict[str, Tuple[str, str, str]] = {
+    "Stress_Mitigates": ("none", "short", "open"),
+    "Prolonged_Conflict": ("moderate", "long", "narrowing"),
+    "Severe_Closure": ("severe", "long", "closed"),
+}
 
-def build_network() -> DiscreteBayesianNetwork:
-    """Assemble and return the fully-specified Bayesian network."""
-    net = DiscreteBayesianNetwork(EDGES)
-    net.add_cpds(
-        CPD_NEGOTIATIONS,
-        CPD_REGIME,
-        CPD_MEDIATION,
-        CPD_SANCTIONS,
-        CPD_MILITIA,
-        CPD_TANKERS,
-        CPD_MILITARY,
-        CPD_STRAIT,
-        CPD_DAMAGE,
-        CPD_DURATION,
-        CPD_DIPLO,
-        CPD_OIL,
-        CPD_SCENARIO,
-    )
+# Labelling-topology CPDs in add order (Scenario is a leaf).
+_LABELLING_CPDS = (
+    CPD_NEGOTIATIONS, CPD_REGIME, CPD_MEDIATION, CPD_SANCTIONS, CPD_MILITIA,
+    CPD_TANKERS, CPD_MILITARY, CPD_STRAIT, CPD_DAMAGE, CPD_DURATION, CPD_DIPLO,
+    CPD_OIL, CPD_SCENARIO,
+)
+# Upstream + Oil CPDs that carry over UNCHANGED into the latent topology (the labelling
+# outcome CPDs CPD_DAMAGE/CPD_DURATION/CPD_DIPLO and CPD_SCENARIO are replaced there).
+_LATENT_SHARED_CPDS = (
+    CPD_NEGOTIATIONS, CPD_REGIME, CPD_MEDIATION, CPD_SANCTIONS, CPD_MILITIA,
+    CPD_TANKERS, CPD_MILITARY, CPD_STRAIT, CPD_OIL,
+)
+
+
+def build_network(topology: str = "labelling") -> DiscreteBayesianNetwork:
+    """Assemble and return the fully-specified Bayesian network.
+
+    ``topology="labelling"`` (default) is the original model: ``Scenario`` is a leaf
+    classified by the outcomes ``P(S | D, T, P)``. ``topology="latent_regime"`` is the
+    Plan 1 reframe: ``Scenario`` is a latent regime generating the outcomes, with the
+    four anchor-derived CPTs from :mod:`src.cpt_data`.
+    """
+    if topology == "labelling":
+        net = DiscreteBayesianNetwork(EDGES)
+        net.add_cpds(*_LABELLING_CPDS)
+    elif topology == "latent_regime":
+        from .cpt_data import LATENT_CPTS, LATENT_CPT_PARENTS  # generated; lazy import
+        net = DiscreteBayesianNetwork(EDGES_LATENT)
+        emitted = [
+            _cpd(child, LATENT_CPT_PARENTS[child], LATENT_CPTS[child])
+            for child in LATENT_CPT_PARENTS
+        ]
+        net.add_cpds(*_LATENT_SHARED_CPDS, *emitted)
+    else:
+        raise ValueError(
+            f"Unknown topology {topology!r}; expected 'labelling' or 'latent_regime'."
+        )
     net.check_model()
     return net
 
@@ -402,6 +448,8 @@ def build_network() -> DiscreteBayesianNetwork:
 __all__ = [
     "STATES",
     "EDGES",
+    "EDGES_LATENT",
     "SCENARIO_NARRATIVES",
+    "SCENARIO_SIGNATURES",
     "build_network",
 ]

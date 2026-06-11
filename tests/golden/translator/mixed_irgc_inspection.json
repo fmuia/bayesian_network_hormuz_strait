@@ -1,0 +1,89 @@
+{
+  "id": "mixed_irgc_inspection",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "mixed",
+  "note": "Coercive choke partially constrains transit; isolated confrontations; path narrows.",
+  "article": {
+    "headline": "IRGC announces 'inspection regime' on all Hormuz traffic"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "partial"
+      },
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated"
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "narrowing"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "partial",
+        "reason": "Mandatory IRGC inspections on all Hormuz traffic impede free transit and effectively constrain flow without fully sealing the strait.",
+        "state_probs": [
+          {
+            "state": "no",
+            "value": 0.15
+          },
+          {
+            "state": "partial",
+            "value": 1.0
+          },
+          {
+            "state": "full",
+            "value": 0.25
+          }
+        ]
+      },
+      {
+        "node": "Tanker_Incidents",
+        "state": "isolated",
+        "reason": "An inspection regime implies stopping/boarding vessels, creating discrete confrontations and detentions short of a frequent attack pattern.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.1
+          },
+          {
+            "state": "isolated",
+            "value": 1.0
+          },
+          {
+            "state": "frequent",
+            "value": 0.5
+          }
+        ]
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "narrowing",
+        "reason": "Unilateral Iranian assertion of control over the strait escalates tensions and narrows, though does not close, the diplomatic off-ramp.",
+        "state_probs": [
+          {
+            "state": "open",
+            "value": 0.3
+          },
+          {
+            "state": "narrowing",
+            "value": 1.0
+          },
+          {
+            "state": "closed",
+            "value": 0.4
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Iran's unilateral inspection regime is a coercive choke on Hormuz transit that partially constrains the strait and triggers isolated vessel confrontations while raising escalation risk."
+  }
+}

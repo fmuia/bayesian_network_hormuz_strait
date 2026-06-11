@@ -18,36 +18,29 @@ from __future__ import annotations
 
 import json
 import sys
-import uuid
-from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import altair as alt
-import pandas as pd
 import streamlit as st
-from streamlit_agraph import agraph
 
-from src.evidence import EXAMPLE_HEADLINES, Observation
 from src.inference import BNInferenceEngine
-from src.network import SCENARIO_NARRATIVES, STATES, build_network
+from src.network import STATES, build_network
 from src.sensitivity import (
     node_credible_intervals,
     scenario_credible_intervals,
 )
-from src.translator import (
-    TranslatorError,
-    TranslatorResult,
-    available_providers,
-    is_available as translator_available,
-    translate_headline,
-)
-from src.viz import build_agraph_payload, render_network_png
+from src.elicitation.export import spec_from_dict
+
+# Ensure sibling modules (elicitation_panel) import under both `streamlit run`
+# and the test harness.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import elicitation_panel  # noqa: E402
+import state  # noqa: E402  (sibling module; relies on the sys.path insert above)
+from state import current_evidence as _merged_evidence  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Page setup & styling
@@ -59,388 +52,29 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-TEAL = "#1A7A6D"
-NAVY = "#1B2A3D"
-PANEL = "#F5F5F5"
-RULE = "#E5E7EB"
-MUTED = "#6B7280"
-GREEN = "#2E8B57"
-AMBER = "#D4A017"
-RED = "#B22222"
-
-SCENARIO_COLOR = {
-    "Stress_Mitigates": GREEN,
-    "Prolonged_Conflict": AMBER,
-    "Severe_Closure": RED,
-}
-SCENARIO_LABEL = {
-    "Stress_Mitigates": "Stress Mitigates",
-    "Prolonged_Conflict": "Prolonged Conflict",
-    "Severe_Closure": "Severe Closure",
-}
-ROOT_DRIVER_STYLE = {
-    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8"),
-    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D"),
-    "Third_Party_Mediation": ("#FEF3C7", "#B45309"),
-    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9"),
-}
-
-st.markdown(
-    f"""
-    <style>
-      html, body, [class*="css"] {{
-        font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        color: {NAVY};
-      }}
-      /* Keep Streamlit header/toolbar visible so sidebar can always be reopened. */
-      [data-testid="stHeader"] {{ background: transparent; }}
-      [data-testid="stToolbar"] {{
-        display: flex;
-        visibility: visible;
-      }}
-      [data-testid="stDecoration"] {{ display: none; }}
-      [data-testid="stStatusWidget"] {{ display: none; }}
-      /* =====================================================
-         Sidebar toggle buttons — unified styling.
-         One shared card visual for:
-           - the reopen button when the sidebar is folded
-             (wrapper: stSidebarCollapsedControl, card: inner button)
-           - the collapse button when the sidebar is unfolded
-             (wrapper: stSidebarCollapseButton, card: the wrapper itself)
-         Positioning is set per-state at the bottom of this block.
-         ===================================================== */
-
-      /* The card (identical rules for both states). position: relative
-         anchors the absolutely-centred SVG below, which is what makes
-         the icon sit dead-centre regardless of the intrinsic widths
-         Streamlit's BaseWeb button injects on its inner wrappers. */
-      [data-testid="stSidebarCollapseButton"],
-      [data-testid="stSidebarCollapsedControl"] button,
-      [data-testid="stSidebarCollapsedControl"] > button,
-      [data-testid="stSidebarCollapsedControl"] [role="button"] {{
-        position: relative !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 1.9rem !important;
-        height: 1.9rem !important;
-        min-width: 1.9rem !important;
-        max-width: 1.9rem !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        background: white !important;
-        color: {NAVY} !important;
-        border: 1px solid {RULE} !important;
-        border-radius: 6px !important;
-        box-shadow: 0 1px 3px rgba(27, 42, 61, 0.08) !important;
-        transition: background 120ms ease, color 120ms ease,
-                    border-color 120ms ease, box-shadow 120ms ease !important;
-      }}
-
-      /* Shared hover */
-      [data-testid="stSidebarCollapseButton"]:hover,
-      [data-testid="stSidebarCollapsedControl"] button:hover,
-      [data-testid="stSidebarCollapsedControl"] > button:hover,
-      [data-testid="stSidebarCollapsedControl"] [role="button"]:hover {{
-        background: {NAVY} !important;
-        color: white !important;
-        border-color: {NAVY} !important;
-        box-shadow: 0 3px 8px rgba(27, 42, 61, 0.18) !important;
-      }}
-
-      /* Neutralise all inner wrappers Streamlit injects (they have
-         their own margins / paddings that push the icon off-centre),
-         then flex-centre them so the SVG sits dead in the middle. */
-      [data-testid="stSidebarCollapseButton"] *,
-      [data-testid="stSidebarCollapsedControl"] * {{
-        margin: 0 !important;
-        padding: 0 !important;
-        line-height: 1 !important;
-      }}
-      [data-testid="stSidebarCollapseButton"] > *,
-      [data-testid="stSidebarCollapseButton"] button,
-      [data-testid="stSidebarCollapseButton"] [data-testid="stMarkdownContainer"],
-      [data-testid="stSidebarCollapseButton"] p,
-      [data-testid="stSidebarCollapsedControl"] button > *,
-      [data-testid="stSidebarCollapsedControl"] [data-testid="stMarkdownContainer"],
-      [data-testid="stSidebarCollapsedControl"] button p {{
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 100% !important;
-        height: 100% !important;
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-      }}
-
-      /* Icon: absolutely-centred inside the card. Fixing an explicit
-         width/height stops the intrinsic SVG viewBox from drifting the
-         glyph off the card's visual centre. Inherit text colour so the
-         hover flip works uniformly. */
-      [data-testid="stSidebarCollapseButton"] svg,
-      [data-testid="stSidebarCollapsedControl"] svg {{
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        width: 1rem !important;
-        height: 1rem !important;
-        margin: 0 !important;
-        color: inherit !important;
-        fill: currentColor !important;
-        display: block !important;
-      }}
-
-      /* Per-state positioning */
-      [data-testid="stSidebarCollapsedControl"] {{
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: fixed !important;
-        top: 0.6rem !important;
-        left: 0.7rem !important;
-        z-index: 10000 !important;
-      }}
-      [data-testid="stSidebarCollapseButton"] {{
-        position: absolute !important;
-        top: 0.55rem !important;
-        right: 0.55rem !important;
-        z-index: 20 !important;
-        visibility: visible !important;
-      }}
-
-      /* Align sidebar and main content with the top of the page. */
-      .block-container {{
-        padding-top: 0.4rem; padding-bottom: 3rem; max-width: 1600px;
-      }}
-      [data-testid="stAppViewContainer"] > .main {{ padding-top: 0; }}
-      [data-testid="stSidebar"] {{ background: {PANEL}; }}
-      [data-testid="stSidebar"] > div:first-child {{ padding-top: 0; }}
-
-      /* Collapse the native sidebar header so the collapse button can
-         float top-right without pushing content below. */
-      [data-testid="stSidebarHeader"] {{
-        padding: 0 !important;
-        margin: 0 !important;
-        min-height: 0 !important;
-        height: 0 !important;
-        position: relative;
-      }}
-
-      /* Neutralise any default top padding Streamlit adds to the
-         sidebar content block — we'll do the push directly on the
-         sidebar title (.sb-header) below, which is the only rule that
-         reliably lands across Streamlit versions. */
-      section[data-testid="stSidebar"] .block-container {{
-        padding-top: 0 !important;
-      }}
-      [data-testid="stSidebarUserContent"] {{
-        padding-top: 0 !important;
-      }}
-
-      h1, h2, h3, h4 {{ color: {NAVY}; font-weight: 600; }}
-
-      /* Header */
-      .demo-title {{
-        font-size: 1.45rem; font-weight: 700; color: {NAVY};
-        margin: 0 0 0.1rem 0;
-      }}
-      .demo-subtitle {{
-        font-size: 0.88rem; color: {MUTED}; margin-bottom: 0.9rem;
-      }}
-
-      /* Reusable "card" container for each main-area object. */
-      .card {{
-        background: white; border: 1px solid {RULE};
-        border-radius: 8px; padding: 1rem 1.2rem;
-        box-shadow: 0 1px 2px rgba(27,42,61,0.04);
-        margin-bottom: 1rem;
-      }}
-      .card-title {{
-        font-size: 0.72rem; font-weight: 700; color: {TEAL};
-        text-transform: uppercase; letter-spacing: 0.08em;
-        margin: 0 0 0.65rem 0;
-      }}
-      .card-sub {{ font-size: 0.82rem; color: {MUTED}; margin-bottom: 0.7rem; }}
-
-      /* Scenario cards — CSS-grid row, no Streamlit columns needed */
-      .scenario-grid {{
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
-      }}
-      .scenario-card {{
-        background: white; border: 1px solid {RULE};
-        border-left: 5px solid {NAVY};
-        padding: 1rem 1.1rem; border-radius: 6px;
-      }}
-      .scenario-name {{
-        font-size: 0.74rem; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.06em;
-        color: {MUTED}; margin-bottom: 0.2rem;
-      }}
-      .scenario-prob {{
-        font-size: 2.3rem; font-weight: 700; line-height: 1.0;
-        margin-bottom: 0.15rem;
-      }}
-      .scenario-ci {{ font-size: 0.76rem; color: {MUTED}; margin-bottom: 0.55rem; }}
-      .scenario-narrative {{ font-size: 0.82rem; color: {NAVY}; line-height: 1.4; }}
-
-      /* Sidebar */
-      .sb-provider {{
-        display: inline-block; padding: 0.25rem 0.65rem;
-        border-radius: 999px; font-size: 0.78rem; font-weight: 600;
-        background: #E7F4EF; color: {GREEN};
-        margin-bottom: 0.5rem;
-      }}
-      /* Top margin = Streamlit header height + the same block-container
-         padding the main page uses. This puts the sidebar title on the
-         same baseline as the main title. Tune the last number below if
-         it ends up off. */
-      .sb-header {{
-        margin-top: calc(var(--header-height, 0.9rem) + 0.4rem) !important;
-        margin-right: 2.4rem !important;
-        margin-bottom: 0.62rem !important;
-        margin-left: 0 !important;
-      }}
-      .sb-header-title {{
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: {NAVY};
-        line-height: 1.15;
-        white-space: nowrap;
-      }}
-      .sb-header-sub {{
-        font-size: 0.74rem;
-        color: {MUTED};
-        margin-top: 0.1rem;
-      }}
-      .sb-provider.warn {{ background: #FEF3C7; color: #92400E; }}
-      .sb-title {{
-        font-size: 0.68rem; font-weight: 700; color: {TEAL};
-        text-transform: uppercase; letter-spacing: 0.08em;
-        margin: 0.2rem 0 0.35rem 0;
-      }}
-      .day-pill {{
-        display: inline-block; background: {NAVY}; color: white;
-        padding: 0.25rem 0.65rem; border-radius: 14px;
-        font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
-      }}
-      .sb-hint {{ font-size: 0.76rem; color: {MUTED}; margin: 0.25rem 0 0.4rem 0; }}
-      .stream-line {{
-        font-family: 'JetBrains Mono', Menlo, monospace;
-        font-size: 0.78rem; color: {NAVY};
-        background: white; border: 1px solid {RULE}; border-radius: 6px;
-        padding: 0.45rem 0.6rem;
-        margin-top: 0.3rem; white-space: pre-wrap; word-break: break-word;
-      }}
-      .stream-done {{ border-color: {GREEN}; background: #F0FAF5; color: {GREEN}; }}
-      .stream-error {{ border-color: {RED}; background: #FEF2F2; color: {RED}; }}
-
-      /* Compact sliders for the override panel. Tightened so the
-         override box stacks to roughly the height of the DAG box. */
-      [data-testid="stSlider"] {{
-        margin-top: -0.4rem !important;
-        margin-bottom: -1.35rem !important;
-      }}
-      [data-testid="stSlider"] label {{
-        margin-bottom: -0.75rem !important;
-      }}
-      [data-testid="stSlider"] label p {{
-        font-size: 0.78rem !important;
-        margin: 0 !important;
-        line-height: 1.1 !important;
-      }}
-      [data-testid="stSlider"] [data-testid="stTickBar"] {{
-        display: none !important;
-      }}
-
-      /* Translator output panel */
-      .translator-headline {{
-        font-size: 0.95rem; font-weight: 600; color: {NAVY};
-        margin-bottom: 0.3rem;
-      }}
-      .translator-rationale {{
-        font-size: 0.83rem; color: #4B5563; margin: 0.25rem 0 0.65rem 0;
-        font-style: italic; line-height: 1.4;
-      }}
-      .assign-chip {{
-        display: inline-block; padding: 0.22rem 0.6rem;
-        border-radius: 12px; background: #EAF4F2; color: {TEAL};
-        font-size: 0.78rem; font-weight: 600; margin: 0.15rem 0.3rem 0.15rem 0;
-      }}
-      .root-chip {{
-        display: inline-block;
-        padding: 0.2rem 0.55rem;
-        border-radius: 999px;
-        font-size: 0.74rem;
-        font-weight: 600;
-        margin: 0.15rem 0.35rem 0.2rem 0;
-      }}
-      .meta {{
-        font-size: 0.7rem; color: #9CA3AF; margin-top: 0.55rem;
-        text-align: right;
-      }}
-
-      /* Day-grouped log */
-      .log-scroll {{ max-height: 540px; overflow-y: auto; padding-right: 0.3rem; }}
-      .day-block {{
-        background: white; border: 1px solid {RULE}; border-radius: 6px;
-        padding: 0.7rem 0.9rem; margin-bottom: 0.55rem;
-      }}
-      .day-block-header {{
-        font-size: 0.73rem; font-weight: 700; color: {TEAL};
-        text-transform: uppercase; letter-spacing: 0.06em;
-        margin-bottom: 0.4rem;
-      }}
-      .obs-row {{
-        font-size: 0.82rem; color: {NAVY};
-        padding: 0.35rem 0; border-top: 1px solid {RULE};
-      }}
-      .obs-row:first-of-type, .obs-row-first {{
-        border-top: none; padding-top: 0.1rem;
-      }}
-      .obs-headline {{ font-weight: 500; }}
-      .obs-assign {{ color: {MUTED}; font-size: 0.78rem; margin-top: 0.1rem; }}
-      .obs-remove + div button {{
-        min-width: 1.6rem !important; width: 1.6rem !important;
-        height: 1.6rem !important; padding: 0 !important;
-        border-radius: 50% !important;
-        font-size: 0.75rem !important; color: {MUTED} !important;
-        border-color: {RULE} !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        line-height: 1 !important;
-      }}
-      .obs-remove + div button > div,
-      .obs-remove + div button [data-testid="stMarkdownContainer"],
-      .obs-remove + div button p {{
-        margin: 0 !important; padding: 0 !important;
-        line-height: 1 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-      }}
-      .obs-remove + div button:hover {{
-        color: #B91C1C !important; border-color: #B91C1C !important;
-      }}
-
-      /* Tabs a little tighter & more legible */
-      div[data-baseweb="tab-list"] button {{ font-weight: 600; }}
-
-      /* Model explanation */
-      .explain h4 {{ margin: 0.6rem 0 0.25rem 0; font-size: 0.95rem; }}
-      .explain p  {{ font-size: 0.87rem; color: {NAVY}; line-height: 1.5;
-                     margin: 0 0 0.55rem 0; }}
-      .explain ul {{ margin: 0 0 0.6rem 1rem; padding: 0; }}
-      .explain li {{ font-size: 0.86rem; color: {NAVY}; line-height: 1.45;
-                     margin-bottom: 0.15rem; }}
-    </style>
-    """,
-    unsafe_allow_html=True,
+from components import (  # noqa: E402
+    audit_view, edge_rationale, evolution_chart, model_explainer, network_view,
+    observation_log, scenario_cards, translator_stream, triage_view,
 )
+
+# Styles live in app/styles.css (Plan 5 P1 / A2, V8). Loaded once at startup so
+# the stylesheet is editable without touching Python.
+def _inject_styles() -> None:
+    css = (Path(__file__).resolve().parent / "styles.css").read_text(encoding="utf-8")
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+_inject_styles()
+
+
+# ---------------------------------------------------------------------------
+# Topology
+# ---------------------------------------------------------------------------
+# The dashboard runs on the Plan 1 latent-regime topology (Scenario is a latent
+# cause generating the outcomes). The labelling model remains available via
+# build_network("labelling") for the comparison notebook/scripts, but is not
+# surfaced here.
+TOPOLOGY = "latent_regime"
 
 
 # ---------------------------------------------------------------------------
@@ -449,28 +83,63 @@ st.markdown(
 
 
 @st.cache_resource
-def get_engine() -> BNInferenceEngine:
-    return BNInferenceEngine(build_network())
+def _bootstrap_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
+    return BNInferenceEngine(build_network(topology))
+
+
+def _locked_spec_json() -> str:
+    """The locked elicited network as a JSON string, or '' for the bootstrap."""
+    return st.session_state.get("locked_spec_json", "") or ""
+
+
+def _network_and_concentration(topology: str, locked_spec_json: str):
+    """(base_network, concentration) for the active config. A locked elicitation
+    wins (its per-CPT kappa map, defaulting other nodes to 20); otherwise the
+    bootstrap network for the selected topology at scalar kappa=20."""
+    if locked_spec_json:
+        spec = spec_from_dict(json.loads(locked_spec_json))
+        net = spec.to_pgmpy()
+        km = spec.kappa_map()
+        return net, {v: km.get(v, 20.0) for v in net.nodes()}
+    return build_network(topology), 20.0
+
+
+def get_engine(topology: str = TOPOLOGY) -> BNInferenceEngine:
+    """The inference engine for the active network: a locked elicitation when one
+    is set (Plan 4), else the bootstrap network for the selected topology."""
+    locked = _locked_spec_json()
+    if locked:
+        return BNInferenceEngine(spec_from_dict(json.loads(locked)).to_pgmpy())
+    return _bootstrap_engine(topology)
 
 
 @st.cache_data(show_spinner=False)
 def cached_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
+    topology: str = TOPOLOGY,
+    locked_spec_json: str = "",
 ) -> Dict[str, Tuple[float, float, float]]:
-    return scenario_credible_intervals(dict(evidence_items), m=200, concentration=20.0)
+    base, concentration = _network_and_concentration(topology, locked_spec_json)
+    return scenario_credible_intervals(
+        dict(evidence_items), m=200, concentration=concentration, base_network=base
+    )
 
 
 @st.cache_data(show_spinner="Computing node uncertainty…")
 def cached_node_credible_intervals(
     evidence_items: Tuple[Tuple[str, str], ...],
     soft_evidence_items: Tuple[Tuple[str, Tuple[Tuple[str, float], ...]], ...],
+    topology: str = TOPOLOGY,
+    locked_spec_json: str = "",
 ) -> Dict[str, Dict[str, Tuple[float, float, float]]]:
     soft = {node: dict(dist) for node, dist in soft_evidence_items}
+    base, concentration = _network_and_concentration(topology, locked_spec_json)
     return node_credible_intervals(
         dict(evidence_items),
         soft_evidence=soft,
         m=200,
-        concentration=20.0,
+        concentration=concentration,
+        base_network=base,
     )
 
 
@@ -478,423 +147,25 @@ def cached_node_credible_intervals(
 # Session state
 # ---------------------------------------------------------------------------
 
-_SS_DEFAULTS = {
-    "observations": [],
-    "current_day": 1,
-    "last_translation": None,
-    "translator_error": None,
-    "translator_raw": "",
-    "pending_headline": None,
-    "selected_node": None,
-}
-for _k, _v in _SS_DEFAULTS.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
-
-_SESSION_STORE = ROOT / "data" / "dashboard_saved_sessions.json"
+state.init_session_state()
 
 
-def _load_session_store() -> Dict[str, Dict]:
-    if not _SESSION_STORE.exists():
-        return {}
-    try:
-        return json.loads(_SESSION_STORE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
+translator_stream.render_sidebar(st)
 
+# Plan 4 elicitation layer: run/load an elicitation, inspect reasonings & scores,
+# override columns, and lock it — the rest of the dashboard then runs on it.
+with st.expander(
+    "🧪 Elicitation layer — run / load / override / lock the CPTs", expanded=False
+):
+    elicitation_panel.render(st, topology=TOPOLOGY)
 
-def _write_session_store(store: Dict[str, Dict]) -> None:
-    _SESSION_STORE.parent.mkdir(parents=True, exist_ok=True)
-    _SESSION_STORE.write_text(
-        json.dumps(store, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _snapshot_session_state() -> Dict:
-    return {
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-        "current_day": st.session_state.current_day,
-        "observations": st.session_state.observations,
-        "last_translation": st.session_state.last_translation,
-        "translator_error": st.session_state.translator_error,
-        "translator_raw": st.session_state.translator_raw,
-        "selected_node": st.session_state.selected_node,
-    }
-
-
-def _save_named_session(name: str) -> None:
-    store = _load_session_store()
-    store[name] = _snapshot_session_state()
-    _write_session_store(store)
-
-
-def _restore_named_session(name: str) -> bool:
-    store = _load_session_store()
-    payload = store.get(name)
-    if payload is None:
-        return False
-    for key in _SS_DEFAULTS:
-        st.session_state[key] = payload.get(key, _SS_DEFAULTS[key])
-    return True
-
-
-def _delete_named_session(name: str) -> bool:
-    store = _load_session_store()
-    if name not in store:
-        return False
-    del store[name]
-    _write_session_store(store)
-    return True
-
-
-def _append_observation(
-    headline: str,
-    assignments: Dict[str, str],
-    soft_assignments: Optional[Dict[str, Dict[str, float]]] = None,
-    rationale: str = "",
-    per_assignment_reasons: Optional[Dict[str, str]] = None,
-    source: str = "translator",
-) -> None:
-    obs = Observation(
-        day=st.session_state.current_day,
-        headline=headline,
-        assignments=dict(assignments),
-        soft_assignments=dict(soft_assignments or {}),
-        rationale=rationale,
-        per_assignment_reasons=per_assignment_reasons or {},
-        source=source,
-    )
-    st.session_state.observations.append({"id": uuid.uuid4().hex, **asdict(obs)})
-
-
-def _merged_evidence() -> Tuple[Dict[str, str], Dict[str, Dict[str, float]]]:
-    """Latest observation wins on conflict, in insertion order."""
-    hard_merged: Dict[str, str] = {}
-    soft_merged: Dict[str, Dict[str, float]] = {}
-    for obs in st.session_state.observations:
-        for node, state in obs.get("assignments", {}).items():
-            hard_merged[node] = state
-            soft_merged.pop(node, None)
-        for node, dist in obs.get("soft_assignments", {}).items():
-            soft_merged[node] = {k: float(v) for k, v in dist.items()}
-            hard_merged.pop(node, None)
-    return hard_merged, soft_merged
-
-
-def _render_model_overview() -> None:
-    st.markdown(
-        "<div class='explain'>"
-        "<p>The Bayesian network encodes qualitative causal structure "
-        "between four <b>root drivers</b> (negotiations, regime "
-        "stability, third-party mediation, sanctions trajectory), "
-        "<b>eight intermediate nodes</b> (Iran-aligned militia attacks, tanker "
-        "incidents, US military response, strait closure, energy "
-        "infrastructure damage, conflict duration, diplomatic path, "
-        "oil price regime), and a terminal <b>Scenario</b> node "
-        "whose three states correspond to the client's strategic "
-        "scenarios.</p>"
-        "<h4>Two layers</h4>"
-        "<p>A free-text headline is passed through an LLM translator "
-        "that extracts BN-relevant probabilistic assignments (e.g. "
-        "<i>\"Fourth tanker incident in two weeks\"</i> gives a high "
-        "probability to <code>Tanker_Incidents = frequent</code>). "
-        "Those soft assignments become BN evidence; variable-elimination "
-        "propagates them and yields the posterior distribution at "
-        "every node.</p>"
-        "<h4>Scenario definitions</h4>"
-        "<ul>"
-        f"<li><b style='color:{GREEN};'>Stress Mitigates</b> — "
-        f"{SCENARIO_NARRATIVES['Stress_Mitigates']}</li>"
-        f"<li><b style='color:{AMBER};'>Prolonged Conflict</b> — "
-        f"{SCENARIO_NARRATIVES['Prolonged_Conflict']}</li>"
-        f"<li><b style='color:{RED};'>Severe Closure</b> — "
-        f"{SCENARIO_NARRATIVES['Severe_Closure']}</li>"
-        "</ul>"
-        "<h4>Reading the graph</h4>"
-        "<p>Teal-filled nodes are the ones for which evidence has "
-        "been set (whether by the translator or a manual override). "
-        "Unobserved nodes display the most likely state under the "
-        "current posterior. Root drivers use distinct color families "
-        "so they are easy to distinguish visually.</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def _render_model_appendix() -> None:
-    st.markdown(
-        r"""
-        ### Appendix: implementation details
-
-        The model is a discrete Bayesian network with posterior updates via exact variable elimination.
-
-        **Inference rule**
-
-        $$
-        P(S \mid E=e) =
-        \frac{\sum_{z} P(S, z, e)}{\sum_{s}\sum_{z} P(s, z, e)}
-        $$
-
-        where $S$ is the scenario node and $z$ are latent/unobserved nodes.
-
-        **Translator-to-evidence pipeline**
-
-        1. A headline is parsed into a set of node assignments constrained to valid node states.
-        2. Each assignment is appended as an observation with day and source metadata.
-        3. Latest assignment wins on node conflicts when merged into current evidence.
-        4. Inference is re-run and scenario cards + node marginals are refreshed.
-
-        **Uncertainty panel**
-
-        Credible intervals are estimated by resampling every CPT column from a Dirichlet distribution centred on the elicited point estimate and rerunning inference:
-
-        $$
-        \theta_{j,\cdot}^{(m)} \sim \text{Dirichlet}(\alpha_{j,\cdot}),
-        \qquad \alpha_{j,\cdot} = \kappa \cdot \theta_{j,\cdot}^{\text{point}}
-        $$
-
-        with concentration $\kappa = 20$ and $m = 200$ draws. Each draw perturbs **all** CPTs jointly and the full network is re-run under the current evidence, so the resulting posterior samples reflect *global* parameter uncertainty, not a per-node local variation.
-
-        The 10th–90th percentiles across samples give an 80% credible interval per node per state, exposed in two places:
-
-        - **Scenario cards** (top band): headline CIs for the three scenarios.
-        - **Node detail panel** (right of the Network tab): per-node dumbbells with a robustness badge (🟢 robust < ±8 pp · 🟡 moderate ±8–20 pp · 🔴 fragile > ±20 pp). Hard-observed nodes collapse to deltas; soft-observed nodes keep their CIs because the posterior still varies under CPT resampling.
-        """
-    )
-
-
-# ---------------------------------------------------------------------------
-# Translator stream (compact single-line)
-# ---------------------------------------------------------------------------
-
-STAGE_ICON = {
-    "init": "🔌",
-    "thinking": "💭",
-    "response": "✍️",
-    "parsing": "🧩",
-    "validated": "✅",
-}
-STAGE_LABEL = {
-    "init": "Connecting to model",
-    "thinking": "Thinking",
-    "response": "Receiving response",
-    "parsing": "Parsing assignments",
-    "validated": "Validated",
-}
-
-
-def _run_translator(headline: str, stream_slot) -> None:
-    def _write(kind: str, stage: str, detail: str) -> None:
-        icon = STAGE_ICON.get(stage, "•")
-        label = STAGE_LABEL.get(stage, stage.capitalize())
-        clean = " ".join(detail.split())
-        if len(clean) > 120:
-            clean = clean[:117] + "…"
-        cls = {"live": "stream-line", "done": "stream-line stream-done",
-               "err":  "stream-line stream-error"}[kind]
-        stream_slot.markdown(
-            f"<div class='{cls}'>{icon} <b>{label}</b> — {clean}</div>",
-            unsafe_allow_html=True,
-        )
-
-    _write("live", "init", "starting model call…")
-
-    def on_step(stage: str, detail: str) -> None:
-        _write("live", stage, detail)
-
-    try:
-        result: TranslatorResult = translate_headline(headline, on_step=on_step)
-    except TranslatorError as exc:
-        raw = getattr(exc, "raw_response", "")
-        _write("err", "validated", f"failed: {exc}")
-        st.session_state.translator_error = str(exc)
-        st.session_state.translator_raw = raw
-        st.session_state.last_translation = None
-        return
-
-    st.session_state.translator_error = None
-    st.session_state.translator_raw = result.raw_response
-    st.session_state.last_translation = {
-        "headline": result.headline,
-        "assignments": [asdict(a) for a in result.assignments],
-        "rationale": result.rationale,
-        "model": result.model,
-        "provider": result.provider,
-    }
-    if result.assignments:
-        soft_assignments = {
-            a.node: dict(a.state_probs) for a in result.assignments
-        }
-        _append_observation(
-            headline=result.headline,
-            assignments={},
-            soft_assignments=soft_assignments,
-            rationale=result.rationale,
-            per_assignment_reasons={a.node: a.reason for a in result.assignments},
-            source="translator",
-        )
-        _write(
-            "done", "validated",
-            f"{len(result.assignments)} assignment(s) · model {result.model}",
-        )
-    else:
-        st.session_state.translator_error = (
-            "Translator returned no assignments — the headline does not map "
-            "to any node in this BN schema. Try a Strait-of-Hormuz-specific "
-            "headline or use the Network tab to set a node manually."
-        )
-        _write("err", "validated", "no assignments produced")
-
-
-# ===========================================================================
-# SIDEBAR
-# ===========================================================================
-
-translator_on = translator_available()
-providers = available_providers()
-provider_labels = {"claude-code": "Claude Code", "openai": "OpenAI API"}
-
-with st.sidebar:
-    st.markdown(
-        "<div class='sb-header'>"
-        "<div class='sb-header-title'>Scenario Session Controls</div>"
-        "<div class='sb-header-sub'>Translator, observations, and state</div>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # -- Provider chip (one line) ------------------------------------------
-    if translator_on:
-        primary = provider_labels[providers[0]]
-        st.markdown(
-            f"<div class='sb-provider'>● Translator: {primary}</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            "<div class='sb-provider warn'>⚠ No translator backend</div>",
-            unsafe_allow_html=True,
-        )
-
-    # -- Day row ----------------------------------------------------------
-    todays_count = sum(
-        1 for o in st.session_state.observations
-        if o["day"] == st.session_state.current_day
-    )
-    day_l, day_r = st.columns([1, 1], gap="small")
-    with day_l:
-        st.markdown(
-            f"<div class='day-pill'>DAY {st.session_state.current_day}</div>"
-            f"<div class='sb-hint'>• {todays_count} obs today</div>",
-            unsafe_allow_html=True,
-        )
-    with day_r:
-        if st.button("▶ Advance", width="stretch", type="secondary", key="adv_day"):
-            st.session_state.current_day += 1
-            st.rerun()
-
-    st.markdown("<div class='sb-title'>Translate a headline</div>",
-                unsafe_allow_html=True)
-
-    with st.form("headline_form", clear_on_submit=True):
-        headline_input = st.text_area(
-            "News headline",
-            placeholder="e.g. 'Iran suspends Hormuz traffic inspections'",
-            height=72,
-            disabled=not translator_on,
-            label_visibility="collapsed",
-        )
-        submitted = st.form_submit_button(
-            "Translate & observe", type="primary",
-            disabled=not translator_on, width="stretch",
-        )
-        if submitted and headline_input.strip():
-            st.session_state.pending_headline = headline_input.strip()
-
-    # Stream slot lives just below the form — compact, single-line.
-    stream_slot = st.empty()
-
-    # Run translator *after* the slot is in the sidebar, so updates appear here.
-    if st.session_state.pending_headline is not None:
-        headline = st.session_state.pending_headline
-        st.session_state.pending_headline = None
-        _run_translator(headline, stream_slot)
-
-    with st.expander("Examples", expanded=False):
-        for idx, ex in enumerate(EXAMPLE_HEADLINES):
-            if st.button(
-                ex.text, key=f"ex_{idx}",
-                width="stretch", disabled=not translator_on,
-            ):
-                st.session_state.pending_headline = ex.text
-                st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<div class='sb-title'>Named sessions</div>", unsafe_allow_html=True)
-    saved_sessions = _load_session_store()
-    session_name = st.text_input(
-        "Session name",
-        placeholder="e.g. baseline-briefing",
-        key="session_name_input",
-        label_visibility="collapsed",
-    ).strip()
-
-    sess_cols = st.columns([1, 1], gap="small")
-    with sess_cols[0]:
-        if st.button("Save session", width="stretch", key="save_named_session"):
-            if not session_name:
-                st.warning("Enter a session name before saving.")
-            else:
-                _save_named_session(session_name)
-                st.success(f"Saved session '{session_name}'.")
-                st.rerun()
-    with sess_cols[1]:
-        load_name = st.selectbox(
-            "Load named session",
-            options=[""] + sorted(saved_sessions.keys()),
-            key="load_named_session_select",
-            label_visibility="collapsed",
-        )
-        if st.button("Load", width="stretch", key="load_named_session"):
-            if not load_name:
-                st.warning("Choose a saved session to load.")
-            elif _restore_named_session(load_name):
-                st.success(f"Loaded session '{load_name}'.")
-                st.rerun()
-            else:
-                st.error("Could not load that saved session.")
-
-    if saved_sessions:
-        delete_name = st.selectbox(
-            "Delete named session",
-            options=[""] + sorted(saved_sessions.keys()),
-            key="delete_named_session_select",
-            label_visibility="collapsed",
-        )
-        if st.button("Delete selected", width="stretch", key="delete_named_session"):
-            if delete_name and _delete_named_session(delete_name):
-                st.success(f"Deleted session '{delete_name}'.")
-                st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Reset session", width="stretch", key="reset_all"):
-        st.session_state.observations = []
-        st.session_state.current_day = 1
-        st.session_state.last_translation = None
-        st.session_state.translator_error = None
-        st.session_state.translator_raw = ""
-        st.session_state.selected_node = None
-        st.rerun()
-
-
-# ===========================================================================
-# MAIN COMPUTATION
-# ===========================================================================
-
-engine = get_engine()
+engine = get_engine(TOPOLOGY)
 engine.clear_evidence()
 evidence, soft_evidence = _merged_evidence()
+# Scenario is the latent regime we infer, never observe — drop any evidence on it
+# (e.g. a mistaken manual override) so the Scenario-targeted CI query stays valid.
+evidence.pop("Scenario", None)
+soft_evidence.pop("Scenario", None)
 if evidence:
     engine.update_evidence(evidence)
 if soft_evidence:
@@ -905,7 +176,26 @@ ci_evidence = dict(evidence)
 for node, dist in soft_evidence.items():
     ci_evidence[node] = max(dist, key=dist.get)
 with st.spinner("Quantifying parameter uncertainty…"):
-    ci_table = cached_credible_intervals(tuple(sorted(ci_evidence.items())))
+    ci_table = cached_credible_intervals(
+        tuple(sorted(ci_evidence.items())), TOPOLOGY, _locked_spec_json()
+    )
+
+# Before/after deltas (P9 / C7 / V9): the effect of the most recent observation —
+# the current scenario means minus the means with that one observation removed.
+scenario_deltas_now = None
+_obs = st.session_state.observations
+if _obs:
+    _ph, _ps = state.merged_evidence(_obs[:-1])
+    _prev_ci_ev = dict(_ph)
+    for _node, _dist in _ps.items():
+        _prev_ci_ev[_node] = max(_dist, key=_dist.get)
+    _prev_ci = cached_credible_intervals(
+        tuple(sorted(_prev_ci_ev.items())), TOPOLOGY, _locked_spec_json()
+    )
+    scenario_deltas_now = state.scenario_deltas(
+        {s: ci_table[s][0] for s in ci_table},
+        {s: _prev_ci[s][0] for s in _prev_ci},
+    )
 
 all_marginals = {n: engine.get_node_marginal(n) for n in STATES}
 
@@ -916,954 +206,157 @@ soft_evidence_ci_items = tuple(
 node_ci_table = cached_node_credible_intervals(
     tuple(sorted(evidence.items())),
     soft_evidence_ci_items,
+    TOPOLOGY,
+    _locked_spec_json(),
 )
 
-# Map each observed node to the latest day it was set.
+# Map each observed node to the latest observation that set it (day for the agraph
+# payload; full meta — day / source / headline — for the observed-node panel, P8).
 observed_day_map: Dict[str, int] = {}
+observed_meta: Dict[str, dict] = {}
 for obs in st.session_state.observations:
-    for node in obs.get("assignments", {}):
+    for node in {**obs.get("assignments", {}), **obs.get("soft_assignments", {})}:
         observed_day_map[node] = obs["day"]
-    for node in obs.get("soft_assignments", {}):
-        observed_day_map[node] = obs["day"]
+        observed_meta[node] = {"day": obs["day"], "source": obs["source"],
+                               "headline": obs["headline"]}
+
+# Standalone Bayes-factor contribution of the selected observed node (P8 / C4):
+# what that single observation alone says about the latent regime — hard (a state
+# pin) or soft (the translator's ε vector). Only meaningful on a latent-regime
+# network — scenario_bayes_factors raises otherwise, so skip.
+_sel_node = st.session_state.selected_node
+selected_bayes = None
+try:
+    if _sel_node and _sel_node in evidence:
+        selected_bayes = engine.standalone_bayes_factors({_sel_node: evidence[_sel_node]})
+    elif _sel_node and _sel_node in soft_evidence:
+        selected_bayes = engine.standalone_bayes_factors(
+            {}, {_sel_node: soft_evidence[_sel_node]})
+except ValueError:
+    selected_bayes = None
 
 
 # ===========================================================================
 # HEADER
 # ===========================================================================
 
+
+def _load_eval_badge() -> Optional[str]:
+    """Header badge from the committed translator-eval snapshot (T03/D2).
+
+    Returns None if the snapshot is missing (e.g. before `pixi run translator-eval`).
+    """
+    snap = ROOT / "tests" / "golden" / "translator" / "_eval_snapshot.json"
+    try:
+        m = json.loads(snap.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    f1, acc = m.get("node_f1"), m.get("state_accuracy_given_node_match")
+    f1s = f"{f1:.2f}" if isinstance(f1, (int, float)) else "—"
+    accs = f"{acc:.2f}" if isinstance(acc, (int, float)) else "—"
+    return (
+        "<div class='sb-provider' style='display:inline-block;margin:0 0 0.4rem;'>"
+        f"📏 translator eval: n={m.get('n_records', '?')} ({m.get('gate', '?')}) · "
+        f"node-F1 {f1s} · state-acc {accs} · "
+        f"{m.get('n_nodes_covered', '?')}/{m.get('n_observable_nodes', '?')} nodes</div>"
+    )
+
+
 st.markdown(
     "<div class='demo-title'>Adaptive Scenario Probability Framework — Strait of Hormuz</div>",
     unsafe_allow_html=True,
 )
+_eval_badge = _load_eval_badge()
+if _eval_badge:
+    st.markdown(_eval_badge, unsafe_allow_html=True)
 with st.expander("How this model works", expanded=False):
-    _render_model_overview()
+    model_explainer.render_overview(st, TOPOLOGY)
 
 
 # ===========================================================================
 # PINNED TOP BAND — scenario cards + probability evolution
 # ===========================================================================
 
-with st.container(border=True):
-    st.markdown("<div class='card-title'>Scenario outlook</div>",
-                unsafe_allow_html=True)
+scenario_cards.render_scenario_outlook(st, ci_table, deltas=scenario_deltas_now)
 
-    cards_html = "<div class='scenario-grid'>"
-    for scenario in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
-        mean, lo, hi = ci_table[scenario]
-        color = SCENARIO_COLOR[scenario]
-        label = SCENARIO_LABEL[scenario]
-        narrative = SCENARIO_NARRATIVES[scenario]
-        cards_html += (
-            f"<div class='scenario-card' style='border-left-color:{color};'>"
-            f"  <div class='scenario-name' style='color:{color};'>{label}</div>"
-            f"  <div class='scenario-prob' style='color:{color};'>{mean*100:0.1f}%</div>"
-            f"  <div class='scenario-ci'>80% CI: {lo*100:0.1f}% – {hi*100:0.1f}%</div>"
-            f"  <div class='scenario-narrative'>{narrative}</div>"
-            f"</div>"
-        )
-    cards_html += "</div>"
-    st.markdown(cards_html, unsafe_allow_html=True)
-
-    with st.expander("Uncertainty detail — 80% credible intervals", expanded=False):
-        ci_df = pd.DataFrame([
-            {
-                "Scenario": SCENARIO_LABEL[s],
-                "Mean": ci_table[s][0],
-                "Lo": ci_table[s][1],
-                "Hi": ci_table[s][2],
-            }
-            for s in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]
-        ])
-        ci_scale = alt.Scale(
-            domain=[SCENARIO_LABEL[s] for s in
-                    ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]],
-            range=[GREEN, AMBER, RED],
-        )
-        err_rule = alt.Chart(ci_df).mark_rule(strokeWidth=4).encode(
-            y=alt.Y("Scenario:N", sort=None, title=None,
-                    axis=alt.Axis(labelColor=NAVY)),
-            x=alt.X("Lo:Q",
-                    scale=alt.Scale(domain=[0, 1]),
-                    axis=alt.Axis(format="%", labelColor=NAVY,
-                                  titleColor=NAVY),
-                    title="Probability"),
-            x2="Hi:Q",
-            color=alt.Color("Scenario:N", scale=ci_scale, legend=None),
-        )
-        err_caps_lo = alt.Chart(ci_df).mark_tick(
-            thickness=3, size=18
-        ).encode(
-            y=alt.Y("Scenario:N", sort=None),
-            x="Lo:Q",
-            color=alt.Color("Scenario:N", scale=ci_scale, legend=None),
-        )
-        err_caps_hi = alt.Chart(ci_df).mark_tick(
-            thickness=3, size=18
-        ).encode(
-            y=alt.Y("Scenario:N", sort=None),
-            x="Hi:Q",
-            color=alt.Color("Scenario:N", scale=ci_scale, legend=None),
-        )
-        err_pts = alt.Chart(ci_df).mark_circle(size=180, opacity=1).encode(
-            y=alt.Y("Scenario:N", sort=None),
-            x="Mean:Q",
-            color=alt.Color("Scenario:N", scale=ci_scale, legend=None),
-            tooltip=[
-                alt.Tooltip("Scenario:N"),
-                alt.Tooltip("Mean:Q", format=".1%", title="Mean"),
-                alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
-                alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
-            ],
-        )
-        err_chart = (
-            err_rule + err_caps_lo + err_caps_hi + err_pts
-        ).properties(height=170).configure_view(stroke=None)
-        st.altair_chart(err_chart, use_container_width=True)
-        st.caption(
-            "Intervals come from resampling CPT parameters (Dirichlet, "
-            "concentration = 20, m = 200) and re-running inference."
-        )
-
-
-# ---- Probability evolution (Altair, interactive) -------------------------
-
-with st.container(border=True):
-    st.markdown("<div class='card-title'>Probability evolution by day</div>",
-                unsafe_allow_html=True)
-
-    if not st.session_state.observations:
-        st.markdown(
-            f"<div class='card-sub' style='color:{MUTED};'>"
-            "No observations yet — the timeline fills as you translate or "
-            "override observations.</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        history_rows: List[Dict] = []
-        engine_h = get_engine()
-        engine_h.clear_evidence()
-        priors = engine_h.get_prior_probabilities()
-        prior_ci = cached_credible_intervals(tuple())
-        history_rows.append({
-            "Day": 0, "HeadlinesOnDay": "(prior)", "n_obs": 0,
-            "ci": prior_ci, **priors,
-        })
-
-        grouped: Dict[int, List[Dict]] = {}
-        for obs in st.session_state.observations:
-            grouped.setdefault(obs["day"], []).append(obs)
-
-        cum_hard: Dict[str, str] = {}
-        cum_soft: Dict[str, Dict[str, float]] = {}
-        with st.spinner("Quantifying parameter uncertainty per day…"):
-            for day in sorted(grouped):
-                day_obs = grouped[day]
-                for obs in day_obs:
-                    for node, state in obs.get("assignments", {}).items():
-                        cum_hard[node] = state
-                        cum_soft.pop(node, None)
-                    for node, dist in obs.get("soft_assignments", {}).items():
-                        cum_soft[node] = {k: float(v) for k, v in dist.items()}
-                        cum_hard.pop(node, None)
-                engine_h.clear_evidence()
-                if cum_hard:
-                    engine_h.update_evidence(cum_hard)
-                if cum_soft:
-                    engine_h.update_soft_evidence(cum_soft)
-                headlines = " · ".join(o["headline"] for o in day_obs)
-                if len(headlines) > 180:
-                    headlines = headlines[:177] + "…"
-                day_ci_evidence = dict(cum_hard)
-                for node, dist in cum_soft.items():
-                    day_ci_evidence[node] = max(dist, key=dist.get)
-                day_ci = cached_credible_intervals(
-                    tuple(sorted(day_ci_evidence.items()))
-                )
-                history_rows.append({
-                    "Day": day,
-                    "HeadlinesOnDay": headlines,
-                    "n_obs": len(day_obs),
-                    "ci": day_ci,
-                    **engine_h.get_scenario_probabilities(),
-                })
-
-        wide = pd.DataFrame(history_rows)
-        long_rows = []
-        for _, r in wide.iterrows():
-            for sc in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
-                mean_ci, lo_ci, hi_ci = r["ci"][sc]
-                long_rows.append({
-                    "Day": int(r["Day"]),
-                    "Scenario": SCENARIO_LABEL[sc],
-                    "ScenarioKey": sc,
-                    # Use the Dirichlet-resample mean so the line is the
-                    # centre of the CI band (and matches the scenario
-                    # cards). The unperturbed posterior from
-                    # get_scenario_probabilities() can lie outside
-                    # [Lo, Hi] because inference is non-linear in the CPTs.
-                    "Probability": float(mean_ci),
-                    "Lo": float(lo_ci),
-                    "Hi": float(hi_ci),
-                    "HeadlinesOnDay": r["HeadlinesOnDay"],
-                    "n_obs": int(r["n_obs"]),
-                })
-        long_df = pd.DataFrame(long_rows)
-
-        color_scale = alt.Scale(
-            domain=[SCENARIO_LABEL[s] for s in
-                    ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]],
-            range=[GREEN, AMBER, RED],
-        )
-
-        base = alt.Chart(long_df).encode(
-            x=alt.X("Day:O", title="Day",
-                    axis=alt.Axis(
-                        labelColor=NAVY,
-                        titleColor=NAVY,
-                        labelAngle=0,
-                    )),
-            y=alt.Y("Probability:Q", scale=alt.Scale(domain=[0, 1]),
-                    title="Probability",
-                    axis=alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY)),
-            color=alt.Color("Scenario:N", scale=color_scale,
-                            legend=alt.Legend(title=None, orient="top")),
-        )
-        bands = base.mark_area(opacity=0.18, interpolate="linear").encode(
-            y=alt.Y("Lo:Q", scale=alt.Scale(domain=[0, 1]), title="Probability"),
-            y2="Hi:Q",
-        )
-        lines = base.mark_line(strokeWidth=2.6, point=alt.OverlayMarkDef(size=70))
-        hover = alt.selection_point(
-            fields=["Day"], nearest=True, on="mouseover", empty=False,
-        )
-        tooltip = base.mark_circle(size=120, opacity=0).encode(
-            tooltip=[
-                alt.Tooltip("Day:O"),
-                alt.Tooltip("Scenario:N"),
-                alt.Tooltip("Probability:Q", format=".1%", title="Mean"),
-                alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
-                alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
-                alt.Tooltip("n_obs:Q", title="# obs added"),
-                alt.Tooltip("HeadlinesOnDay:N", title="Headlines"),
-            ],
-        ).add_params(hover)
-        chart = (bands + lines + tooltip).properties(height=260).configure_view(
-            stroke=None,
-        )
-        st.altair_chart(chart, use_container_width=True)
-        st.caption(
-            "Lines are the Dirichlet-resample posterior mean (matching the "
-            "scenario cards above). Shaded bands are the 80% credible "
-            "interval from CPT resampling at each day's evidence state "
-            "(concentration = 20, m = 200). They reflect parameter "
-            "uncertainty **at that day**, not forecast uncertainty about "
-            "future trajectories."
-        )
-
-        last_day = max(grouped)
-        last_headlines = " · ".join(o["headline"] for o in grouped[last_day])
-        st.caption(
-            f"Most recent update — Day {last_day}: {last_headlines}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Node-CI rendering helpers (A2)
-# ---------------------------------------------------------------------------
-
-_NAVY_FULL = NAVY
-_NAVY_MID = "#5B6A7D"
-_NAVY_LIGHT = "#9BA5B0"
-_WIDTH_COLOR_SCALE = alt.Scale(
-    domain=["narrow", "moderate", "fragile"],
-    range=[_NAVY_FULL, _NAVY_MID, _NAVY_LIGHT],
+evolution_chart.render_evolution_chart(
+    st, st.session_state.observations,
+    engine=get_engine(TOPOLOGY), cached_ci=cached_credible_intervals,
+    locked_spec_json=_locked_spec_json(), topology=TOPOLOGY,
 )
 
 
-def _width_category(half_width_pp: float) -> str:
-    if half_width_pp < 8:
-        return "narrow"
-    if half_width_pp < 20:
-        return "moderate"
-    return "fragile"
-
-
-def _ci_dataframe(
-    ci_dict: Dict[str, Tuple[float, float, float]],
-    sorted_states: List[str],
-) -> pd.DataFrame:
-    rows = []
-    for state in sorted_states:
-        mean, lo, hi = ci_dict[state]
-        half_w_pp = (hi - lo) * 50.0
-        rows.append({
-            "State": state,
-            "Mean": mean,
-            "Lo": lo,
-            "Hi": hi,
-            "HalfWidthPP": half_w_pp,
-            "WidthCategory": _width_category(half_w_pp),
-        })
-    return pd.DataFrame(rows)
-
-
-def _dumbbell_chart(df: pd.DataFrame, sorted_states: List[str]) -> alt.Chart:
-    y_enc = alt.Y(
-        "State:N", sort=sorted_states, title=None,
-        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
-        axis=alt.Axis(
-            labelColor=NAVY, labelFontSize=11,
-            labelOverlap=False, labelLimit=200, labelPadding=6,
-        ),
-    )
-    x_scale = alt.Scale(domain=[0, 1])
-    x_axis = alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY)
-    color_enc = alt.Color(
-        "WidthCategory:N", scale=_WIDTH_COLOR_SCALE, legend=None,
-    )
-    tooltip = [
-        alt.Tooltip("State:N"),
-        alt.Tooltip("Mean:Q", format=".1%", title="Mean"),
-        alt.Tooltip("Lo:Q", format=".1%", title="Lo (10%)"),
-        alt.Tooltip("Hi:Q", format=".1%", title="Hi (90%)"),
-        alt.Tooltip("HalfWidthPP:Q", format=".1f", title="± pp"),
-    ]
-    base = alt.Chart(df).encode(y=y_enc)
-    rule = base.mark_rule(strokeWidth=4).encode(
-        x=alt.X("Lo:Q", scale=x_scale, axis=x_axis, title="Probability"),
-        x2="Hi:Q",
-        color=color_enc,
-    )
-    cap_lo = base.mark_tick(thickness=3, size=18).encode(
-        x="Lo:Q", color=color_enc,
-    )
-    cap_hi = base.mark_tick(thickness=3, size=18).encode(
-        x="Hi:Q", color=color_enc,
-    )
-    mean_pt = base.mark_circle(size=140).encode(
-        x="Mean:Q", color=color_enc, tooltip=tooltip,
-    )
-    height = max(160, 50 * len(sorted_states) + 30)
-    return (rule + cap_lo + cap_hi + mean_pt).properties(
-        height=height
-    ).configure_view(stroke=None)
-
-
-def _flat_bar_chart(
-    dist: Dict[str, float], sorted_states: List[str]
-) -> alt.Chart:
-    """Plain bars without CI — for hard/soft-observed nodes."""
-    df = pd.DataFrame(
-        [{"State": s, "Probability": dist[s]} for s in sorted_states]
-    )
-    y_enc = alt.Y(
-        "State:N", sort=sorted_states, title=None,
-        scale=alt.Scale(paddingInner=0.35, paddingOuter=0.35),
-        axis=alt.Axis(
-            labelColor=NAVY, labelFontSize=11,
-            labelOverlap=False, labelLimit=200, labelPadding=6,
-        ),
-    )
-    x_enc = alt.X(
-        "Probability:Q", scale=alt.Scale(domain=[0, 1]),
-        axis=alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY),
-        title="Probability",
-    )
-    bars = alt.Chart(df).mark_bar(size=14, color=NAVY).encode(
-        x=x_enc, y=y_enc,
-        tooltip=[
-            alt.Tooltip("State:N"),
-            alt.Tooltip("Probability:Q", format=".1%"),
-        ],
-    )
-    height = max(160, 50 * len(sorted_states) + 30)
-    return bars.properties(height=height).configure_view(stroke=None)
-
-
-def _robustness_badge_html(
-    ci_dict: Dict[str, Tuple[float, float, float]],
-    sorted_states: List[str],
-) -> str:
-    widest_state = max(
-        sorted_states, key=lambda s: ci_dict[s][2] - ci_dict[s][1],
-    )
-    mean_w, lo_w, hi_w = ci_dict[widest_state]
-    half_w_pp = (hi_w - lo_w) * 50.0
-    cat = _width_category(half_w_pp)
-    if cat == "narrow":
-        emoji, label, color = "🟢", "robust", GREEN
-    elif cat == "moderate":
-        emoji, label, color = "🟡", "moderate", AMBER
-    else:
-        emoji, label, color = "🔴", "fragile", RED
-    return (
-        f"<div style='font-size:0.82rem; margin:0.2rem 0 0.55rem 0; "
-        f"color:{color}; font-weight:600;'>"
-        f"{emoji} {label} · widest CI ±{half_w_pp:0.1f} pp "
-        f"<span style='color:{MUTED}; font-weight:400;'>"
-        f"(state: {widest_state})</span></div>"
-    )
-
-
 # ===========================================================================
-# TABS — Network & model / Observations / Audit trail
+# TOP-LEVEL VIEW NAV — Network & model / Observations / Audit trail / Edges
 # ===========================================================================
+# Deliberately NOT st.tabs: st.tabs keeps every tab body mounted and merely
+# CSS-hides the inactive ones. That breaks the vis.js (streamlit-agraph) DAG
+# canvas — when the Network tab is re-shown, vis.js refits against a stale /
+# zero-size container and renders zoomed-in or blank. A session-state-driven
+# selector with conditional rendering re-mounts only the active view on each
+# switch, so the graph always sizes correctly. (agraph exposes no `key`, so
+# this is the only way to force the clean remount.)
 
-tab_net, tab_obs, tab_audit, tab_edges = st.tabs(
-    ["🕸️  Network & model", "📝  Observations",
-     "🔎  Audit trail", "🧭  Edge rationale"]
+_VIEW_NET = "🕸️  Network & model"
+_VIEW_OBS = "📝  Observations"
+_VIEW_TRIAGE = "⚖️  Triage"
+_VIEW_AUDIT = "🔎  Audit trail"
+_VIEW_EDGES = "🧭  Edge rationale"
+
+active_view = st.segmented_control(
+    "View",
+    [_VIEW_NET, _VIEW_OBS, _VIEW_TRIAGE, _VIEW_AUDIT, _VIEW_EDGES],
+    default=_VIEW_NET,
+    key="active_view",
+    label_visibility="collapsed",
 )
+# Single-select segmented_control lets the user deselect the active chip
+# (returns None); keep exactly one view active, the way tabs behave.
+if not active_view:
+    active_view = _VIEW_NET
 
 
 # ---------------------------------------------------------------------------
 # TAB 1 — Network & model (interactive graph + click-to-override / explain)
 # ---------------------------------------------------------------------------
 
-with tab_net:
-    net_col, detail_col = st.columns([2.35, 1.0], gap="large")
-
-    with net_col:
-        with st.container(border=True):
-            root_chip_html = "".join(
-                (
-                    f"<span class='root-chip' style='background:{bg};"
-                    f"border:1px solid {border}; color:{border};'>"
-                    f"{node.replace('_', ' ')}</span>"
-                )
-                for node, (bg, border) in ROOT_DRIVER_STYLE.items()
-            )
-            st.markdown(
-                "<div class='card-title'>Interactive DAG — click a node</div>"
-                "<div class='card-sub'>Fixed layout for at-a-glance reading. "
-                "Hover nodes to see full percentages. Root drivers use dedicated "
-                "color families for clearer separation. Node labels show posterior "
-                "output after propagating all injected evidence.</div>"
-                f"<div>{root_chip_html}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown("<div style='height:0.25rem;'></div>", unsafe_allow_html=True)
-            nodes, edges, config = build_agraph_payload(
-                all_marginals,
-                observed=evidence,
-                observed_day=observed_day_map,
-            )
-            clicked = agraph(nodes=nodes, edges=edges, config=config)
-            st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
-            if clicked and clicked in STATES:
-                if st.session_state.selected_node != clicked:
-                    st.session_state.selected_node = clicked
-                    st.rerun()
-
-    with detail_col:
-        sel = st.session_state.selected_node
-        with st.container(border=True):
-            st.markdown(
-                "<div class='card-title'>Posterior</div>",
-                unsafe_allow_html=True,
-            )
-            if sel and sel in STATES:
-                marginal = all_marginals[sel]
-                sorted_states = list(STATES[sel])
-                if sel in evidence:
-                    tip_text = (
-                        f"Hard evidence: {evidence[sel]} "
-                        f"(day {observed_day_map.get(sel, '?')}). "
-                        "No residual model uncertainty — the node is "
-                        "pinned to the observed state."
-                    )
-                elif sel in soft_evidence:
-                    dist = soft_evidence[sel]
-                    top_state = max(dist, key=dist.get)
-                    tip_text = (
-                        f"Soft evidence from headlines: {top_state} "
-                        f"({dist[top_state]*100:0.1f}%, "
-                        f"day {observed_day_map.get(sel, '?')}). "
-                        "Intervals show how the posterior shifts when "
-                        "CPT parameters are resampled (Dirichlet, "
-                        "concentration = 20, m = 200)."
-                    )
-                else:
-                    tip_text = (
-                        "Posterior marginal after propagating all injected "
-                        "evidence. Intervals come from CPT resampling "
-                        "(Dirichlet, concentration = 20, m = 200)."
-                    )
-                tip_attr = tip_text.replace("'", "&#39;")
-                st.markdown(
-                    f"<div class='card-sub' style='display:flex; "
-                    f"align-items:center; gap:0.35rem;'>"
-                    f"<b>{sel.replace('_',' ')}</b>"
-                    f"<span title='{tip_attr}' "
-                    f"style='cursor:help; color:{MUTED}; "
-                    f"font-size:0.9rem; font-weight:500;'>ⓘ</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                if sel in evidence:
-                    st.altair_chart(
-                        _flat_bar_chart(marginal, sorted_states),
-                        use_container_width=True,
-                    )
-                else:
-                    node_ci = node_ci_table[sel]
-                    st.markdown(
-                        _robustness_badge_html(node_ci, sorted_states),
-                        unsafe_allow_html=True,
-                    )
-                    ci_df = _ci_dataframe(node_ci, sorted_states)
-                    st.altair_chart(
-                        _dumbbell_chart(ci_df, sorted_states),
-                        use_container_width=True,
-                    )
-            else:
-                st.markdown(
-                    "<div class='card-sub'>Click a node in the graph to inspect "
-                    "its posterior distribution.</div>",
-                    unsafe_allow_html=True,
-                )
-
-        with st.container(border=True):
-            st.markdown(
-                "<div class='card-title' style='margin-bottom:0.2rem;'>"
-                "Override</div>",
-                unsafe_allow_html=True,
-            )
-            if sel and sel in STATES:
-                states = list(STATES[sel])
-                n = len(states)
-                default_pct = 100 // n
-                remainder = 100 - default_pct * n
-                vals: Dict[str, int] = {}
-                for i, state in enumerate(states):
-                    key = f"soft_{sel}_{state}"
-                    init = default_pct + (remainder if i == 0 else 0)
-                    vals[state] = st.slider(
-                        state, 0, 100,
-                        value=st.session_state.get(key, init),
-                        step=1, key=key,
-                    )
-                total = sum(vals.values())
-                colour = GREEN if total == 100 else RED
-                st.markdown(
-                    f"<div style='font-size:0.85rem; margin-top:0.35rem;'>"
-                    f"Total: <b style='color:{colour}'>{total}%</b></div>",
-                    unsafe_allow_html=True,
-                )
-                note = st.text_input(
-                    "Note (optional)", key=f"note_{sel}",
-                    placeholder="What drove this override?",
-                )
-                if st.button(
-                    "Set observation",
-                    type="primary",
-                    disabled=(total != 100),
-                    key=f"set_{sel}",
-                ):
-                    pretty = ", ".join(
-                        f"{s} {v}%" for s, v in vals.items() if v > 0
-                    )
-                    # Collapse to a hard assignment when a single state is 100%.
-                    if max(vals.values()) == 100:
-                        pinned = next(s for s, v in vals.items() if v == 100)
-                        _append_observation(
-                            headline=note.strip() or f"Manual: {sel} = {pinned}",
-                            assignments={sel: pinned},
-                            rationale="Set directly by the analyst via the network.",
-                            per_assignment_reasons={sel: "Manual override."},
-                            source="manual",
-                        )
-                    else:
-                        dist = {s: v / 100.0 for s, v in vals.items()}
-                        _append_observation(
-                            headline=note.strip()
-                                or f"Manual soft: {sel} ({pretty})",
-                            assignments={},
-                            soft_assignments={sel: dist},
-                            rationale="Soft override set directly by the analyst.",
-                            per_assignment_reasons={sel: f"Manual soft override: {pretty}."},
-                            source="manual",
-                        )
-                    st.rerun()
-            else:
-                st.markdown(
-                    "<div class='card-sub'>Select a node first to enable manual "
-                    "override controls.</div>",
-                    unsafe_allow_html=True,
-                )
+if active_view == _VIEW_NET:
+    network_view.render(
+        st, all_marginals=all_marginals, evidence=evidence,
+        soft_evidence=soft_evidence, node_ci_table=node_ci_table,
+        observed_day_map=observed_day_map, observed_meta=observed_meta,
+        selected_bayes=selected_bayes, topology=TOPOLOGY,
+    )
 
     with st.expander("Appendix — math and implementation details", expanded=False):
-        _render_model_appendix()
+        model_explainer.render_appendix(st)
 
 
 # ---------------------------------------------------------------------------
 # TAB 2 — Edge rationale (why each arrow is there, and why some aren't)
 # ---------------------------------------------------------------------------
 
-_EDGE_RATIONALE: list[tuple[str, str, str]] = [
-    ("Iranian_Regime_Stability", "Iran_Aligned_Militia_Attacks",
-     "An unstable or pressured regime has stronger incentive to lash out "
-     "externally via its militia network; a stable regime can afford "
-     "restraint and tighter command over proxies."),
-    ("Sanctions_Trajectory", "Iran_Aligned_Militia_Attacks",
-     "Tightening sanctions remove peaceful off-ramps and push Tehran to "
-     "impose cost asymmetrically through proxies; easing sanctions "
-     "reward restraint."),
-    ("Iran_Aligned_Militia_Attacks", "Tanker_Incidents",
-     "Houthi drone/missile strikes and IRGC-linked harassment are the "
-     "direct mechanism behind most attacks on Gulf and Red Sea shipping."),
-    ("US_Iran_Negotiations", "Tanker_Incidents",
-     "Active back-channels dampen incidents via restraint signals; "
-     "negotiation breakdowns remove that brake."),
-    ("Tanker_Incidents", "US_Military_Response",
-     "Observable kinetic events on shipping (strikes, seizures) are the "
-     "visible trigger for carrier redeployments, escorts, and retaliatory "
-     "strikes."),
-    ("Sanctions_Trajectory", "US_Military_Response",
-     "A hawkish sanctions posture correlates with political willingness "
-     "to use force; an easing posture correlates with restraint."),
-    ("Tanker_Incidents", "Strait_Operationally_Closed",
-     "Insurance premiums, charterer avoidance, and convoy logistics mean "
-     "enough incidents produce de facto closure even without Iranian "
-     "mining."),
-    ("US_Military_Response", "Strait_Operationally_Closed",
-     "A major US response can either re-open traffic via escorts or "
-     "provoke Iranian mining/closure attempts — both captured as "
-     "dependence."),
-    ("US_Military_Response", "Energy_Infrastructure_Damage",
-     "Strikes on IRGC naval assets or Iranian oil facilities — and "
-     "Iranian retaliation on Saudi/UAE/US infrastructure — are driven by "
-     "the intensity of the military response."),
-    ("Strait_Operationally_Closed", "Energy_Infrastructure_Damage",
-     "Extended closure correlates with the broader escalation regime "
-     "that brings production and export infrastructure into the "
-     "crosshairs."),
-    ("US_Iran_Negotiations", "Conflict_Duration",
-     "Active direct talks accelerate resolution; breakdowns prolong the "
-     "crisis by removing the obvious exit."),
-    ("Third_Party_Mediation", "Conflict_Duration",
-     "Qatari, Omani, or Chinese mediation compresses timelines to a "
-     "deal by providing face-saving channels."),
-    ("US_Military_Response", "Conflict_Duration",
-     "A major response commits the US to a protracted campaign; no "
-     "response allows quicker de-escalation."),
-    ("US_Iran_Negotiations", "Diplomatic_Resolution_Path",
-     "The status of direct bilateral talks is the primary determinant "
-     "of whether a resolution path stays open."),
-    ("Third_Party_Mediation", "Diplomatic_Resolution_Path",
-     "External facilitators open or preserve channels precisely when "
-     "direct talks stall."),
-    ("Iranian_Regime_Stability", "Diplomatic_Resolution_Path",
-     "A stable regime can credibly commit and bind hardliner factions; "
-     "an unstable regime cannot deliver on any deal it signs."),
-    ("Strait_Operationally_Closed", "Oil_Price_Regime",
-     "Roughly 20% of seaborne oil transits Hormuz — closure is the "
-     "single largest supply-shock lever in the model."),
-    ("Energy_Infrastructure_Damage", "Oil_Price_Regime",
-     "Damaged production or export capacity removes barrels from the "
-     "market for quarters, not days."),
-    ("Energy_Infrastructure_Damage", "Scenario",
-     "Severe infrastructure damage pushes the scenario toward "
-     "Prolonged_Conflict or Severe_Closure."),
-    ("Conflict_Duration", "Scenario",
-     "A long conflict precludes Stress_Mitigates and favors the two "
-     "heavier scenarios."),
-    ("Diplomatic_Resolution_Path", "Scenario",
-     "An open resolution path is the main driver of the "
-     "Stress_Mitigates outcome."),
-]
+if active_view == _VIEW_EDGES:
+    edge_rationale.render(st, TOPOLOGY)
+# ---------------------------------------------------------------------------
+# TRIAGE — human-in-the-loop review queue (T12, in-session)
+# ---------------------------------------------------------------------------
 
-_EDGE_OMISSIONS: list[tuple[str, str, str]] = [
-    ("Iran_Aligned_Militia_Attacks", "US_Military_Response",
-     "Assumed mediated by Tanker_Incidents: Washington reacts to "
-     "observable kinetic events, not militia posture in the abstract. "
-     "Known limitation — US base attacks in Iraq/Syria have historically "
-     "triggered direct US strikes without any tanker incident."),
-    ("Iranian_Regime_Stability", "Tanker_Incidents",
-     "Mediated by Iran_Aligned_Militia_Attacks: regime posture reaches "
-     "the water only through the proxy network."),
-    ("Sanctions_Trajectory", "Tanker_Incidents",
-     "Mediated by Iran_Aligned_Militia_Attacks — same reasoning. The "
-     "direct sanctions→incidents arrow is absorbed into the militia "
-     "channel."),
-    ("US_Military_Response", "Oil_Price_Regime",
-     "Mediated by Strait_Operationally_Closed and "
-     "Energy_Infrastructure_Damage. The oil market prices physical "
-     "flows and capacity, not force posture directly."),
-    ("Strait_Operationally_Closed", "Scenario",
-     "Mediated by Oil_Price_Regime and Energy_Infrastructure_Damage. "
-     "The Scenario node classifies on downstream outcomes, not on the "
-     "mechanism that produced them."),
-    ("Third_Party_Mediation", "Iran_Aligned_Militia_Attacks",
-     "Mediation is modeled as operating on negotiations and duration, "
-     "not on kinetic tempo. Debatable — Oman has historically passed "
-     "de-escalation messages to the IRGC during flashpoints."),
-    ("Iranian_Regime_Stability", "US_Military_Response",
-     "Omitted for parsimony: US response is driven by events plus "
-     "sanctions posture in the model, not by Iranian internal politics "
-     "directly."),
-]
-
-
-def _fmt_node(name: str) -> str:
-    return name.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
-
-
-with tab_edges:
-    st.markdown(
-        "<div class='card-title'>Why each arrow is (or isn't) in the "
-        "network</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Short rationales for every edge in the DAG, plus a list of "
-        "plausible connections that were deliberately left out and why. "
-        "These are modeling judgments, not settled truths — treat them "
-        "as the assumptions behind the current CPTs."
-    )
-
-    st.markdown("#### Edges present in the model")
-    for parent, child, reason in _EDGE_RATIONALE:
-        st.markdown(
-            f"**{_fmt_node(parent)}** → **{_fmt_node(child)}**  \n"
-            f"<span style='color:#475569'>{reason}</span>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("#### Notable omitted edges")
-    st.caption(
-        "Connections a domain reader might expect but that are not in "
-        "the DAG — either because they're mediated by another node or "
-        "because they were dropped for parsimony."
-    )
-    for parent, child, reason in _EDGE_OMISSIONS:
-        st.markdown(
-            f"**{_fmt_node(parent)}** ⇢ **{_fmt_node(child)}** "
-            f"<span style='color:#b45309'>(omitted)</span>  \n"
-            f"<span style='color:#475569'>{reason}</span>",
-            unsafe_allow_html=True,
-        )
-
+if active_view == _VIEW_TRIAGE:
+    triage_view.render(st)
 
 # ---------------------------------------------------------------------------
 # TAB 3 — Observations (latest translation + day-grouped log)
 # ---------------------------------------------------------------------------
 
-with tab_obs:
-    trans_col, log_col = st.columns([1.0, 1.1], gap="large")
-
-    with trans_col:
-        st.markdown("<div class='card-title'>Latest translation</div>",
-                    unsafe_allow_html=True)
-        st.markdown(
-            "<div class='card-sub'>Translator percentages are evidence inputs "
-            "(soft evidence), not posterior outputs.</div>",
-            unsafe_allow_html=True,
-        )
-        if st.session_state.translator_error:
-            st.error(st.session_state.translator_error)
-        elif st.session_state.last_translation is None:
-            st.markdown(
-                "<div class='card-sub'>No headline translated yet this "
-                "session.</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            t = st.session_state.last_translation
-            chips_html = "".join(
-                f"<span class='assign-chip'>"
-                f"{a['node'].replace('_',' ')} = {a['state']}</span>"
-                for a in t["assignments"]
-            ) or "<span style='color:#9CA3AF;'>No assignments</span>"
-            st.markdown(
-                f"""
-                <div class='translator-headline'>“{t['headline']}”</div>
-                <div class='translator-rationale'>{t['rationale']}</div>
-                <div>{chips_html}</div>
-                <div class='meta'>provider: {t.get('provider','?')} ·
-                model: {t['model']}</div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if t["assignments"]:
-                with st.expander("Per-assignment evidence input (translator soft evidence)"):
-                    for a in t["assignments"]:
-                        probs = a.get("state_probs", {})
-                        probs_text = " · ".join(
-                            f"{k.replace('_',' ')}: {float(v)*100:0.1f}%"
-                            for k, v in probs.items()
-                        )
-                        probs_suffix = f"  \n  {probs_text}" if probs_text else ""
-                        st.markdown(
-                            f"- **{a['node'].replace('_',' ')} = "
-                            f"`{a['state']}`** — {a['reason']}"
-                            f"{probs_suffix}"
-                        )
-        if st.session_state.translator_raw:
-            with st.expander("Raw model response (debug)"):
-                st.code(st.session_state.translator_raw, language="json")
-
-    with log_col:
-        st.markdown("<div class='card-title'>Observation log (injected evidence inputs)</div>",
-                    unsafe_allow_html=True)
-        if not st.session_state.observations:
-            st.markdown(
-                "<div class='card-sub'>Translate a headline (or override a "
-                "node in the Network tab) to begin.</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            grouped: Dict[int, List[Dict]] = {}
-            for obs in st.session_state.observations:
-                grouped.setdefault(obs["day"], []).append(obs)
-            for day in sorted(grouped, reverse=True):
-                day_obs = grouped[day]
-                st.markdown(
-                    f"<div class='day-block-header'>Day {day} · "
-                    f"{len(day_obs)} observation(s)</div>",
-                    unsafe_allow_html=True,
-                )
-                for idx, obs in enumerate(day_obs):
-                    hard_assign_str = " · ".join(
-                        f"{n.replace('_',' ')} = {s}"
-                        for n, s in obs.get("assignments", {}).items()
-                    )
-                    soft_assign_str = " · ".join(
-                        (
-                            f"{node.replace('_',' ')} ≈ {max(dist, key=dist.get)} "
-                            f"({max(dist.values())*100:0.1f}%, soft)"
-                        )
-                        for node, dist in obs.get("soft_assignments", {}).items()
-                    )
-                    assign_str = " · ".join(
-                        part for part in [hard_assign_str, soft_assign_str] if part
-                    )
-                    first_cls = " obs-row-first" if idx == 0 else ""
-                    row_col, btn_col = st.columns([20, 1])
-                    with row_col:
-                        st.markdown(
-                            f"<div class='obs-row{first_cls}'>"
-                            f"<div class='obs-headline'>{obs['headline']} "
-                            f"<span style='color:{MUTED}; font-size:0.72rem;'>"
-                            f"({obs['source']})</span></div>"
-                            f"<div class='obs-assign'>{assign_str}</div>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-                    with btn_col:
-                        st.markdown("<div class='obs-remove'>", unsafe_allow_html=True)
-                        if st.button(
-                            "✕",
-                            key=f"rm_{obs['id']}",
-                            help="Remove this observation",
-                        ):
-                            st.session_state.observations = [
-                                o for o in st.session_state.observations
-                                if o["id"] != obs["id"]
-                            ]
-                            st.rerun()
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-
+if active_view == _VIEW_OBS:
+    observation_log.render(st)
 # ---------------------------------------------------------------------------
 # TAB 4 — Audit trail (full width, grouped tables)
 # ---------------------------------------------------------------------------
 
-with tab_audit:
-    st.markdown("<div class='card-title'>Updates by day (injected evidence inputs)</div>",
-                unsafe_allow_html=True)
-    if not st.session_state.observations:
-        st.caption("No observations yet.")
-    else:
-        update_rows = []
-        for obs in sorted(st.session_state.observations, key=lambda o: o["day"]):
-            for node, state in obs.get("assignments", {}).items():
-                reason = obs.get("per_assignment_reasons", {}).get(node, "")
-                update_rows.append({
-                    "Day": obs["day"],
-                    "Node": node.replace("_", " "),
-                    "Injected evidence": state,
-                    "Headline / note": obs["headline"],
-                    "Rationale": reason,
-                    "Source": obs["source"],
-                })
-            for node, dist in obs.get("soft_assignments", {}).items():
-                reason = obs.get("per_assignment_reasons", {}).get(node, "")
-                top_state = max(dist, key=dist.get)
-                update_rows.append({
-                    "Day": obs["day"],
-                    "Node": node.replace("_", " "),
-                    "Injected evidence": f"{top_state} ({dist[top_state]*100:0.1f}%, soft)",
-                    "Headline / note": obs["headline"],
-                    "Rationale": reason,
-                    "Source": obs["source"],
-                })
-        st.dataframe(
-            pd.DataFrame(update_rows),
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Day": st.column_config.NumberColumn("Day", width="small"),
-                "Node": st.column_config.TextColumn("Node", width="medium"),
-                "Injected evidence": st.column_config.TextColumn(
-                    "Injected evidence", width="medium"
-                ),
-                "Headline / note": st.column_config.TextColumn(
-                    "Headline / note", width="large"),
-                "Rationale": st.column_config.TextColumn(
-                    "Rationale", width="large"),
-                "Source": st.column_config.TextColumn("Source", width="small"),
-            },
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<div class='card-title'>Intermediate node marginals</div>"
-                "<div class='card-sub'>Grouped by state-set shape so each "
-                "table is compact and fully readable.</div>",
-                unsafe_allow_html=True)
-
-    intermediate_nodes = [
-        "Iran_Aligned_Militia_Attacks", "Tanker_Incidents", "US_Military_Response",
-        "Strait_Operationally_Closed", "Energy_Infrastructure_Damage",
-        "Conflict_Duration", "Diplomatic_Resolution_Path", "Oil_Price_Regime",
-    ]
-
-    groups: Dict[Tuple[str, ...], List[str]] = {}
-    for node in intermediate_nodes:
-        key = tuple(STATES[node])
-        groups.setdefault(key, []).append(node)
-
-    for state_set, group_nodes in groups.items():
-        rows = []
-        for node in group_nodes:
-            marginal = engine.get_node_marginal(node)
-            observed_label = evidence.get(node, "")
-            if not observed_label and node in soft_evidence:
-                dist = soft_evidence[node]
-                top_state = max(dist, key=dist.get)
-                observed_label = f"{top_state} ({dist[top_state]*100:0.0f}%, soft)"
-            row = {
-                "Node": node.replace("_", " "),
-                "Injected evidence": observed_label,
-            }
-            for state in state_set:
-                row[state] = float(marginal.get(state, 0.0)) * 100
-            rows.append(row)
-        df = pd.DataFrame(rows, columns=["Node", "Injected evidence", *state_set])
-        col_cfg = {
-            "Node": st.column_config.TextColumn("Node", width="medium"),
-            "Injected evidence": st.column_config.TextColumn(
-                "Injected evidence", width="medium"
-            ),
-        }
-        for s in state_set:
-            col_cfg[s] = st.column_config.ProgressColumn(
-                s, format="%.1f%%", min_value=0.0, max_value=100.0,
-            )
-        st.dataframe(
-            df, hide_index=True, use_container_width=True,
-            column_config=col_cfg,
-        )
-
+if active_view == _VIEW_AUDIT:
+    audit_view.render(st, engine=engine, evidence=evidence, soft_evidence=soft_evidence)
 
 # ---------------------------------------------------------------------------
 # Footer

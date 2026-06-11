@@ -1,0 +1,112 @@
+{
+  "id": "escalation_terminal_fire",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "escalation",
+  "note": "Severe-Closure signature: severe damage, full closure, supply shock.",
+  "article": {
+    "headline": "Major fire at Ras Tanura terminal after missile strike; strait closed"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Energy_Infrastructure_Damage",
+        "state": "severe"
+      },
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "full"
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "high"
+      },
+      {
+        "node": "Oil_Price_Regime",
+        "state": "above_120"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Energy_Infrastructure_Damage",
+        "state": "severe",
+        "reason": "A major fire at the Ras Tanura terminal following a missile strike indicates severe, material damage to critical energy infrastructure.",
+        "state_probs": [
+          {
+            "state": "none",
+            "value": 0.01
+          },
+          {
+            "state": "moderate",
+            "value": 0.2
+          },
+          {
+            "state": "severe",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Strait_Operationally_Closed",
+        "state": "full",
+        "reason": "The headline explicitly states the strait is closed in the context of a major infrastructure strike, indicating a full operational closure.",
+        "state_probs": [
+          {
+            "state": "no",
+            "value": 0.01
+          },
+          {
+            "state": "partial",
+            "value": 0.3
+          },
+          {
+            "state": "full",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Iran_Aligned_Militia_Attacks",
+        "state": "high",
+        "reason": "A missile strike on a major Saudi oil terminal represents a high-intensity attack on energy infrastructure.",
+        "state_probs": [
+          {
+            "state": "low",
+            "value": 0.01
+          },
+          {
+            "state": "elevated",
+            "value": 0.25
+          },
+          {
+            "state": "high",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Oil_Price_Regime",
+        "state": "above_120",
+        "reason": "A missile strike causing a major fire at a key Saudi terminal plus a closed strait would trigger a severe oil supply shock pushing prices sharply higher.",
+        "state_probs": [
+          {
+            "state": "below_90",
+            "value": 0.01
+          },
+          {
+            "state": "90_to_120",
+            "value": 0.25
+          },
+          {
+            "state": "above_120",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "A missile strike igniting a major fire at the Ras Tanura terminal alongside a closed strait points to severe energy infrastructure damage, a full closure, and a severe supply shock consistent with the Severe_Closure scenario."
+  }
+}

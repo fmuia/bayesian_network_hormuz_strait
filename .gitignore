@@ -5,3 +5,13 @@ __pycache__/
 .DS_Store
 *.egg-info/
 .claude/settings.json
+notes/
+
+# Elicitation platform: local dev databases (never commit a deployment DB)
+*.db
+elicitation_dev.db
+
+# Elicitation run/framework artifacts
+data/elicitation_runs/
+data/elicitation_frameworks/
+data/elicitation_seeds.json

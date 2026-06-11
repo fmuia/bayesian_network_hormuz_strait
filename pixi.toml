@@ -10,6 +10,10 @@ platforms = ["osx-arm64", "osx-64", "linux-64"]
 python = "3.11.*"
 pip = "*"
 graphviz = ">=9"  # system binary used by the python graphviz wrapper
+nbformat = ">=5.10.4,<6"
+nbclient = ">=0.10.4,<0.11"
+ipykernel = ">=7.2.0,<8"
+jupyterlab = ">=4.5.8,<5"
 
 [pypi-dependencies]
 pgmpy = ">=0.1.26"
@@ -24,7 +28,16 @@ claude-agent-sdk = ">=0.1.0"
 graphviz = ">=0.20,<1"
 streamlit-agraph = ">=0.0.45"
 altair = ">=5.0,<6"
+sqlalchemy = ">=2.0,<3"      # elicitation platform (Plan 4, Layer 0)
+alembic = ">=1.13"           # elicitation schema migrations
+pyyaml = ">=6.0"             # per-deployment config loader
+cryptography = ">=43"        # credential envelope encryption
 
 [tasks]
 test = "pytest -q"
 app = "streamlit run app/dashboard.py"
+derive-anchors = "python scripts/derive_latent_regime_anchors.py"
+compare = "python scripts/compare_topologies.py"
+notebook = "python scripts/build_comparison_notebook.py"
+translator-eval = "python scripts/translator_eval.py"
+lab = "jupyter lab"

@@ -1,0 +1,85 @@
+{
+  "id": "deescalation_oman_talks",
+  "annotator": "claude-seed (pending human review)",
+  "tone": "de-escalation",
+  "note": "Clean de-escalation: active mediation, engaged-but-unconcluded talks, open path.",
+  "article": {
+    "headline": "Oman confirms active US–Iran back-channel talks in Muscat"
+  },
+  "expected": {
+    "relevance": "yes",
+    "assignments": [
+      {
+        "node": "Third_Party_Mediation",
+        "state": "active"
+      },
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "stalled"
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "open"
+      }
+    ]
+  },
+  "recorded_model": "claude-opus-4-8",
+  "recorded_response": {
+    "assignments": [
+      {
+        "node": "Third_Party_Mediation",
+        "state": "active",
+        "reason": "Oman (a classic Gulf intermediary) confirming it is hosting US–Iran back-channel talks is a direct signal of active third-party mediation.",
+        "state_probs": [
+          {
+            "state": "active",
+            "value": 1.0
+          },
+          {
+            "state": "none",
+            "value": 0.02
+          }
+        ]
+      },
+      {
+        "node": "US_Iran_Negotiations",
+        "state": "stalled",
+        "reason": "Back-channel talks indicate engagement is alive (ruling out breakdown) but their indirect, behind-the-scenes nature signals no concluded deal yet, consistent with a stalled-but-ongoing track rather than success.",
+        "state_probs": [
+          {
+            "state": "success",
+            "value": 0.35
+          },
+          {
+            "state": "stalled",
+            "value": 1.0
+          },
+          {
+            "state": "breakdown",
+            "value": 0.08
+          }
+        ]
+      },
+      {
+        "node": "Diplomatic_Resolution_Path",
+        "state": "open",
+        "reason": "Confirmed active dialogue channels keep a diplomatic off-ramp available.",
+        "state_probs": [
+          {
+            "state": "open",
+            "value": 1.0
+          },
+          {
+            "state": "narrowing",
+            "value": 0.3
+          },
+          {
+            "state": "closed",
+            "value": 0.03
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Oman-hosted back-channel talks confirm active mediation and a still-open diplomatic path, with negotiations engaged but not yet producing a breakthrough."
+  }
+}

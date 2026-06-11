@@ -17,7 +17,7 @@ from typing import Dict, Iterable, Mapping, Optional
 
 import graphviz
 
-from .network import EDGES, STATES
+from .network import EDGES, EDGES_LATENT, STATES
 
 _PLUGINS_REGISTERED = False
 
@@ -158,14 +158,17 @@ def render_network_png(
     *,
     observed: Mapping[str, str] = {},
     observed_day: Mapping[str, int] = {},
+    edges: Optional[Iterable[tuple]] = None,
     dpi: int = 220,
 ) -> bytes:
     """Render the BN as PNG bytes for display in Streamlit.
 
     ``marginals`` must contain every node; ``observed`` maps evidence
     nodes to their set state; ``observed_day`` maps those same nodes
-    to the day-of-session they were first set.
+    to the day-of-session they were first set. ``edges`` selects the
+    topology to draw (defaults to the labelling ``EDGES``).
     """
+    edges = list(EDGES if edges is None else edges)
     _ensure_plugins_registered()
     dot = graphviz.Digraph(
         "bayesian_network",
@@ -201,7 +204,7 @@ def render_network_png(
         node_attrs = {"label": label}
         dot.node(node, **node_attrs)
 
-    for src, dst in EDGES:
+    for src, dst in edges:
         style = "solid"
         color = "#94A3B8"
         if src in observed:
@@ -240,6 +243,23 @@ _NODE_LEVEL: Dict[str, int] = {
     "Diplomatic_Resolution_Path": 3,
     "Oil_Price_Regime": 3,
     "Scenario": 4,
+}
+
+# Latent-regime layout: Scenario sits between its parents {M, C} (level 2) and its
+# emissions {D, T, P} (level 4); Oil_Price is a child of D so it drops to level 5.
+_NODE_LEVEL_LATENT: Dict[str, int] = {
+    **_NODE_LEVEL,
+    "Scenario": 3,
+    "Energy_Infrastructure_Damage": 4,
+    "Conflict_Duration": 4,
+    "Diplomatic_Resolution_Path": 4,
+    "Oil_Price_Regime": 5,
+}
+
+# Map a topology name to (edges, node-level) so callers can pass a single string.
+TOPOLOGY_LAYOUT = {
+    "labelling": (EDGES, _NODE_LEVEL),
+    "latent_regime": (EDGES_LATENT, _NODE_LEVEL_LATENT),
 }
 
 
@@ -317,15 +337,22 @@ def build_agraph_payload(
     *,
     observed: Mapping[str, str] = {},
     observed_day: Mapping[str, int] = {},
+    edges: Optional[Iterable[tuple]] = None,
+    node_level: Optional[Mapping[str, int]] = None,
+    edge_titles: Optional[Mapping[tuple, str]] = None,
 ):
     """Return ``(nodes, edges, config)`` for ``streamlit_agraph.agraph``.
 
     The dashboard uses this for the interactive network view: nodes are
     clickable (returns the clicked node id), and vis.js provides pan /
-    zoom / hover natively.
+    zoom / hover natively. ``edges`` / ``node_level`` select the topology
+    (default: the labelling ``EDGES`` / ``_NODE_LEVEL``).
     """
     # Lazy-import so the rest of the package keeps working without the dep.
     from streamlit_agraph import Config, Edge, Node
+
+    edge_list = list(EDGES if edges is None else edges)
+    levels = _NODE_LEVEL if node_level is None else node_level
 
     nodes = []
     for node in STATES.keys():
@@ -382,13 +409,14 @@ def build_agraph_payload(
                     "align": "left",
                 },
                 borderWidth=3 if is_root_driver else (2 if obs_state is not None else 1),
-                level=_NODE_LEVEL.get(node, 0),
+                level=levels.get(node, 0),
                 margin=4,
             )
         )
 
+    titles = edge_titles or {}
     edges = []
-    for src, dst in EDGES:
+    for src, dst in edge_list:
         highlight = src in observed or dst in observed
         src_root_style = _ROOT_DRIVER_COLORS.get(src)
         edge_color = src_root_style[1] if src_root_style is not None else "#94A3B8"
@@ -401,6 +429,7 @@ def build_agraph_payload(
                 target=dst,
                 color=edge_color,
                 width=edge_width,
+                title=titles.get((src, dst), ""),  # vis.js hover tooltip (P10 / C11)
             )
         )
 
@@ -445,4 +474,4 @@ def render_network(observed_nodes: Iterable[str] = ()):  # pragma: no cover
     )
 
 
-__all__ = ["render_network_png", "build_agraph_payload"]
+__all__ = ["render_network_png", "build_agraph_payload", "TOPOLOGY_LAYOUT"]

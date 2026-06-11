@@ -10,6 +10,109 @@ from pgmpy.models import DiscreteBayesianNetwork
 
 from .network import STATES, build_network
 
+SCENARIO = "Scenario"
+
+
+def _require_latent_regime(network: DiscreteBayesianNetwork) -> None:
+    """Raise unless ``network`` is the latent-regime topology.
+
+    Regime Bayes factors are only meaningful when ``Scenario`` is a latent cause
+    that *generates* the outcomes (i.e. has children). On the labelling topology
+    ``Scenario`` is a leaf, so this query would silently return plausible-looking
+    but meaningless numbers — fail loudly instead. Note this guards the regime
+    *Bayes-factor* path only; :func:`clamped_scenario_likelihoods` is a
+    deliberately topology-agnostic primitive (used on both topologies to
+    contrast their likelihoods) and is intentionally left unguarded.
+    """
+    if not list(network.successors(SCENARIO)):
+        raise ValueError(
+            "scenario_bayes_factors requires the latent-regime topology "
+            "(build_network('latent_regime')); on the labelling topology "
+            f"{SCENARIO!r} is a leaf and regime Bayes factors are undefined."
+        )
+
+
+def _scenario_virtual_cpds(
+    soft_evidence: Optional[Mapping[str, Mapping[str, float]]],
+) -> list[TabularCPD]:
+    cpds: list[TabularCPD] = []
+    for node, dist in (soft_evidence or {}).items():
+        vals = [[float(dist.get(s, 0.0))] for s in STATES[node]]
+        cpds.append(
+            TabularCPD(
+                variable=node,
+                variable_card=len(STATES[node]),
+                values=vals,
+                state_names={node: STATES[node]},
+            )
+        )
+    return cpds
+
+
+def scenario_bayes_factors(
+    network: DiscreteBayesianNetwork,
+    evidence: Optional[Mapping[str, str]] = None,
+    soft_evidence: Optional[Mapping[str, Mapping[str, float]]] = None,
+) -> Dict[str, object]:
+    """Regime Bayes factors for the latent-regime topology.
+
+    Returns a dict with the regime ``prior`` ``P(S)``, the ``posterior`` ``P(S | E)``,
+    the relative likelihoods ``rel_like`` (normalised, proportional to ``P(E | S=s)``),
+    and the pairwise ``lambda`` matrix ``Lambda[s1][s2] = P(E|s1)/P(E|s2)``.
+
+    Uses the ratio identity ``Lambda = [P(s1|E)/P(s1)] / [P(s2|E)/P(s2)]`` (the ``P(E)``
+    cancels), which is exact for hard *and* soft evidence. For an algebraically
+    independent cross-check on hard evidence see :func:`clamped_scenario_likelihoods`.
+    """
+    _require_latent_regime(network)
+    evidence = dict(evidence or {})
+    ve = VariableElimination(network)
+
+    pri = ve.query([SCENARIO], evidence={}, show_progress=False)
+    prior = {s: float(pri.get_value(**{SCENARIO: s})) for s in STATES[SCENARIO]}
+
+    kw: Dict[str, object] = {"evidence": evidence, "show_progress": False}
+    vcpds = _scenario_virtual_cpds(soft_evidence)
+    if vcpds:
+        kw["virtual_evidence"] = vcpds
+    pos = ve.query([SCENARIO], **kw)
+    posterior = {s: float(pos.get_value(**{SCENARIO: s})) for s in STATES[SCENARIO]}
+
+    lr = {
+        s: (posterior[s] / prior[s] if prior[s] > 0 else float("inf"))
+        for s in STATES[SCENARIO]
+    }
+    z = sum(v for v in lr.values() if v != float("inf")) or 1.0
+    rel_like = {s: (lr[s] / z if lr[s] != float("inf") else float("inf")) for s in lr}
+    lam = {
+        s1: {
+            s2: (lr[s1] / lr[s2] if lr[s2] not in (0.0, float("inf")) else float("inf"))
+            for s2 in STATES[SCENARIO]
+        }
+        for s1 in STATES[SCENARIO]
+    }
+    return {"prior": prior, "posterior": posterior, "rel_like": rel_like, "lambda": lam}
+
+
+def clamped_scenario_likelihoods(
+    network: DiscreteBayesianNetwork, evidence: Mapping[str, str]
+) -> Dict[str, float]:
+    """``P(E=e | S=s)`` via the three-clamped-inferences pattern (Plan §B.1 item 3).
+
+    For each scenario state, clamp ``S=s`` and read the joint probability of the observed
+    evidence configuration off ``P(evidence vars | S=s)``. Hard evidence only; gives the
+    absolute per-regime likelihood (an independent check on the ratio method's factors).
+    """
+    if not evidence:
+        raise ValueError("clamped_scenario_likelihoods requires non-empty hard evidence")
+    ve = VariableElimination(network)
+    evars = list(evidence.keys())
+    out: Dict[str, float] = {}
+    for s in STATES[SCENARIO]:
+        joint = ve.query(evars, evidence={SCENARIO: s}, show_progress=False)
+        out[s] = float(joint.get_value(**dict(evidence)))
+    return out
+
 
 class BNInferenceEngine:
     """Stateful wrapper that accumulates evidence and answers queries.
@@ -46,6 +149,14 @@ class BNInferenceEngine:
     def update_soft_evidence(
         self, soft_evidence: Mapping[str, Mapping[str, float]]
     ) -> None:
+        """Store per-node soft evidence as **likelihood ratios** (A1 semantics).
+
+        Values are normalised by their max (the best-supported state → 1.0), not
+        by their sum: pgmpy's virtual-evidence treats the column as a likelihood
+        and applies it proportionally, so max-pinning is mathematically
+        equivalent to sum-normalising for inference while keeping the stored
+        values interpretable as the ε vector the translator emitted.
+        """
         for node, dist in soft_evidence.items():
             if node not in STATES:
                 raise KeyError(f"Unknown node: {node}")
@@ -53,12 +164,12 @@ class BNInferenceEngine:
             for state in STATES[node]:
                 p = float(dist.get(state, 0.0))
                 if p < 0.0:
-                    raise ValueError(f"Negative probability for {node}.{state}: {p}")
+                    raise ValueError(f"Negative likelihood for {node}.{state}: {p}")
                 probs[state] = p
-            total = sum(probs.values())
-            if total <= 0.0:
-                raise ValueError(f"Soft evidence for {node} sums to zero.")
-            probs = {k: v / total for k, v in probs.items()}
+            peak = max(probs.values())
+            if peak <= 0.0:
+                raise ValueError(f"Soft evidence for {node} is all-zero.")
+            probs = {k: v / peak for k, v in probs.items()}
             self._evidence.pop(node, None)
             self._soft_evidence[node] = probs
 
@@ -84,10 +195,16 @@ class BNInferenceEngine:
         return self._distribution(result, "Scenario")
 
     def get_scenario_probabilities(self) -> Dict[str, float]:
-        """Scenario marginal under the current accumulated evidence."""
+        """Scenario marginal under the current accumulated evidence.
+
+        Scenario is the query target, so any (invalid) evidence on it is dropped
+        — mirroring :meth:`get_node_marginal` — rather than letting pgmpy reject
+        the query.
+        """
+        ev = {k: v for k, v in self._evidence.items() if k != "Scenario"}
         result = self._engine.query(
             ["Scenario"],
-            evidence=self._evidence,
+            evidence=ev,
             virtual_evidence=self._virtual_evidence_cpds(),
             show_progress=False,
         )
@@ -111,6 +228,27 @@ class BNInferenceEngine:
         else:
             result = self._engine.query([node], evidence=ev, show_progress=False)
         return self._distribution(result, node)
+
+    def scenario_bayes_factors(self) -> Dict[str, object]:
+        """Regime Bayes factors under the engine's current evidence.
+
+        Only meaningful on a latent-regime network; see
+        :func:`scenario_bayes_factors` for the contract.
+        """
+        return scenario_bayes_factors(
+            self._network, self._evidence, self._soft_evidence
+        )
+
+    def standalone_bayes_factors(
+        self,
+        evidence: Mapping[str, str],
+        soft_evidence: Optional[Mapping[str, Mapping[str, float]]] = None,
+    ) -> Dict[str, object]:
+        """Regime Bayes factors for a *specific* evidence set (not the engine's
+        accumulated one) — used to attribute a single observation's contribution
+        to the latent regime. Raises on a non-latent-regime network.
+        """
+        return scenario_bayes_factors(self._network, evidence, soft_evidence)
 
     # -- helpers -------------------------------------------------------------
 
@@ -139,4 +277,8 @@ class BNInferenceEngine:
         return cpds
 
 
-__all__ = ["BNInferenceEngine"]
+__all__ = [
+    "BNInferenceEngine",
+    "scenario_bayes_factors",
+    "clamped_scenario_likelihoods",
+]
