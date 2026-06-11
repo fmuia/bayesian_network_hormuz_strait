@@ -4,13 +4,13 @@
 >
 > **Why these were deferred (the rule).** The POC ships only what a single-presenter committee demo makes a viewer *see* and *trust the model more for*. The items below are real and valuable but are one of: **(i) invisible in a demo** (architecture / performance / hygiene), **(ii) a secondary UX nicety** (the headline works without them), or **(iii) blocked by shelved upstream work** (Plan 3). Each card states which.
 >
-> **Status legend.** ⬜ not started · 🅿️ blocked (shelved upstream) · ✅ already addressed.
+> **Status legend.** ⬜ not started · ◐ partially addressed · 🅿️ blocked (shelved upstream) · ✅ already addressed.
 >
 > **Commit convention.** As in the POC file: each card is an independently mergeable unit with an **acceptance gate** (test / `AppTest` / smoke check) and, where user-facing, a manual verification.
 
 ## Already addressed (no work needed)
 
-- **B3 — apply-button override.** ✅ The override already commits via a "Set observation" button (the sliders do not live-recompute the charts). Only the disabled-until-100 simplex friction remains — folded into **R-C3**.
+- **B3 — apply-button override.** ✅ The override commits via a "Set observation" button (the sliders do not live-recompute the charts). The disabled-until-100 simplex friction was **also resolved** in improvements-1 (auto-normalise on apply — [`05_dashboard_ui_plan_improvements_1.md`](05_dashboard_ui_plan_improvements_1.md) I1); only the optional drag-on-triangle interaction remains parked in **R-C3**.
 - **D3 — `+1e-6` Dirichlet guard.** ✅ near-done; already carries a `# avoid zero-alpha` comment in `src/sensitivity.py`. Only a one-line rationale expansion remains — **R-D3**.
 
 ## Group 1 — Architecture & performance *(invisible in a single-presenter demo)*
@@ -41,11 +41,12 @@
 
 ## Group 2 — Secondary UX *(the headline works without these)*
 
-### ⬜ R-C3 — Drag-to-simplex override sliders *(V4 · C3)*
-**Why deferred.** The override is a **power-user feature**, not the demo headline; the sliders already work and already button-commit (B3 done). The remaining friction is only the disabled-until-100 simplex.
-**Re-introduction trigger.** Analysts use the override heavily or report friction.
-**Scope.** Drag-to-simplex + anchor-distribute modes (toggleable); remove the disabled-until-100 anti-pattern.
-**Acceptance gate.** A helper test: adjusting one state rescales the others so the total stays 100; soft evidence commits correctly to session state.
+### ◐ R-C3 — Drag-to-simplex override sliders *(V4 · C3)* — friction half done
+**Why deferred.** The override is a **power-user feature**, not the demo headline; the sliders already work and already button-commit (B3 done).
+**Partially addressed (improvements-1, 2026-06-11).** The disabled-until-100 simplex friction — the actual **V4** trap — is gone: the override now **auto-normalises on apply** (`state.override_to_observation`), so any positive slider mix commits as a normalised soft distribution (or a hard pin for a single non-zero state). See [`05_dashboard_ui_plan_improvements_1.md`](05_dashboard_ui_plan_improvements_1.md) I1.
+**Re-introduction trigger.** Analysts use the override heavily and want a faster *interaction* than per-state sliders.
+**Scope (remaining).** Only the optional drag-on-triangle + anchor-distribute interaction; the disabled-until-100 anti-pattern is already removed.
+**Acceptance gate.** A helper test: dragging one state rescales the others; soft evidence commits correctly to session state.
 
 ### ⬜ R-C6 — Param-vs-forecast band styling *(V7 · C6)*
 **Why deferred.** **Subtle**; the caption already names the band, so the misread risk is partly mitigated. Low demo impact.
@@ -123,7 +124,7 @@
 | 2 | R-A3 — engine caching | hosted / multi-user |
 | 3 | R-A4 — topological levels | next node added |
 | 4 | R-B1 — bound caches | long-running deployment |
-| 5 | R-C3 — drag-to-simplex | heavy override use |
+| 5 | R-C3 — drag-to-simplex *(interaction only; sum-to-100 friction done)* | heavy override use |
 | 6 | R-C6 — band styling | observed misreads |
 | 7 | R-C8 — stacked-bar `state_probs` | opportunistic |
 | 7b | R-C9 — CVD-safe palette | accessibility requirement |
