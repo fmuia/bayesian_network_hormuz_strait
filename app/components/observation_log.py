@@ -2,6 +2,7 @@
 (Plan 5 P4). Extracted from the dashboard."""
 from __future__ import annotations
 
+import html
 from typing import Dict, List
 
 from theme import MUTED
@@ -44,8 +45,8 @@ def render(st):
             }.get(_rel, "")
             st.markdown(
                 f"""
-                <div class='translator-headline'>“{t['headline']}”</div>
-                <div class='translator-rationale'>{t['rationale']}</div>
+                <div class='translator-headline'>“{html.escape(t['headline'])}”</div>
+                <div class='translator-rationale'>{html.escape(t['rationale'])}</div>
                 <div>{_rel_badge}{chips_html}</div>
                 <div class='meta'>provider: {t.get('provider','?')} ·
                 model: {t['model']} · relevance: {_rel}</div>
@@ -120,13 +121,16 @@ def render(st):
                         part for part in [hard_assign_str, soft_assign_str] if part
                     )
                     first_cls = " obs-row-first" if idx == 0 else ""
+                    _src = (obs.get("source") or "").strip()
+                    _src_html = (
+                        f" <span style='color:{MUTED}; font-size:0.72rem;'>"
+                        f"({html.escape(_src)})</span>" if _src else ""
+                    )
                     row_col, btn_col = st.columns([20, 1])
                     with row_col:
                         st.markdown(
                             f"<div class='obs-row{first_cls}'>"
-                            f"<div class='obs-headline'>{obs['headline']} "
-                            f"<span style='color:{MUTED}; font-size:0.72rem;'>"
-                            f"({obs['source']})</span></div>"
+                            f"<div class='obs-headline'>{html.escape(obs['headline'])}{_src_html}</div>"
                             f"<div class='obs-assign'>{assign_str}</div>"
                             f"</div>",
                             unsafe_allow_html=True,

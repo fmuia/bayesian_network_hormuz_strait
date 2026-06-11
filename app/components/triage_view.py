@@ -1,6 +1,8 @@
 """Triage / HITL review-queue view (Plan 5 P4). Extracted from the dashboard."""
 from __future__ import annotations
 
+import html
+
 import state
 from src.network import STATES
 
@@ -29,7 +31,7 @@ def render(st):
                 if _rel == "partial" else ""
             )
             st.markdown(
-                f"<div class='translator-headline'>“{_item['headline']}”{_badge}</div>"
+                f"<div class='translator-headline'>“{html.escape(_item['headline'])}”{_badge}</div>"
                 f"<div class='meta'>day {_item['day']} · {_item['provider']} · "
                 f"{_item['model']}</div>",
                 unsafe_allow_html=True,

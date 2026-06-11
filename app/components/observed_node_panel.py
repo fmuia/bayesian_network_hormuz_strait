@@ -9,6 +9,7 @@ the prior. The Bayes block is omitted on non-latent topologies (``bayes`` is
 """
 from __future__ import annotations
 
+import html
 from math import inf
 
 from components.ci_charts import _flat_bar_chart
@@ -57,9 +58,9 @@ def render_bayes_contribution(st, bayes) -> None:
 
 
 def render(st, *, observed_state, meta, bayes, marginal, sorted_states):
-    src = meta.get("source", "?")
+    src = html.escape(str(meta.get("source") or "?"))
     day = meta.get("day")
-    headline = meta.get("headline", "")
+    headline = html.escape(meta.get("headline", ""))
     day_txt = f" · day {day}" if day is not None else ""
     st.markdown(
         f"<div class='card-sub'>Observed: <b>{observed_state}</b> "
