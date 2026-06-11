@@ -90,6 +90,25 @@ def test_scenario_deltas_missing_prev_is_zero():
     assert state.scenario_deltas({"A": 0.6}, {})["A"] == 0.0   # no prior -> no delta
 
 
+# ===== override auto-normalisation (V4 follow-up) ==========================
+
+
+def test_override_to_observation_normalizes_soft():
+    pin, dist = state.override_to_observation({"none": 10, "isolated": 15, "frequent": 25})
+    assert pin is None
+    assert dist == {"none": 0.2, "isolated": 0.3, "frequent": 0.5}   # sum 50 -> 1.0
+    assert abs(sum(dist.values()) - 1.0) < 1e-9
+
+
+def test_override_to_observation_single_state_pins_hard():
+    pin, dist = state.override_to_observation({"none": 0, "isolated": 40, "frequent": 0})
+    assert pin == "isolated" and dist is None       # one non-zero state -> hard pin
+
+
+def test_override_to_observation_all_zero_is_noop():
+    assert state.override_to_observation({"none": 0, "isolated": 0}) == (None, None)
+
+
 # ===== observation + review-queue helpers ==================================
 
 

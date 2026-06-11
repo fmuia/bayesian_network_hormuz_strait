@@ -10,14 +10,14 @@ from streamlit_agraph import agraph
 
 # import the function (not the module): the override loop binds a local `state`,
 # which would shadow a `state` module import.
-from state import record_observation
+from state import override_to_observation, record_observation
 from components import edge_rationale, observed_node_panel
 from components.ci_charts import (
     _ci_dataframe, _dumbbell_chart, _robustness_badge_html,
 )
 from src.network import STATES
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload
-from theme import GREEN, MUTED, RED, ROOT_DRIVER_STYLE
+from theme import MUTED, ROOT_DRIVER_STYLE
 
 
 def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
@@ -96,17 +96,14 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         "(Dirichlet, per-CPT κ — calibrated when an elicitation "
                         "is locked, else 20; m = 200)."
                     )
-                tip_attr = tip_text.replace("'", "&#39;")
+                # Streamlit strips the HTML `title` attribute, so the old hover
+                # tooltip never showed — use a real popover instead.
                 st.markdown(
-                    f"<div class='card-sub' style='display:flex; "
-                    f"align-items:center; gap:0.35rem;'>"
-                    f"<b>{sel.replace('_',' ')}</b>"
-                    f"<span title='{tip_attr}' "
-                    f"style='cursor:help; color:{MUTED}; "
-                    f"font-size:0.9rem; font-weight:500;'>ⓘ</span>"
-                    f"</div>",
+                    f"<div class='card-sub'><b>{sel.replace('_',' ')}</b></div>",
                     unsafe_allow_html=True,
                 )
+                with st.popover("ⓘ about these intervals"):
+                    st.markdown(tip_text)
                 if sel in evidence:
                     observed_node_panel.render(
                         st, observed_state=evidence[sel],
@@ -171,10 +168,20 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         step=1, key=key, label_visibility="collapsed",
                     )
                 total = sum(vals.values())
-                colour = GREEN if total == 100 else RED
+                # Auto-normalise on apply (V4): the sliders no longer have to sum
+                # to exactly 100. Preview what will actually be committed.
+                pinned, dist = override_to_observation(vals)
+                if total == 0:
+                    preview = "Set at least one state above 0%."
+                elif pinned is not None:
+                    preview = f"Applies as a hard observation: <b>{pinned}</b>."
+                else:
+                    preview = "Applies as: " + " · ".join(
+                        f"{s} {d * 100:.0f}%" for s, d in dist.items() if d > 0
+                    )
                 st.markdown(
-                    f"<div style='font-size:0.85rem; margin-top:0.35rem;'>"
-                    f"Total: <b style='color:{colour}'>{total}%</b></div>",
+                    f"<div style='font-size:0.82rem; margin-top:0.35rem; "
+                    f"color:{MUTED};'>{preview}</div>",
                     unsafe_allow_html=True,
                 )
                 note = st.text_input(
@@ -184,15 +191,10 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                 if st.button(
                     "Set observation",
                     type="primary",
-                    disabled=(total != 100),
+                    disabled=(total == 0),
                     key=f"set_{sel}",
                 ):
-                    pretty = ", ".join(
-                        f"{s} {v}%" for s, v in vals.items() if v > 0
-                    )
-                    # Collapse to a hard assignment when a single state is 100%.
-                    if max(vals.values()) == 100:
-                        pinned = next(s for s, v in vals.items() if v == 100)
+                    if pinned is not None:
                         record_observation(
                             headline=note.strip() or f"Manual: {sel} = {pinned}",
                             assignments={sel: pinned},
@@ -201,13 +203,15 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                             source="manual",
                         )
                     else:
-                        dist = {s: v / 100.0 for s, v in vals.items()}
+                        pretty = ", ".join(
+                            f"{s} {d * 100:.0f}%" for s, d in dist.items() if d > 0
+                        )
                         record_observation(
                             headline=note.strip()
                                 or f"Manual soft: {sel} ({pretty})",
                             assignments={},
                             soft_assignments={sel: dist},
-                            rationale="Soft override set directly by the analyst.",
+                            rationale="Soft override set by the analyst (auto-normalised).",
                             per_assignment_reasons={sel: f"Manual soft override: {pretty}."},
                             source="manual",
                         )

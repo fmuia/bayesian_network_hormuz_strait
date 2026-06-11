@@ -46,6 +46,28 @@ def test_override_hard_commits_observation():
     assert len(obs) == 1 and obs[0]["assignments"] == {"Tanker_Incidents": "none"}
 
 
+def test_override_autonormalizes_non_100_sum():
+    """V4 follow-up: the button is enabled at any positive sum and the committed
+    soft distribution is normalised to 1.0 (no need to make sliders total 100)."""
+    at = _app_with_node("Tanker_Incidents")
+    for s, v in [("none", 10), ("isolated", 15), ("frequent", 25)]:   # sum 50
+        at.session_state[f"soft_Tanker_Incidents_{s}"] = v
+    at.run()
+    assert _click(at, "Set observation")               # enabled despite sum != 100
+    assert not at.exception
+    soft = at.session_state["observations"][0]["soft_assignments"]["Tanker_Incidents"]
+    assert soft == {"none": 0.2, "isolated": 0.3, "frequent": 0.5}
+    assert abs(sum(soft.values()) - 1.0) < 1e-9
+
+
+def test_posterior_panel_uses_popover_not_html_title():
+    """Fix 4: the ⓘ is a real popover now; the stripped HTML-title tooltip is gone."""
+    at = _app_with_node("Tanker_Incidents")
+    assert len(at.get("popover")) >= 1
+    md = " ".join(m.value for m in at.markdown)
+    assert "cursor:help" not in md          # the old title-bearing ⓘ span is gone
+
+
 def test_scenario_node_has_no_override():
     """Scenario is inferred, not observed — the override is suppressed."""
     at = _app_with_node("Scenario")

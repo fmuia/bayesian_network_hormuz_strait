@@ -63,3 +63,15 @@ def test_narratives_off_card_but_reachable_in_expander():
     assert all(snippet not in c for c in cards)            # narrative NOT on the card
     assert "What each scenario means" in [e.label for e in at.get("expander")]
     assert any(snippet in m.value for m in at.markdown)    # and rendered (reachable)
+
+
+def test_delta_caption_replaces_dead_chip_tooltip():
+    """Fix 4: the per-chip HTML title= (stripped by Streamlit) is gone; one caption
+    under the cards explains the ▲/▼ instead."""
+    at = _app()
+    at.session_state["observations"] = [_TANKER]
+    at.run()
+    text = " ".join(m.value for m in at.markdown) \
+        + " ".join(getattr(c, "value", "") for c in at.get("caption"))
+    assert "change in each scenario since before the most recent observation" in text
+    assert "title='change since" not in text               # dead chip tooltip removed
