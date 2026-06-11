@@ -32,6 +32,8 @@ sqlalchemy = ">=2.0,<3"      # elicitation platform (Plan 4, Layer 0)
 alembic = ">=1.13"           # elicitation schema migrations
 pyyaml = ">=6.0"             # per-deployment config loader
 cryptography = ">=43"        # credential envelope encryption
+requests = ">=2.32,<3"       # URL-article ingestion: fetch news pages
+beautifulsoup4 = ">=4.12,<5" # URL-article ingestion: extract headline/body
 
 [tasks]
 test = "pytest -q"

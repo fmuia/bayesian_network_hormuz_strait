@@ -122,7 +122,7 @@ def test_soft_observed_node_shows_bayes_contribution():
     at.session_state["use_fake_translator"] = True
     at.run()
     at.session_state["pending_article"] = {
-        "headline": "Tanker struck in the Strait of Hormuz", "body": "",
+        "raw": "Tanker struck in the Strait of Hormuz", "body": "",
         "source": "", "source_type_label": "(unspecified — full trust)"}
     at.run()
     at.session_state["selected_node"] = "Tanker_Incidents"   # now soft-observed

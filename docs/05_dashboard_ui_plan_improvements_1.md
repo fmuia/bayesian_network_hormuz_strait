@@ -2,7 +2,7 @@
 
 > **What this is.** A small post-merge UX-fix round on top of the shipped POC slice ([`05_dashboard_ui_plan.md`](05_dashboard_ui_plan.md)), driven by issues the analyst hit while actually using the app. Branch `post-p5-improvements-1` (off `main`, after the POC merged via PR #6). Companion to the POC plan and its [deferred remainder](05_dashboard_ui_plan_deferred.md).
 >
-> **Provenance.** Six analyst observations, 2026-06-11. Each was triaged into: ship now, defer (with a home in the parking-lot docs), or out-of-scope. The branch also already carried `fee5db9` (a prior fix by F. Muia: override-slider layout + honest κ captions).
+> **Provenance.** Six analyst observations, 2026-06-11 (UX fixes I1–I3 below), plus a follow-on feature request in the same round — **paste-a-URL news ingestion** (see the *Feature* section). The branch also already carried `fee5db9` (a prior fix by F. Muia: override-slider layout + honest κ captions).
 >
 > **Status legend.** ✅ shipped (with commit) · 🅿️ deferred (parked) · ⊘ out of scope.
 
@@ -32,6 +32,23 @@
 **Scope.** Headlines, the translator rationale, and source were interpolated **raw** into `st.markdown(unsafe_allow_html=True)` with no escaping anywhere, so a headline containing `<`, `>`, or `&` could corrupt the layout. Apply stdlib `html.escape` at the render sites in `triage_view`, `observation_log`, and `observed_node_panel`; render the log-row source parens only when source is non-empty (was showing `()`).
 **Tests.** `test_escaping.py`: a headline of `<b>boom</b> & <script>` renders escaped (`&lt;b&gt;…`), not as raw HTML.
 
+## Feature — paste a URL or a title (news ingestion)
+
+**What.** The translator's single input box now accepts a **news URL** (the app detects it, identifies the outlet, fetches the page, and splits it into headline + body) **or** a bare **title** (detected automatically), in addition to the unchanged **manual headline + body** path. A URL from an **unlisted / non-news** domain is rejected with a clear message and injects nothing. Everything downstream (translator, relevance abstention, HITL triage, evidence injection) is unchanged — this is a resolution layer in front of `Article` construction (`Article` already had `url`/`body`/`source`/`source_type`).
+
+**Decision.** Curated **allow-list** of outlets (identify + reject unlisted) with lightweight BeautifulSoup + Open-Graph/JSON-LD extraction (no heavy dependency); **live HTTP fetch** at runtime **plus** saved-HTML fixtures so the fake/offline mode and the suite run with no network.
+
+**New module `src/ingest.py`** (pure, import-safe; `requests`/`bs4` imported lazily):
+- `NEWS_SITES` registry — domain → `SiteInfo(name, source_type)`. `source_type` drives the existing credibility weight `w` (`SOURCE_TYPE_CREDIBILITY`). First list (~25 outlets, one line each, extensible): wire services (Reuters, AP, AFP — w=1.0); international + regional press (BBC, Guardian, NYT, WSJ, FT, WaPo, CNN, Bloomberg, Economist, Al Jazeera, Times of Israel, Al-Monitor, Middle East Eye, The National — w=0.8); maritime trade press relevant to tanker incidents (Lloyd's List, TradeWinds, gCaptain — w=0.8); state media accepted **but heavily discounted** (Press TV, IRNA, Tasnim, RT, Xinhua — w=0.3). Al Jazeera / The National are state-funded but editorially significant → classified `commercial_press`, reclassifiable.
+- `classify_input` (URL vs title — deterministic, no network), `identify_site` (`www.`/subdomain-aware), `fetch_html` (injectable `fetcher`; live `requests` default; size-capped, http(s)-only — the allow-list doubles as an SSRF guard), `extract_article` (og:title → `<title>` → `<h1>`; JSON-LD `articleBody` → `<article>` `<p>` → all `<p>`), `fake_fetcher` (offline fixtures), and `ingest(top, body, *, fetcher)` → `IngestResult`.
+- **Four outcomes** of `ingest`: **manual** (a body in the expander forces the top field to be a headline) · **title** (bare headline-only) · **url-ok** (recognised outlet → fetched + split, registry `source_type`) · **url-rejected** (unlisted domain or unreadable page → `ok=False` + message).
+
+**Wiring (`app/components/translator_stream.py`).** The top `text_area` is relabelled "News URL or headline"; submit stores `pending_article["raw"]`; `_run_translator` calls `ingest(...)` first (offline `fake_fetcher` in fake mode, else live), renders a "⛔ Rejected — …" line and returns when `not ok`, and otherwise builds the `Article` from the resolved fields (a recognised URL's registry `source_type` sets `w`, and the stream shows "fetched from {outlet}").
+
+**Dependencies.** `requests` + `beautifulsoup4` declared in `pixi.toml [pypi-dependencies]` (already present transitively; `pixi.lock` unchanged).
+
+**Tests (21).** `tests/test_ingest.py` (18, pure/offline): classification, site identification, extraction on a fixture + fallbacks, and all four `ingest` outcomes via stub fetchers. `tests/test_url_ingestion.py` (3, AppTest, offline via `tests/fixtures/articles/reuters.html`): a known URL fetches/splits/injects, an unlisted URL is rejected with nothing injected, a bare title still translates. Full suite **293 green**. (The four existing AppTests that simulated the form were updated `pending_article["headline"]` → `["raw"]`.)
+
 ## Deferred / not done
 
 ### 🅿️ Full-width layout *(point 2)* — recorded `f19eb95`
@@ -53,6 +70,6 @@ No other deferred item is touched: I2 (tooltips) and I3 (escaping) are new fixes
 
 ## Verification
 
-- `pixi run test` — full suite **272 green** (7 new tests across `test_state`, `test_network_view`, `test_scenario_cards`, `test_escaping`).
-- Manual (`TRANSLATOR_PROVIDER=fake pixi run app`): non-100 slider sum commits a normalised soft observation (single slider → hard pin); the ⓘ popover opens; cards show the single ▲/▼ caption; a `<`-containing headline renders literally.
-- Commits: `dbb1e00` (I1 + I2), `74cc8eb` (I3), `f19eb95` (point-2 deferral doc).
+- `pixi run test` — full suite **293 green** (7 UX-fix tests + 21 ingestion tests: `test_ingest` ×18, `test_url_ingestion` ×3).
+- Manual (`TRANSLATOR_PROVIDER=fake pixi run app`): non-100 slider sum commits a normalised soft observation (single slider → hard pin); the ⓘ popover opens; cards show the single ▲/▼ caption; a `<`-containing headline renders literally. **Ingestion:** paste a fixture-backed Reuters URL → headline/body auto-fill + "fetched from Reuters" + evidence injects; paste `https://example.com` → clear rejection, nothing injected; paste a plain headline → unchanged; fill the body expander → top treated as a headline.
+- Commits: `dbb1e00` (I1 + I2), `74cc8eb` (I3), `f19eb95` (point-2 deferral doc); URL ingestion in a dedicated commit (below).

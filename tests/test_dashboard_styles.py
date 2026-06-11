@@ -56,7 +56,7 @@ def test_partial_relevance_badge_uses_shared_chip_class():
     at.session_state["use_fake_translator"] = True
     at.run()
     at.session_state["pending_article"] = {            # fake -> relevance "partial"
-        "headline": "Brent crude prices climb on Gulf jitters", "body": "",
+        "raw": "Brent crude prices climb on Gulf jitters", "body": "",
         "source": "", "source_type_label": "(unspecified — full trust)"}
     at.run()
     at.session_state["active_view"] = "📝  Observations"
