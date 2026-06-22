@@ -15,7 +15,7 @@ from typing import Dict, List
 from packs.base import ScenarioPack
 
 DEFAULT_PACK = "hormuz"
-_KNOWN: List[str] = ["hormuz", "meridian", "taiwan"]
+_KNOWN: List[str] = ["hormuz", "meridian"]
 _CACHE: Dict[str, ScenarioPack] = {}
 
 
@@ -25,8 +25,6 @@ def _load(pack_id: str) -> ScenarioPack:
         from packs.hormuz import PACK
     elif pack_id == "meridian":
         from packs.meridian import PACK
-    elif pack_id == "taiwan":
-        from packs.taiwan import PACK
     else:
         raise KeyError(
             f"Unknown scenario pack {pack_id!r}; known: {', '.join(_KNOWN)}"
