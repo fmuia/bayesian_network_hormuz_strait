@@ -1,0 +1,52 @@
+{
+  "match": [
+    "ease export curbs",
+    "normalise",
+    "licences issued"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Geo_Exposure",
+        "state": "Low",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "Low",
+            "value": 1.0
+          },
+          {
+            "state": "Elevated",
+            "value": 0.05
+          },
+          {
+            "state": "High",
+            "value": 0.05
+          }
+        ]
+      },
+      {
+        "node": "Lead_Time_Slippage",
+        "state": "OnTime",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "OnTime",
+            "value": 1.0
+          },
+          {
+            "state": "Slipping",
+            "value": 0.05
+          },
+          {
+            "state": "Blown",
+            "value": 0.05
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: de-escalation / normalisation.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}

@@ -5,6 +5,8 @@ by the engine through the src.scenario seam, exactly like the Hormuz pack.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from packs.base import NodeMeta, Role, ScenarioPack, TranslatorProfile
 
 from packs.meridian.network import (
@@ -55,6 +57,7 @@ PACK = ScenarioPack(
     layout=TOPOLOGY_LAYOUT,
     display_overrides=DISPLAY_OVERRIDES,
     node_title_wrap=NODE_TITLE_WRAP,
+    fake_fixtures_dir=str(Path(__file__).resolve().parent / "fixtures" / "translator"),
     presentation=PRESENTATION,
     elicitation_seeds=ELICITATION_SEEDS,
     translator_profile=TranslatorProfile(

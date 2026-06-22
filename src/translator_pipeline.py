@@ -40,6 +40,7 @@ from .translator import (
     _article_user_content,
     _asyncio_run_retrying,
     _claude_output_format_enabled,
+    _keyword_hit,
     _EPS_FLOOR,
     _extract_json_block,
     _validate_payload,
@@ -413,7 +414,7 @@ def _fake_map_claims(claims: List[Claim]) -> List[Dict]:
         span = c.verbatim_span.lower()
         node = state = ""
         for keys, nd, st in _FAKE_KEYWORD_NODE:
-            if any(k in span for k in keys):
+            if any(_keyword_hit(k, span) for k in keys):
                 node, state = nd, st
                 break
         raws.append({

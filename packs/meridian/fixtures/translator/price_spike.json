@@ -1,0 +1,33 @@
+{
+  "match": [
+    "jump 35",
+    "prices jump",
+    "scramble for inventory"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Input_Price_Spike",
+        "state": "Spiking",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "Stable",
+            "value": 0.05
+          },
+          {
+            "state": "Rising",
+            "value": 0.05
+          },
+          {
+            "state": "Spiking",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: input-price spike.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}

@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -755,6 +756,12 @@ def _select_fixture(fixtures: List[Dict], headline: str) -> Optional[Dict]:
     return default
 
 
+def _keyword_hit(keyword: str, text: str) -> bool:
+    """Keyword present in ``text`` at a word start (so ``port`` does not match
+    inside ``report``), allowing trailing suffixes (``lead time`` ⊂ ``lead times``)."""
+    return re.search(r"(?<![a-z])" + re.escape(keyword.lower()), text) is not None
+
+
 def _fake_keyword_payload(headline: str) -> Dict:
     """Build a translator payload from the active pack's fallback keyword map —
     the offline path for any pack without authored fixtures (e.g. Meridian).
@@ -767,7 +774,7 @@ def _fake_keyword_payload(headline: str) -> Dict:
     for keys, node, state in PRESENTATION.fallback_keyword_map:
         if node in seen:
             continue
-        if any(k.lower() in hl for k in keys):
+        if any(_keyword_hit(k, hl) for k in keys):
             seen.add(node)
             assignments.append({
                 "node": node, "state": state, "reason": "fake keyword match",

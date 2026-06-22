@@ -1,0 +1,33 @@
+{
+  "match": [
+    "stretch from",
+    "14 weeks",
+    "stretch to"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Lead_Time_Slippage",
+        "state": "Blown",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "OnTime",
+            "value": 0.05
+          },
+          {
+            "state": "Slipping",
+            "value": 0.05
+          },
+          {
+            "state": "Blown",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: lead-time blowout.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}

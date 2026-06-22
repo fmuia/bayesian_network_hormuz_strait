@@ -1,0 +1,52 @@
+{
+  "match": [
+    "stable lead times",
+    "prices flat",
+    "flat week-on-week"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Lead_Time_Slippage",
+        "state": "OnTime",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "OnTime",
+            "value": 1.0
+          },
+          {
+            "state": "Slipping",
+            "value": 0.05
+          },
+          {
+            "state": "Blown",
+            "value": 0.05
+          }
+        ]
+      },
+      {
+        "node": "Input_Price_Spike",
+        "state": "Stable",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "Stable",
+            "value": 1.0
+          },
+          {
+            "state": "Rising",
+            "value": 0.05
+          },
+          {
+            "state": "Spiking",
+            "value": 0.05
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: stable supply conditions.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}
