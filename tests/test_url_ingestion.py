@@ -46,3 +46,23 @@ def test_bare_title_still_translates():
     _submit(at, "Tanker struck in the Strait of Hormuz")
     assert not at.exception
     assert len(at.session_state["observations"]) == 1
+
+
+def test_example_button_translates_its_headline_not_empty():
+    """Regression: the Examples buttons must feed the headline through the `raw`
+    key (ingest reads `raw`, not the old `headline`), else they translate an
+    empty headline."""
+    from src.evidence import EXAMPLE_HEADLINES
+
+    at = _app()
+    ex = EXAMPLE_HEADLINES[0]
+    at.get("button")  # ensure widgets are realised
+    for b in at.button:
+        if b.label == ex.text:
+            b.click().run()
+            break
+    else:
+        raise AssertionError(f"example button {ex.text!r} not found")
+    assert not at.exception
+    lt = at.session_state["last_translation"]
+    assert lt is not None and lt["headline"] == ex.text   # the example text, not ""

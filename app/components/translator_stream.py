@@ -347,7 +347,7 @@ def render_sidebar(st):
                     width="stretch", disabled=not translator_on,
                 ):
                     st.session_state.pending_article = {
-                        "headline": ex.text, "body": "", "source": "",
+                        "raw": ex.text, "body": "", "source": "",
                         "source_type_label": _FULL_TRUST_LABEL,
                     }
                     st.rerun()
