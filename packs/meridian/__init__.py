@@ -18,6 +18,7 @@ from packs.meridian.network import (
 from packs.meridian.layout import DISPLAY_OVERRIDES, NODE_TITLE_WRAP, TOPOLOGY_LAYOUT
 from packs.meridian.headlines import EXAMPLE_HEADLINES
 from packs.meridian.presentation import PRESENTATION
+from packs.meridian.seeds import ELICITATION_SEEDS
 
 _LATENT = "Disruption_Regime"
 
@@ -55,6 +56,7 @@ PACK = ScenarioPack(
     display_overrides=DISPLAY_OVERRIDES,
     node_title_wrap=NODE_TITLE_WRAP,
     presentation=PRESENTATION,
+    elicitation_seeds=ELICITATION_SEEDS,
     translator_profile=TranslatorProfile(
         domain="Meridian's EV-motor supply chain",
         scenario_set_descriptor=(

@@ -7,6 +7,8 @@ engine module that reads the ``src.scenario`` seam — so there is no import cyc
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from packs.base import NodeMeta, Role, ScenarioPack, TranslatorProfile
 
 from packs.hormuz.network import (
@@ -24,6 +26,7 @@ from packs.hormuz.layout import (
 )
 from packs.hormuz.headlines import EXAMPLE_HEADLINES
 from packs.hormuz.presentation import PRESENTATION
+from packs.hormuz.seeds import ELICITATION_SEEDS
 
 _LATENT = "Scenario"
 
@@ -63,7 +66,9 @@ PACK = ScenarioPack(
     layout=TOPOLOGY_LAYOUT,
     display_overrides=DISPLAY_OVERRIDES,
     node_title_wrap=NODE_TITLE_WRAP,
+    fake_fixtures_dir=str(Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "translator"),
     presentation=PRESENTATION,
+    elicitation_seeds=ELICITATION_SEEDS,
     translator_profile=TranslatorProfile(
         domain="the Strait of Hormuz",
         scenario_set_descriptor=(

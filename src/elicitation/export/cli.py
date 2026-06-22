@@ -2,10 +2,8 @@
 
 Usage:
     python -m src.elicitation.export.cli export --db <url> --network-id 1 --out spec.json
-    python -m src.elicitation.export.cli import --db <url> --in spec.json --name hormuz
+    python -m src.elicitation.export.cli import --db <url> --in spec.json --name <pack>
 """
-# TODO(pack-separation): usage example uses the Hormuz pack id as a sample --name;
-# harmless (it's an example) but worth genericising when packs are documented.
 
 from __future__ import annotations
 

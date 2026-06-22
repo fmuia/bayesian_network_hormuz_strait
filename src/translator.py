@@ -55,12 +55,15 @@ _EPS_TOL = 1e-6
 # Offline dev/test provider: deterministic fixtures, no network. Selected via
 # provider="fake", TRANSLATOR_PROVIDER=fake, or the dashboard dev toggle; kept
 # OUT of available_providers() so it is never auto-selected over a real backend.
-_FAKE_FIXTURES_DIR = Path(
-    os.environ.get(
-        "TRANSLATOR_FAKE_DIR",
-        str(Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "translator"),
-    )
-)
+def _fake_fixtures_dir() -> Optional[Path]:
+    """Resolve the offline fixture dir: ``TRANSLATOR_FAKE_DIR`` env wins, else the
+    active pack's ``fake_fixtures_dir`` (None ⇒ no fixtures, use the keyword
+    fallback). Read at call time so it follows the active pack / reload."""
+    env = os.environ.get("TRANSLATOR_FAKE_DIR")
+    if env:
+        return Path(env)
+    from src.scenario import FAKE_FIXTURES_DIR
+    return Path(FAKE_FIXTURES_DIR) if FAKE_FIXTURES_DIR else None
 
 # Callback type: fn(stage, detail) where stage is a short machine tag and
 # detail is a human-readable sentence. Used by the UI to stream progress.
@@ -726,9 +729,10 @@ def _load_fake_fixtures() -> List[Dict]:
     directory yields an empty list (the fake provider then returns an empty result).
     """
     fixtures: List[Dict] = []
-    if not _FAKE_FIXTURES_DIR.is_dir():
+    fixtures_dir = _fake_fixtures_dir()
+    if fixtures_dir is None or not fixtures_dir.is_dir():
         return fixtures
-    for path in sorted(_FAKE_FIXTURES_DIR.glob("*.json")):
+    for path in sorted(fixtures_dir.glob("*.json")):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         data["_name"] = path.stem
@@ -751,24 +755,53 @@ def _select_fixture(fixtures: List[Dict], headline: str) -> Optional[Dict]:
     return default
 
 
+def _fake_keyword_payload(headline: str) -> Dict:
+    """Build a translator payload from the active pack's fallback keyword map —
+    the offline path for any pack without authored fixtures (e.g. Meridian).
+    First keyword hit per node wins; max-pinned single-state likelihood."""
+    from src.scenario import PRESENTATION
+
+    hl = (headline or "").lower()
+    assignments: List[Dict] = []
+    seen: set = set()
+    for keys, node, state in PRESENTATION.fallback_keyword_map:
+        if node in seen:
+            continue
+        if any(k.lower() in hl for k in keys):
+            seen.add(node)
+            assignments.append({
+                "node": node, "state": state, "reason": "fake keyword match",
+                "state_probs": [{"state": state, "value": 1.0}],
+            })
+    return {
+        "assignments": assignments,
+        "overall_rationale": "fake keyword match" if assignments else "",
+        "relevance": "yes" if assignments else "no",
+    }
+
+
 def _translate_fake(
     article: Article, *, on_step: Optional[StepCallback] = None
 ) -> TranslatorResult:
-    """Deterministic offline translation from a JSON fixture.
+    """Deterministic offline translation.
 
-    The fixture's ``payload`` is run through the *same* :func:`_validate_payload`
-    path as the real providers, so malformed fixtures surface real
-    ``TranslatorError``s exactly as a bad LLM response would. Fixtures are
-    selected by matching the article headline.
+    A pack with authored JSON fixtures (e.g. Hormuz) selects one by matching the
+    headline; the fixture ``payload`` runs through the *same*
+    :func:`_validate_payload` path as the real providers, so malformed fixtures
+    surface real ``TranslatorError``s. A pack without fixtures (e.g. Meridian)
+    falls back to its keyword map, so the offline demo works for every pack.
     """
     _emit = on_step or (lambda *_: None)
-    _emit("init", "Using fake translator (offline fixtures)…")
+    _emit("init", "Using fake translator (offline)…")
     fixture = _select_fixture(_load_fake_fixtures(), article.headline)
     if fixture is None:
-        _emit("response", "no fixtures found; returning empty translation")
+        payload = _fake_keyword_payload(article.headline)
+        raw = json.dumps(payload)
+        _emit("response", f"keyword fallback ({len(payload['assignments'])} assignment(s))")
+        assignments, rationale, relevance = _finalize_payload(payload)
         return TranslatorResult(
-            headline=article.headline, assignments=[], rationale="",
-            model="fake:empty", provider="fake", raw_response="{}",
+            headline=article.headline, assignments=assignments, rationale=rationale,
+            model="fake:keywords", provider="fake", raw_response=raw, relevance=relevance,
         )
     payload = fixture.get("payload", {})
     raw = json.dumps(payload)

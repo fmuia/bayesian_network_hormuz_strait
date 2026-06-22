@@ -1,6 +1,4 @@
 """Inference wrapper for the active scenario pack's Bayesian network."""
-# TODO(pack-separation): docstring previously named the Hormuz scenario; the module
-# is pack-agnostic (reads via src.scenario) — wording fixed, no Hormuz logic remains.
 
 from __future__ import annotations
 

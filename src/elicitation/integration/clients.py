@@ -159,13 +159,12 @@ def build_node_prompt(
     role: str | None,
     reasoning: str = "balanced",
 ) -> str:
+    from src.scenario import TRANSLATOR_PROFILE as _tp
     cfgs = "\n".join(f"  - {list(c)}" for c in parent_configs) if parents else "  - [] (root node)"
     return (
-        # TODO(pack-separation): "Strait-of-Hormuz crisis dynamics" is scenario-specific
-        # prompt text — read the domain from the active pack's TranslatorProfile.domain.
         f"{_persona(role)}{_reasoning_directive(reasoning)}\n"
         f"Elicit the conditional probability table for the node below in a Bayesian network modelling "
-        f"Strait-of-Hormuz crisis dynamics.\n"
+        f"{_tp.domain}.\n"
         f"Node: {node}\nStates (in order): {list(states)}\nParents: {list(parents)}\n\n"
         f"Method — work through this, then output JSON:\n"
         f"1. Base rate: the marginal distribution over the states ignoring the parents (reference class).\n"
@@ -211,12 +210,11 @@ def _parse_node_response(
 
 
 def build_roles_prompt(node: str, states: Sequence[str], parents: Sequence[str], n: int) -> str:
+    from src.scenario import TRANSLATOR_PROFILE as _tp
     outside = " and at least one base-rate / outside-view forecaster" if n >= 3 else ""
     return (
-        # TODO(pack-separation): "Strait-of-Hormuz crisis" is scenario-specific prompt
-        # text — read the domain from the active pack's TranslatorProfile.domain.
         f"Recruit an expert panel to elicit the conditional probability table for the node '{node}' "
-        f"(states {list(states)}, parents {list(parents)}) in a Strait-of-Hormuz crisis Bayesian "
+        f"(states {list(states)}, parents {list(parents)}) in a {_tp.domain} Bayesian "
         f"network. Propose {n} DISTINCT, node-appropriate expert roles bringing different disciplinary "
         f"lenses (e.g. naval analyst, maritime-insurance underwriter, energy economist). Include at "
         f"least one red-team skeptic{outside}. Output role TITLES ONLY — no descriptions, ≤6 words each.\n"

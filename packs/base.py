@@ -90,7 +90,10 @@ class ScenarioPack:
     layout: Dict[str, Any] = field(default_factory=dict)
     display_overrides: Dict[str, str] = field(default_factory=dict)  # raw → display name
     node_title_wrap: Dict[str, str] = field(default_factory=dict)    # display name → wrapped
+    fake_fixtures_dir: Optional[str] = None  # offline fake-translator JSON fixtures dir
     presentation: "Presentation" = field(default_factory=lambda: Presentation())
+    # Calibration seeds for the elicitation Cooke protocol: (id, text, realization, unit).
+    elicitation_seeds: List[tuple] = field(default_factory=list)
     example_headlines: List[Any] = field(default_factory=list)
     # Filled in later phases; optional so Phase A wraps Hormuz without them.
     decision: Optional[Any] = None

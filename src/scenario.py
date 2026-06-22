@@ -29,6 +29,8 @@ DISPLAY_OVERRIDES = _pack.display_overrides
 NODE_TITLE_WRAP = _pack.node_title_wrap
 PRESENTATION = _pack.presentation
 TRANSLATOR_PROFILE = _pack.translator_profile
+FAKE_FIXTURES_DIR = _pack.fake_fixtures_dir
+ELICITATION_SEEDS = _pack.elicitation_seeds
 EXAMPLE_HEADLINES = _pack.example_headlines
 LATENT = _pack.latent
 build_network = _pack.build_network
@@ -41,7 +43,8 @@ def reload():
     consumers are NOT updated — use in tests that import lazily."""
     global _pack, PACK, STATES, EDGES, EDGES_LATENT, SCENARIO_NARRATIVES
     global SCENARIO_SIGNATURES, NODE_META, LAYOUT, DISPLAY_OVERRIDES, NODE_TITLE_WRAP
-    global PRESENTATION, TRANSLATOR_PROFILE, EXAMPLE_HEADLINES, LATENT, build_network
+    global PRESENTATION, TRANSLATOR_PROFILE, FAKE_FIXTURES_DIR, ELICITATION_SEEDS
+    global EXAMPLE_HEADLINES, LATENT, build_network
     from packs import registry
 
     registry._reset_cache()
@@ -58,6 +61,8 @@ def reload():
     NODE_TITLE_WRAP = _pack.node_title_wrap
     PRESENTATION = _pack.presentation
     TRANSLATOR_PROFILE = _pack.translator_profile
+    FAKE_FIXTURES_DIR = _pack.fake_fixtures_dir
+    ELICITATION_SEEDS = _pack.elicitation_seeds
     EXAMPLE_HEADLINES = _pack.example_headlines
     LATENT = _pack.latent
     build_network = _pack.build_network
@@ -67,6 +72,6 @@ def reload():
 __all__ = [
     "PACK", "STATES", "EDGES", "EDGES_LATENT", "SCENARIO_NARRATIVES",
     "SCENARIO_SIGNATURES", "NODE_META", "LAYOUT", "DISPLAY_OVERRIDES",
-    "NODE_TITLE_WRAP", "PRESENTATION", "TRANSLATOR_PROFILE", "EXAMPLE_HEADLINES",
-    "LATENT", "build_network", "reload",
+    "NODE_TITLE_WRAP", "PRESENTATION", "TRANSLATOR_PROFILE", "FAKE_FIXTURES_DIR",
+    "ELICITATION_SEEDS", "EXAMPLE_HEADLINES", "LATENT", "build_network", "reload",
 ]

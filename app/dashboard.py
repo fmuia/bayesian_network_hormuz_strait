@@ -1,4 +1,4 @@
-"""Streamlit dashboard for the Strait of Hormuz BN demo.
+"""Streamlit dashboard for the scenario-pack BN demo (active pack via SCENARIO_PACK).
 
 Run with: ``streamlit run app/dashboard.py`` (or ``pixi run app``).
 
@@ -13,8 +13,6 @@ The Network tab uses streamlit-agraph so nodes are clickable; clicking
 a node opens an inline "override" form on the right, replacing the
 previous sidebar manual picker.
 """
-# TODO(pack-separation): module docstring names the Strait of Hormuz; the dashboard
-# is pack-agnostic now (title comes from PACK.title) — reword the docstring.
 
 from __future__ import annotations
 
