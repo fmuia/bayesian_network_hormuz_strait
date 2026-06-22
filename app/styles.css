@@ -123,10 +123,18 @@ html, body, [class*="css"] {
   top: 0.6rem !important;
   left: 0.7rem !important;
   z-index: 10000 !important;
-  /* The wrapper is forced-visible and fixed at the top-left, overlapping the
-     first main-area widget. Make the wrapper itself click-through; only its
-     inner 1.9rem button (rule above) keeps pointer events. */
-  pointer-events: none !important;
+  pointer-events: auto !important;
+}
+
+/* Streamlit ≥1.56 renders the reopen button as `stExpandSidebarButton` (the old
+   `stSidebarCollapsedControl` testid is gone), and it lives inside stHeader —
+   which is pointer-events:none. Re-enable it (and its children) explicitly so
+   the folded sidebar can always be reopened. Equal specificity to the blanket
+   `[data-testid="stHeader"] *` rule, but later in source order, so this wins. */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stExpandSidebarButton"] * {
+  pointer-events: auto !important;
+  visibility: visible !important;
 }
 [data-testid="stSidebarCollapseButton"] {
   position: absolute !important;
