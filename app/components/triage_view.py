@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 
 import state
-from src.network import STATES
+from src.scenario import STATES
 
 
 def render(st):

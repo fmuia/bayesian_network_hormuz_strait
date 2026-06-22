@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.network import STATES
+from src.scenario import STATES
 from src.viz import (
     _NAVY,
     _ROOT_DRIVER_COLORS,

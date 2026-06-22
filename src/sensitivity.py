@@ -15,18 +15,15 @@ from pgmpy.factors.discrete import TabularCPD
 from pgmpy.inference import VariableElimination
 from pgmpy.models import DiscreteBayesianNetwork
 
-from .network import STATES, build_network
+from src.scenario import EDGES_LATENT, LATENT, STATES, build_network
 
 # A concentration can be a single float (applied to every CPT) or a per-variable map.
 Concentration = Union[float, Mapping[str, float]]
 
-# The scenario-coupling layer is genuinely uncertain; the upstream chain is moderate.
-_COUPLING_LAYER = {
-    "Energy_Infrastructure_Damage",
-    "Conflict_Duration",
-    "Diplomatic_Resolution_Path",
-    "Scenario",
-}
+# The coupling layer (the latent regime + its emission children) is genuinely
+# uncertain; the upstream chain is moderate. Derived from the active pack's latent
+# topology so it is correct for any scenario.
+_COUPLING_LAYER = {LATENT} | {b for a, b in EDGES_LATENT if a == LATENT}
 
 
 def default_concentrations(network: DiscreteBayesianNetwork) -> Dict[str, float]:
@@ -81,9 +78,9 @@ def scenario_credible_intervals(
     seed: int = 0,
     base_network: DiscreteBayesianNetwork | None = None,
 ) -> Dict[str, Tuple[float, float, float]]:
-    """Mean and (lo, hi) credible interval for each Scenario state.
+    """Mean and (lo, hi) credible interval for each latent-regime state.
 
-    Returns ``{scenario: (mean, lo, hi)}``. The mean is the average of
+    Returns ``{state: (mean, lo, hi)}``. The mean is the average of
     the M Monte-Carlo posteriors; lo/hi are the empirical quantiles
     bracketing the central `ci` mass.
     """
@@ -91,16 +88,16 @@ def scenario_credible_intervals(
         raise ValueError("ci must be in (0, 1)")
     base = base_network or build_network()
     rng = np.random.default_rng(seed)
-    # Scenario is the query target — drop it from evidence if present (e.g. a
-    # mistaken observation on the latent regime) so pgmpy doesn't reject the query
-    # with "same variable in both `variables` and `evidence`".
-    evidence = {k: v for k, v in dict(evidence).items() if k != "Scenario"}
+    # The latent regime is the query target — drop it from evidence if present
+    # (e.g. a mistaken observation on it) so pgmpy doesn't reject the query with
+    # "same variable in both `variables` and `evidence`".
+    evidence = {k: v for k, v in dict(evidence).items() if k != LATENT}
     samples: list[Dict[str, float]] = []
     for _ in range(m):
         net = _resampled_network(base, concentration, rng)
         ve = VariableElimination(net)
-        f = ve.query(["Scenario"], evidence=dict(evidence), show_progress=False)
-        samples.append({s: float(f.values[i]) for i, s in enumerate(f.state_names["Scenario"])})
+        f = ve.query([LATENT], evidence=dict(evidence), show_progress=False)
+        samples.append({s: float(f.values[i]) for i, s in enumerate(f.state_names[LATENT])})
 
     lo_q = (1 - ci) / 2
     hi_q = 1 - lo_q

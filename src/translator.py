@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from .network import SCENARIO_NARRATIVES, STATES
+from src.scenario import LATENT, SCENARIO_NARRATIVES, STATES, TRANSLATOR_PROFILE
 
 Provider = Literal["claude-code", "openai", "fake"]
 
@@ -205,8 +205,7 @@ def _node_state_enum_schema() -> Dict:
                 "type": "string",
                 "enum": ["yes", "partial", "no"],
                 "description": (
-                    "Is the article relevant to the Strait-of-Hormuz scenario set "
-                    "(US–Iran tension, Gulf shipping/energy)? 'yes' = clearly "
+                    f"Is the article relevant to the {TRANSLATOR_PROFILE.scenario_set_descriptor}? 'yes' = clearly "
                     "relevant; 'partial' = tangential or ambiguous (assignments "
                     "allowed but the analyst should review); 'no' = off-topic, in "
                     "which case 'assignments' MUST be empty."
@@ -230,7 +229,7 @@ def _system_prompt() -> str:
     """Build the system prompt describing the BN schema to the model."""
     lines = [
         "You are the translation layer between geopolitical news and a "
-        "Bayesian network that tracks three Strait-of-Hormuz scenarios:",
+        f"Bayesian network that tracks these {TRANSLATOR_PROFILE.domain} scenarios:",
         "",
     ]
     for scenario, narrative in SCENARIO_NARRATIVES.items():
@@ -243,7 +242,7 @@ def _system_prompt() -> str:
         "",
     ]
     for node, states in STATES.items():
-        if node == "Scenario":
+        if node == LATENT:
             continue
         lines.append(f"  - {node}: {states}")
     lines += [
@@ -267,12 +266,12 @@ def _system_prompt() -> str:
         "    to 1. Include ALL allowed states; for a state the article essentially rules",
         "    out, use a small floor like 0.01 (never 0). E.g. a 3-state node: 1.0, 0.3, 0.05.",
         "  - overall_rationale: one or two sentences summarising your read.",
-        "  - relevance: 'yes' if the article is clearly about the Strait of Hormuz / "
-        "US-Iran tension / Gulf shipping or energy; 'partial' if it is only "
+        f"  - relevance: 'yes' if the article is clearly about {TRANSLATOR_PROFILE.relevance_descriptor}"
+        "; 'partial' if it is only "
         "tangential or ambiguous; 'no' if it is off-topic. When relevance is 'no', "
         "'assignments' MUST be empty (do not force a mapping for unrelated news).",
         "",
-        "Do not set the 'Scenario' node; it is the terminal node to be "
+        f"Do not set the '{LATENT}' node; it is the terminal node to be "
         "inferred, not observed. Prefer the most specific state that is "
         "clearly supported; if a headline is ambiguous on a node, omit it.",
         "Output ONLY the JSON object, with no prose before or after it.",
@@ -369,7 +368,7 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
         probs_raw = item.get("state_probs", [])
         if node not in STATES:
             raise TranslatorError(f"Translator returned unknown node: {node!r}")
-        if node == "Scenario":
+        if node == LATENT:
             continue  # drop any Scenario leak
         if state not in STATES[node]:
             raise TranslatorError(

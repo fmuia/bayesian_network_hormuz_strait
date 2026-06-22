@@ -20,7 +20,7 @@ def test_every_recorded_response_satisfies_contract():
         pred = _predicted(r)  # raises TranslatorError on any contract violation
         assert isinstance(pred, dict)
         # every predicted state is a legal state for its node (A2)
-        from src.network import STATES
+        from src.scenario import STATES
         for node, state in pred.items():
             assert state in STATES[node]
 

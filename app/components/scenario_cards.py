@@ -7,8 +7,8 @@ from __future__ import annotations
 import altair as alt
 import pandas as pd
 
-from src.network import SCENARIO_NARRATIVES
-from theme import AMBER, GREEN, NAVY, RED, SCENARIO_COLOR, SCENARIO_LABEL
+from src.scenario import SCENARIO_NARRATIVES
+from theme import AMBER, GREEN, NAVY, RED, SCENARIO_COLOR, SCENARIO_KEYS, SCENARIO_LABEL
 
 
 def _delta_chip(pp: float) -> str:
@@ -31,7 +31,7 @@ def render_scenario_outlook(st, ci_table, deltas=None):
                     unsafe_allow_html=True)
 
         cards_html = "<div class='scenario-grid'>"
-        for scenario in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
+        for scenario in list(SCENARIO_KEYS):
             mean, lo, hi = ci_table[scenario]
             color = SCENARIO_COLOR[scenario]
             label = SCENARIO_LABEL[scenario]
@@ -56,7 +56,7 @@ def render_scenario_outlook(st, ci_table, deltas=None):
         # identical on day 0 and day 30, so decoration in the persistent view —
         # kept one click away instead.
         with st.expander("What each scenario means", expanded=False):
-            for s in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
+            for s in list(SCENARIO_KEYS):
                 st.markdown(
                     f"<b style='color:{SCENARIO_COLOR[s]};'>{SCENARIO_LABEL[s]}</b> — "
                     f"{SCENARIO_NARRATIVES[s]}",
@@ -71,11 +71,11 @@ def render_scenario_outlook(st, ci_table, deltas=None):
                     "Lo": ci_table[s][1],
                     "Hi": ci_table[s][2],
                 }
-                for s in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]
+                for s in list(SCENARIO_KEYS)
             ])
             ci_scale = alt.Scale(
                 domain=[SCENARIO_LABEL[s] for s in
-                        ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]],
+                        list(SCENARIO_KEYS)],
                 range=[GREEN, AMBER, RED],
             )
             err_rule = alt.Chart(ci_df).mark_rule(strokeWidth=4).encode(

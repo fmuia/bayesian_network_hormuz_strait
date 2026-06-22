@@ -36,32 +36,7 @@ class ExampleHeadline:
     tone: Tone
 
 
-EXAMPLE_HEADLINES: List[ExampleHeadline] = [
-    ExampleHeadline(
-        "Oman confirms active US–Iran back-channel talks in Muscat",
-        "de-escalation",
-    ),
-    ExampleHeadline(
-        "Treasury issues 90-day sanctions waiver for Iranian oil exports",
-        "de-escalation",
-    ),
-    ExampleHeadline(
-        "IRGC announces 'inspection regime' on all Hormuz traffic",
-        "mixed",
-    ),
-    ExampleHeadline(
-        "Fourth tanker incident in two weeks; insurers raise war-risk premia",
-        "escalation",
-    ),
-    ExampleHeadline(
-        "US conducts strikes against IRGC naval assets after tanker attack",
-        "escalation",
-    ),
-    ExampleHeadline(
-        "Major fire at Ras Tanura terminal after missile strike; strait closed",
-        "escalation",
-    ),
-]
+# Per-scenario example headlines now live in the pack (e.g.
+# packs/hormuz/headlines.py) and are reached via the ``src.scenario`` seam.
 
-
-__all__ = ["Observation", "ExampleHeadline", "EXAMPLE_HEADLINES"]
+__all__ = ["Observation", "ExampleHeadline", "Tone"]

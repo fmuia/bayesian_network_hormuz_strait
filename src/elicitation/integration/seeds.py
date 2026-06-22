@@ -1,5 +1,9 @@
 """Illustrative Hormuz calibration seed set.
 
+TODO(pack-separation): this module is Hormuz-specific content sitting in shared
+code — relocate to packs/hormuz/ and load per active pack (elicitation Phase D).
+
+
 These are *illustrative* calibration questions used to score the panel (Cooke).
 They are chosen to match the **judgment the targets require**: the CPTs are
 probabilistic judgments about *crisis dynamics* (incidents, escalation, market
@@ -28,6 +32,9 @@ from pathlib import Path
 
 from ..protocols.base import SeedQuestion
 
+# TODO(pack-separation): this entire DEFAULT_SEEDS set is Hormuz-specific calibration
+# content — move it into packs/hormuz/ and make default_seeds() resolve per active pack
+# (elicitation Phase D). Each pack ships its own domain-matched seed questions.
 DEFAULT_SEEDS: list[SeedQuestion] = [
     SeedQuestion("hormuz_closure_days", "Estimate the number of days the Strait of Hormuz has been fully closed to maritime traffic in the past 40 years", 0.0, "days"),
     SeedQuestion("closure_threats_15y", "Estimate the number of distinct occasions on which Iranian officials have publicly threatened to close the Strait of Hormuz over the past ~15 years", 8.0, "count"),

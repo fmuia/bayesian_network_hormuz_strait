@@ -37,7 +37,7 @@ from pgmpy.factors.discrete import DiscreteFactor
 from pgmpy.inference import VariableElimination
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.network import STATES, build_network  # noqa: E402
+from packs.hormuz.network import STATES, build_network  # noqa: E402
 
 # Node short-names
 S = "Scenario"
@@ -137,7 +137,7 @@ def render_module(cpts) -> str:
 
 def main() -> None:
     cpts = derive_latent_cpts()
-    target = Path(__file__).resolve().parents[1] / "src" / "cpt_data.py"
+    target = Path(__file__).resolve().parents[1] / "packs" / "hormuz" / "cpt_data.py"
     target.write_text(render_module(cpts))
     n = sum(len(t) for t in cpts.values())
     print(f"Wrote {target} ({n} CPT columns across {len(cpts)} CPTs).")

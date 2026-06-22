@@ -15,7 +15,7 @@ from components import edge_rationale, observed_node_panel
 from components.ci_charts import (
     _ci_dataframe, _dumbbell_chart, _robustness_badge_html,
 )
-from src.network import STATES
+from src.scenario import LATENT, STATES
 from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload
 from theme import MUTED, ROOT_DRIVER_STYLE
 
@@ -138,7 +138,7 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                 "Override</div>",
                 unsafe_allow_html=True,
             )
-            if sel == "Scenario":
+            if sel == LATENT:
                 st.markdown(
                     "<div class='card-sub'>The Scenario regime is inferred from the "
                     "evidence, not observed directly — no manual override.</div>",

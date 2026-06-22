@@ -2,59 +2,16 @@
 appendix (Plan 5 P4d). Extracted from the dashboard."""
 from __future__ import annotations
 
-from src.network import SCENARIO_NARRATIVES
-from theme import AMBER, GREEN, RED
+from src.scenario import PRESENTATION
 
 
 def render_overview(st, topology) -> None:
-    if topology == "latent_regime":
-        scenario_clause = (
-            "a latent <b>Scenario</b> regime that <i>generates</i> the damage, "
-            "duration, and diplomatic-path outcomes (with context parents US "
-            "military response and strait closure)"
-        )
-    else:
-        scenario_clause = (
-            "a terminal <b>Scenario</b> node classified from the damage, "
-            "duration, and diplomatic-path outcomes"
-        )
-    st.markdown(
-        "<div class='explain'>"
-        "<p>The Bayesian network encodes qualitative causal structure "
-        "between four <b>root drivers</b> (negotiations, regime "
-        "stability, third-party mediation, sanctions trajectory), "
-        "<b>eight intermediate nodes</b> (Iran-aligned militia attacks, tanker "
-        "incidents, US military response, strait closure, energy "
-        "infrastructure damage, conflict duration, diplomatic path, "
-        f"oil price regime), and {scenario_clause} "
-        "whose three states correspond to the client's strategic "
-        "scenarios.</p>"
-        "<h4>Two layers</h4>"
-        "<p>A free-text headline is passed through an LLM translator "
-        "that extracts BN-relevant probabilistic assignments (e.g. "
-        "<i>\"Fourth tanker incident in two weeks\"</i> gives a high "
-        "probability to <code>Tanker_Incidents = frequent</code>). "
-        "Those soft assignments become BN evidence; variable-elimination "
-        "propagates them and yields the posterior distribution at "
-        "every node.</p>"
-        "<h4>Scenario definitions</h4>"
-        "<ul>"
-        f"<li><b style='color:{GREEN};'>Stress Mitigates</b> — "
-        f"{SCENARIO_NARRATIVES['Stress_Mitigates']}</li>"
-        f"<li><b style='color:{AMBER};'>Prolonged Conflict</b> — "
-        f"{SCENARIO_NARRATIVES['Prolonged_Conflict']}</li>"
-        f"<li><b style='color:{RED};'>Severe Closure</b> — "
-        f"{SCENARIO_NARRATIVES['Severe_Closure']}</li>"
-        "</ul>"
-        "<h4>Reading the graph</h4>"
-        "<p>Teal-filled nodes are the ones for which evidence has "
-        "been set (whether by the translator or a manual override). "
-        "Unobserved nodes display the most likely state under the "
-        "current posterior. Root drivers use distinct color families "
-        "so they are easy to distinguish visually.</p>"
-        "</div>",
-        unsafe_allow_html=True,
+    """Render the active pack's model-overview copy for this topology."""
+    overview = PRESENTATION.model_overview.get(topology) or next(
+        iter(PRESENTATION.model_overview.values()), ""
     )
+    if overview:
+        st.markdown(overview, unsafe_allow_html=True)
 
 
 def render_appendix(st) -> None:

@@ -139,6 +139,8 @@ def fetch_html(url: str, *, timeout: float = 8.0,
     resp = requests.get(
         _ensure_scheme(url), timeout=timeout, stream=True,
         headers={
+            # TODO(pack-separation): "Hormuz" in the bot UA is scenario-specific —
+            # make it generic (e.g. ScenarioBNBot) or pack-derived.
             "User-Agent": "Mozilla/5.0 (compatible; HormuzScenarioBot/1.0)",
             # Identity encoding: keep Content-Length and the read cap below in
             # terms of *actual* HTML bytes, so a compressed "zip bomb" can't

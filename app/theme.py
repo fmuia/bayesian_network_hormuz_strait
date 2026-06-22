@@ -7,6 +7,8 @@ swaps these for the Wong CVD-safe set.
 """
 from __future__ import annotations
 
+from src.scenario import PACK as _PACK
+
 TEAL = "#1A7A6D"
 NAVY = "#1B2A3D"
 PANEL = "#F5F5F5"
@@ -16,22 +18,10 @@ GREEN = "#2E8B57"
 AMBER = "#D4A017"
 RED = "#B22222"
 
-# Scenario states in display order (used by the cards and the evolution chart).
-SCENARIO_KEYS = ("Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure")
-
-SCENARIO_COLOR = {
-    "Stress_Mitigates": GREEN,
-    "Prolonged_Conflict": AMBER,
-    "Severe_Closure": RED,
-}
-SCENARIO_LABEL = {
-    "Stress_Mitigates": "Stress Mitigates",
-    "Prolonged_Conflict": "Prolonged Conflict",
-    "Severe_Closure": "Severe Closure",
-}
-ROOT_DRIVER_STYLE = {
-    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8"),
-    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D"),
-    "Third_Party_Mediation": ("#FEF3C7", "#B45309"),
-    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9"),
-}
+# Scenario (latent-state) display data + root-driver styling come from the active
+# pack's presentation layer; the palette above stays shared. SCENARIO_KEYS is the
+# latent states in their declared order.
+SCENARIO_KEYS = tuple(_PACK.states[_PACK.latent])
+SCENARIO_COLOR = _PACK.presentation.scenario_color
+SCENARIO_LABEL = _PACK.presentation.scenario_label
+ROOT_DRIVER_STYLE = _PACK.presentation.root_driver_style

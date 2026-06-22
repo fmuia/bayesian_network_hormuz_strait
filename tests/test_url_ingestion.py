@@ -52,7 +52,7 @@ def test_example_button_translates_its_headline_not_empty():
     """Regression: the Examples buttons must feed the headline through the `raw`
     key (ingest reads `raw`, not the old `headline`), else they translate an
     empty headline."""
-    from src.evidence import EXAMPLE_HEADLINES
+    from src.scenario import EXAMPLE_HEADLINES
 
     at = _app()
     ex = EXAMPLE_HEADLINES[0]

@@ -18,7 +18,7 @@ from src.elicitation.integration import (
     save_run,
 )
 from src.elicitation.integration.framework import list_frameworks, load_framework, save_framework
-from src.network import build_network
+from src.scenario import build_network
 from src.network_spec import NetworkSpec
 from src.sensitivity import node_credible_intervals
 

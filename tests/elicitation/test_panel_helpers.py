@@ -11,7 +11,7 @@ import pytest
 
 import app.elicitation_panel as panel  # noqa: E402  (panel adds repo root to path)
 from src.elicitation.export import spec_from_dict, spec_to_dict
-from src.network import build_network
+from src.scenario import build_network
 from src.network_spec import NetworkSpec
 
 

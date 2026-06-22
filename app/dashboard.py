@@ -13,6 +13,8 @@ The Network tab uses streamlit-agraph so nodes are clickable; clicking
 a node opens an inline "override" form on the right, replacing the
 previous sidebar manual picker.
 """
+# TODO(pack-separation): module docstring names the Strait of Hormuz; the dashboard
+# is pack-agnostic now (title comes from PACK.title) — reword the docstring.
 
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from src.inference import BNInferenceEngine
-from src.network import STATES, build_network
+from src.scenario import LATENT, PACK, STATES, build_network
 from src.sensitivity import (
     node_credible_intervals,
     scenario_credible_intervals,
@@ -47,7 +49,7 @@ from state import current_evidence as _merged_evidence  # noqa: E402
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Strait of Hormuz — Adaptive Scenario Probabilities",
+    page_title=f"{PACK.title} — Adaptive Scenario Probabilities",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -164,8 +166,8 @@ engine.clear_evidence()
 evidence, soft_evidence = _merged_evidence()
 # Scenario is the latent regime we infer, never observe — drop any evidence on it
 # (e.g. a mistaken manual override) so the Scenario-targeted CI query stays valid.
-evidence.pop("Scenario", None)
-soft_evidence.pop("Scenario", None)
+evidence.pop(LATENT, None)
+soft_evidence.pop(LATENT, None)
 if evidence:
     engine.update_evidence(evidence)
 if soft_evidence:
@@ -263,7 +265,7 @@ def _load_eval_badge() -> Optional[str]:
 
 
 st.markdown(
-    "<div class='demo-title'>Adaptive Scenario Probability Framework — Strait of Hormuz</div>",
+    f"<div class='demo-title'>Adaptive Scenario Probability Framework — {PACK.title}</div>",
     unsafe_allow_html=True,
 )
 _eval_badge = _load_eval_badge()

@@ -12,7 +12,7 @@ from src.elicitation.export import (
     spec_from_dict,
     spec_to_dict,
 )
-from src.network import build_network
+from src.scenario import build_network
 from src.network_spec import NetworkSpec
 from src.sensitivity import node_credible_intervals
 

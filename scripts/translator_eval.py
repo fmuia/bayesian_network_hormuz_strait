@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root on path
 
-from src.network import STATES  # noqa: E402
+from src.scenario import STATES  # noqa: E402
 from src.translator import TranslatorError, _validate_payload  # noqa: E402
 
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "tests" / "golden" / "translator"

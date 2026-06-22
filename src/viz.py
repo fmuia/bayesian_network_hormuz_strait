@@ -17,7 +17,16 @@ from typing import Dict, Iterable, Mapping, Optional
 
 import graphviz
 
-from .network import EDGES, EDGES_LATENT, STATES
+from src.scenario import (
+    DISPLAY_OVERRIDES,
+    EDGES,
+    EDGES_LATENT,
+    LATENT,
+    LAYOUT as TOPOLOGY_LAYOUT,
+    NODE_TITLE_WRAP,
+    PRESENTATION,
+    STATES,
+)
 
 _PLUGINS_REGISTERED = False
 
@@ -46,11 +55,7 @@ _NAVY = "#1B2A3D"
 _PANEL = "#F5F5F5"
 _BORDER = "#CBD5E1"
 _BAR_BG = "#E5E7EB"
-_SCENARIO_COLORS = {
-    "Stress_Mitigates": "#2E8B57",
-    "Prolonged_Conflict": "#D4A017",
-    "Severe_Closure": "#B22222",
-}
+_SCENARIO_COLORS = PRESENTATION.scenario_color
 
 
 def _bar(pct: float, fill: str, width: int = 80) -> str:
@@ -93,7 +98,7 @@ def _node_label(
     """Return a Graphviz HTML-like label for one node."""
     title = escape(node.replace("_", " "))
 
-    if node == "Scenario":
+    if node == LATENT:
         # Scenario terminal: show all three probs colour-coded per scenario.
         rows = []
         for state, prob in marginal.items():
@@ -110,7 +115,7 @@ def _node_label(
             )
         header = (
             f'<TR><TD COLSPAN="3" BGCOLOR="{_NAVY}" ALIGN="CENTER">'
-            f'<FONT POINT-SIZE="11" COLOR="white"><B>SCENARIO</B></FONT>'
+            f'<FONT POINT-SIZE="11" COLOR="white"><B>{title.upper()}</B></FONT>'
             '</TD></TR>'
         )
         return (
@@ -221,69 +226,20 @@ def render_network_png(
 # Hierarchical "levels" for the vis.js hierarchical layout — roots on the
 # left, scenario on the right. Chosen manually for a stable left-to-right
 # DAG layout that does not jitter between reruns.
-_ROOT_DRIVER_COLORS: Dict[str, tuple] = {
-    # (background, border, observed_fill) — distinct hues per root driver.
-    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8", "#1E40AF"),  # blue
-    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D", "#9D174D"),  # rose
-    "Third_Party_Mediation": ("#FEF3C7", "#B45309", "#92400E"),  # amber
-    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9", "#5B21B6"),  # violet
-}
+_ROOT_DRIVER_COLORS: Dict[str, tuple] = PRESENTATION.root_driver_colors
 
-_NODE_LEVEL: Dict[str, int] = {
-    "US_Iran_Negotiations": 0,
-    "Iranian_Regime_Stability": 0,
-    "Third_Party_Mediation": 0,
-    "Sanctions_Trajectory": 0,
-    "Iran_Aligned_Militia_Attacks": 1,
-    "Tanker_Incidents": 1,
-    "US_Military_Response": 2,
-    "Strait_Operationally_Closed": 2,
-    "Energy_Infrastructure_Damage": 3,
-    "Conflict_Duration": 3,
-    "Diplomatic_Resolution_Path": 3,
-    "Oil_Price_Regime": 3,
-    "Scenario": 4,
-}
-
-# Latent-regime layout: Scenario sits between its parents {M, C} (level 2) and its
-# emissions {D, T, P} (level 4); Oil_Price is a child of D so it drops to level 5.
-_NODE_LEVEL_LATENT: Dict[str, int] = {
-    **_NODE_LEVEL,
-    "Scenario": 3,
-    "Energy_Infrastructure_Damage": 4,
-    "Conflict_Duration": 4,
-    "Diplomatic_Resolution_Path": 4,
-    "Oil_Price_Regime": 5,
-}
-
-# Map a topology name to (edges, node-level) so callers can pass a single string.
-TOPOLOGY_LAYOUT = {
-    "labelling": (EDGES, _NODE_LEVEL),
-    "latent_regime": (EDGES_LATENT, _NODE_LEVEL_LATENT),
-}
+# Layout (TOPOLOGY_LAYOUT) and the display-name overrides / title-wrap maps are
+# scenario-specific and come from the active pack via the src.scenario seam.
 
 
 def _display_name(raw: str) -> str:
-    return raw.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
+    """Pack display override if any, else the generic underscore→space form."""
+    return DISPLAY_OVERRIDES.get(raw) or raw.replace("_", " ")
 
 
 def _wrap_node_title(name: str) -> str:
-    """Wrap long node titles across two lines for readability."""
-    replacements = {
-        "US Iran Negotiations": "US Iran\nNegotiations",
-        "Iranian Regime Stability": "Iranian Regime\nStability",
-        "Third Party Mediation": "Third Party\nMediation",
-        "Sanctions Trajectory": "Sanctions\nTrajectory",
-        "Iran-Aligned Militia Attacks": "Iran-Aligned Militia\nAttacks",
-        "Tanker Incidents": "Tanker\nIncidents",
-        "US Military Response": "US Military\nResponse",
-        "Strait Operationally Closed": "Strait Operationally\nClosed",
-        "Energy Infrastructure Damage": "Energy Infrastructure\nDamage",
-        "Conflict Duration": "Conflict\nDuration",
-        "Diplomatic Resolution Path": "Diplomatic Resolution\nPath",
-        "Oil Price Regime": "Oil Price\nRegime",
-    }
-    return replacements.get(name, name)
+    """Two-line wrap for long node titles (pack-provided); identity otherwise."""
+    return NODE_TITLE_WRAP.get(name, name)
 
 
 def _format_label_text(
@@ -293,7 +249,7 @@ def _format_label_text(
     day: Optional[int],
 ) -> str:
     """Build a monospace 'mini-table' label: title, rule, rows."""
-    if node == "Scenario":
+    if node == LATENT:
         title_lines = ["SCENARIO"]
     else:
         title_lines = _wrap_node_title(_display_name(node)).split("\n")
@@ -352,7 +308,7 @@ def build_agraph_payload(
     from streamlit_agraph import Config, Edge, Node
 
     edge_list = list(EDGES if edges is None else edges)
-    levels = _NODE_LEVEL if node_level is None else node_level
+    levels = TOPOLOGY_LAYOUT["labelling"][1] if node_level is None else node_level
 
     nodes = []
     for node in STATES.keys():
@@ -361,7 +317,7 @@ def build_agraph_payload(
         day = observed_day.get(node)
         is_root_driver = node in _ROOT_DRIVER_COLORS
 
-        if node == "Scenario":
+        if node == LATENT:
             label = _format_label_text(node, marginal, obs_state, day)
             color = _NAVY
             font_color = "white"

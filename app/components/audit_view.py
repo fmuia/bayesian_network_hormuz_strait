@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
-from src.network import STATES
+from src.scenario import PRESENTATION, STATES
 
 
 def render(st, *, engine, evidence, soft_evidence):
@@ -61,11 +61,7 @@ def render(st, *, engine, evidence, soft_evidence):
                 "table is compact and fully readable.</div>",
                 unsafe_allow_html=True)
 
-    intermediate_nodes = [
-        "Iran_Aligned_Militia_Attacks", "Tanker_Incidents", "US_Military_Response",
-        "Strait_Operationally_Closed", "Energy_Infrastructure_Damage",
-        "Conflict_Duration", "Diplomatic_Resolution_Path", "Oil_Price_Regime",
-    ]
+    intermediate_nodes = PRESENTATION.intermediate_nodes
 
     groups: Dict[Tuple[str, ...], List[str]] = {}
     for node in intermediate_nodes:

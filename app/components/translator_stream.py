@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import streamlit as st
 
-from src.evidence import EXAMPLE_HEADLINES
+from src.scenario import EXAMPLE_HEADLINES
 from src.translator import (
     SOURCE_TYPE_CREDIBILITY,
     Article,
@@ -183,6 +183,8 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
                 f"{len(result.assignments)} assignment(s) · auto-approved · model {result.model}",
             )
     else:
+        # TODO(pack-separation): "Strait-of-Hormuz-specific" hint is scenario-specific —
+        # derive the domain from the active pack (PACK.title / TranslatorProfile.domain).
         st.session_state.translator_error = (
             "Translator returned no assignments — the headline does not map "
             "to any node in this BN schema. Try a Strait-of-Hormuz-specific "
@@ -292,6 +294,8 @@ def render_sidebar(st):
         with st.form("headline_form", clear_on_submit=True):
             headline_input = st.text_area(
                 "News URL or headline",
+                # TODO(pack-separation): placeholder example headline is Hormuz-specific —
+                # source an example from the active pack (e.g. example_headlines[0]).
                 placeholder=(
                     "Paste a news URL (Reuters, AP, BBC, Al Jazeera, …) — or just a "
                     "headline, e.g. 'Iran suspends Hormuz traffic inspections'"

@@ -14,7 +14,7 @@ from pgmpy.inference import VariableElimination
 from pgmpy.models import DiscreteBayesianNetwork
 
 from src.inference import BNInferenceEngine
-from src.network import STATES, build_network
+from src.scenario import STATES, build_network
 from src.translator import (
     SOURCE_TYPE_CREDIBILITY,
     Article,

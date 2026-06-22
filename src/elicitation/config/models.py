@@ -107,6 +107,8 @@ class DeploymentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    # TODO(pack-separation): default hardcodes the Hormuz pack id — default to
+    # packs.registry.DEFAULT_PACK instead of the literal "hormuz".
     network: str = "hormuz"
     topology: str = "latent_regime"
     in_scope_cpts: list[str] = Field(default_factory=list)

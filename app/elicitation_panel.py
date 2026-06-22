@@ -41,7 +41,7 @@ from src.elicitation.integration import (
 )
 from src.elicitation.integration.framework import ModelSpec
 from src.elicitation.protocols.base import SeedQuestion
-from src.network import build_network
+from src.scenario import LATENT, build_network
 from src.network_spec import NetworkSpec
 
 RUNS_DIR = _REPO_ROOT / "data" / "elicitation_runs"
@@ -55,7 +55,7 @@ def definitional_nodes(topology: str) -> set[str]:
     topology (Plan 1) Scenario is the latent regime: P(Scenario | drivers) is a real
     causal CPT and its emission children are the primary targets — so nothing is
     definitional there and every node is elicited by default."""
-    return {"Scenario"} if topology == "labelling" else set()
+    return {LATENT} if topology == "labelling" else set()
 
 
 def current_seeds() -> list[SeedQuestion]:

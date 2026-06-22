@@ -161,6 +161,8 @@ def build_node_prompt(
 ) -> str:
     cfgs = "\n".join(f"  - {list(c)}" for c in parent_configs) if parents else "  - [] (root node)"
     return (
+        # TODO(pack-separation): "Strait-of-Hormuz crisis dynamics" is scenario-specific
+        # prompt text — read the domain from the active pack's TranslatorProfile.domain.
         f"{_persona(role)}{_reasoning_directive(reasoning)}\n"
         f"Elicit the conditional probability table for the node below in a Bayesian network modelling "
         f"Strait-of-Hormuz crisis dynamics.\n"
@@ -211,6 +213,8 @@ def _parse_node_response(
 def build_roles_prompt(node: str, states: Sequence[str], parents: Sequence[str], n: int) -> str:
     outside = " and at least one base-rate / outside-view forecaster" if n >= 3 else ""
     return (
+        # TODO(pack-separation): "Strait-of-Hormuz crisis" is scenario-specific prompt
+        # text — read the domain from the active pack's TranslatorProfile.domain.
         f"Recruit an expert panel to elicit the conditional probability table for the node '{node}' "
         f"(states {list(states)}, parents {list(parents)}) in a Strait-of-Hormuz crisis Bayesian "
         f"network. Propose {n} DISTINCT, node-appropriate expert roles bringing different disciplinary "
