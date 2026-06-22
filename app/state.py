@@ -89,6 +89,27 @@ def scenario_deltas(
     }
 
 
+def override_to_observation(vals: Dict[str, int]):
+    """Raw manual-override slider values (state -> 0..100, any positive sum) into
+    either a hard pin or a sum-normalised soft distribution (Plan 5 follow-up, V4).
+
+    Returns ``(pinned_state | None, soft_dist | None)``:
+    - exactly one non-zero state -> ``(state, None)`` (a hard observation),
+    - two or more non-zero states -> ``(None, {state: v / total})`` (normalised soft),
+    - all zero -> ``(None, None)`` (nothing to apply).
+
+    Auto-normalising by the total means the user no longer has to make the sliders
+    sum to exactly 100.
+    """
+    nonzero = {s: v for s, v in vals.items() if v > 0}
+    total = sum(nonzero.values())
+    if total <= 0:
+        return None, None
+    if len(nonzero) == 1:
+        return next(iter(nonzero)), None
+    return None, {s: v / total for s, v in vals.items()}
+
+
 def make_observation(
     *,
     day: int,

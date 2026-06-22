@@ -10,11 +10,11 @@ from streamlit.testing.v1 import AppTest
 
 _TRIAGE = "⚖️  Triage"  # must match _VIEW_TRIAGE in dashboard.py
 _PARTIAL = {  # fake partial_ambiguous fixture -> relevance "partial"
-    "headline": "Brent crude prices climb on Gulf jitters",
+    "raw": "Brent crude prices climb on Gulf jitters",
     "body": "", "source": "", "source_type_label": "(unspecified — full trust)",
 }
 _RELEVANT = {  # fake tanker fixture -> relevance "yes"
-    "headline": "Tanker struck in the Strait of Hormuz",
+    "raw": "Tanker struck in the Strait of Hormuz",
     "body": "", "source": "", "source_type_label": "(unspecified — full trust)",
 }
 

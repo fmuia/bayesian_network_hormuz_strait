@@ -22,8 +22,7 @@ def _delta_chip(pp: float) -> str:
         txt = f"▼ −{abs(pp):.1f} pp"
     else:
         txt = "•  0.0 pp"
-    return (f"<div class='scenario-delta' "
-            f"title='change since before the most recent observation'>{txt}</div>")
+    return f"<div class='scenario-delta'>{txt}</div>"
 
 
 def render_scenario_outlook(st, ci_table, deltas=None):
@@ -48,6 +47,10 @@ def render_scenario_outlook(st, ci_table, deltas=None):
             )
         cards_html += "</div>"
         st.markdown(cards_html, unsafe_allow_html=True)
+        if deltas is not None:   # one caption replaces the (stripped) per-chip title
+            st.caption(
+                "▲ / ▼ = change in each scenario since before the most recent observation."
+            )
 
         # Narratives moved off the always-on card (Plan 5 P11 / C12 / V14): they are
         # identical on day 0 and day 30, so decoration in the persistent view —

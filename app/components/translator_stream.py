@@ -22,6 +22,7 @@ from src.translator import (
     translate_article,
 )
 from src.translator_pipeline import run_structured
+from src.ingest import fake_fetcher, ingest
 from state import (
     build_review_item as _build_review_item,
     delete_named_session as _delete_named_session,
@@ -82,14 +83,37 @@ def _run_translator(article_fields: dict, stream_slot, *, provider: Optional[str
     def on_step(stage: str, detail: str) -> None:
         _write("live", stage, detail)
 
-    source_type, credibility = _resolve_source(
-        article_fields.get("source_type_label", _FULL_TRUST_LABEL)
+    # Resolve the single input box (URL / bare title / manual headline+body) into
+    # Article fields. A recognised news URL is fetched + split; an unlisted URL is
+    # rejected. Offline/fake mode fetches saved HTML fixtures (no network).
+    res = ingest(
+        article_fields.get("raw", ""), article_fields.get("body", ""),
+        fetcher=fake_fetcher if provider == "fake" else None,
     )
+    if not res.ok:
+        stream_slot.markdown(
+            f"<div class='stream-line stream-error'>⛔ <b>Rejected</b> — "
+            f"{res.message}</div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.translator_error = res.message
+        st.session_state.translator_raw = ""
+        st.session_state.last_translation = None
+        return
+    if res.kind == "url":
+        _write("live", "init", f"fetched from {res.site_name} ({res.source_type})")
+        source_type, credibility, source = res.source_type, None, res.source
+    else:
+        source_type, credibility = _resolve_source(
+            article_fields.get("source_type_label", _FULL_TRUST_LABEL)
+        )
+        source = article_fields.get("source", "")
     article = Article(
-        headline=article_fields["headline"],
-        body=article_fields.get("body", ""),
-        source=article_fields.get("source", ""),
+        headline=res.headline,
+        body=res.body,
+        source=source,
         source_type=source_type,
+        url=res.url,
     )
     # T06e: when the structured toggle is on, the structured pipeline (extract →
     # map → aggregate) PRODUCES the injected assignments; otherwise the single-
@@ -262,13 +286,16 @@ def render_sidebar(st):
                 st.session_state.current_day += 1
                 st.rerun()
 
-        st.markdown("<div class='sb-title'>Translate a headline or article</div>",
+        st.markdown("<div class='sb-title'>Translate a URL, headline, or article</div>",
                     unsafe_allow_html=True)
 
         with st.form("headline_form", clear_on_submit=True):
             headline_input = st.text_area(
-                "News headline",
-                placeholder="e.g. 'Iran suspends Hormuz traffic inspections'",
+                "News URL or headline",
+                placeholder=(
+                    "Paste a news URL (Reuters, AP, BBC, Al Jazeera, …) — or just a "
+                    "headline, e.g. 'Iran suspends Hormuz traffic inspections'"
+                ),
                 height=72,
                 disabled=not translator_on,
                 label_visibility="collapsed",
@@ -296,7 +323,7 @@ def render_sidebar(st):
             )
             if submitted and headline_input.strip():
                 st.session_state.pending_article = {
-                    "headline": headline_input.strip(),
+                    "raw": headline_input.strip(),   # URL or headline; ingest resolves it
                     "body": body_input.strip(),
                     "source": source_input.strip(),
                     "source_type_label": source_type_input,
@@ -320,7 +347,7 @@ def render_sidebar(st):
                     width="stretch", disabled=not translator_on,
                 ):
                     st.session_state.pending_article = {
-                        "headline": ex.text, "body": "", "source": "",
+                        "raw": ex.text, "body": "", "source": "",
                         "source_type_label": _FULL_TRUST_LABEL,
                     }
                     st.rerun()
