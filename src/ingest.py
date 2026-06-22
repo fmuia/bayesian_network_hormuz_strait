@@ -137,11 +137,31 @@ def fetch_html(url: str, *, timeout: float = 8.0,
         return fetcher(url)
     import requests  # lazy: keep the network dep off the pure path
     resp = requests.get(
-        _ensure_scheme(url), timeout=timeout,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; HormuzScenarioBot/1.0)"},
+        _ensure_scheme(url), timeout=timeout, stream=True,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; HormuzScenarioBot/1.0)",
+            # Identity encoding: keep Content-Length and the read cap below in
+            # terms of *actual* HTML bytes, so a compressed "zip bomb" can't
+            # decompress past the cap in memory.
+            "Accept-Encoding": "identity",
+        },
     )
     resp.raise_for_status()
-    return resp.text[:_MAX_HTML_BYTES]
+    # Cap memory *while* downloading: a non-stream `.text[:cap]` buffers the whole
+    # body first, so a giant/hostile response would be fully read before trimming.
+    # Reject early on a declared oversize, then read at most _MAX_HTML_BYTES.
+    declared = resp.headers.get("Content-Length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_HTML_BYTES:
+        resp.close()
+        raise ValueError(f"page too large ({declared} bytes > {_MAX_HTML_BYTES})")
+    with resp:
+        raw = resp.raw.read(_MAX_HTML_BYTES + 1, decode_content=True)
+    if len(raw) > _MAX_HTML_BYTES:
+        raise ValueError(f"page exceeds {_MAX_HTML_BYTES} bytes")
+    # `resp.encoding` comes from the Content-Type header; the stream is already
+    # consumed so we can't sniff the body. BeautifulSoup re-detects from the
+    # <meta charset> during parsing, so a header-less utf-8 default is fine.
+    return raw.decode(resp.encoding or "utf-8", errors="replace")
 
 
 def _clean(text: str) -> str:

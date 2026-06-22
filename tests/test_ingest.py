@@ -102,3 +102,59 @@ def test_ingest_fetch_failure_degrades_gracefully():
         raise RuntimeError("network down")
     res = ingest.ingest("https://www.reuters.com/x", fetcher=_boom)
     assert not res.ok and "Couldn’t read the article" in res.message
+
+
+# --- fetch_html size cap (live-path, requests mocked, no network) -----------
+
+class _FakeRaw:
+    """Minimal stand-in for `resp.raw`: hands back a slice of `body` on read()."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self, amt=None, decode_content=True):   # noqa: ARG002
+        return self._body if amt is None else self._body[:amt]
+
+
+class _FakeResp:
+    def __init__(self, body: bytes, headers=None, encoding="utf-8"):
+        self.raw = _FakeRaw(body)
+        self.headers = headers or {}
+        self.encoding = encoding
+
+    def raise_for_status(self):
+        pass
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _patch_requests(monkeypatch, resp):
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: resp)
+
+
+def test_fetch_html_rejects_declared_oversize(monkeypatch):
+    big = str(ingest._MAX_HTML_BYTES + 1)
+    _patch_requests(monkeypatch, _FakeResp(b"<html></html>", {"Content-Length": big}))
+    with pytest.raises(ValueError, match="too large"):
+        ingest.fetch_html("https://www.reuters.com/x")
+
+
+def test_fetch_html_rejects_undeclared_oversize_body(monkeypatch):
+    # No Content-Length, but the body itself runs past the cap -> caught on read.
+    body = b"x" * (ingest._MAX_HTML_BYTES + 10)
+    _patch_requests(monkeypatch, _FakeResp(body))
+    with pytest.raises(ValueError, match="exceeds"):
+        ingest.fetch_html("https://www.reuters.com/x")
+
+
+def test_fetch_html_returns_small_body(monkeypatch):
+    _patch_requests(monkeypatch, _FakeResp("<h1>héllo</h1>".encode("utf-8")))
+    assert ingest.fetch_html("https://www.reuters.com/x") == "<h1>héllo</h1>"
