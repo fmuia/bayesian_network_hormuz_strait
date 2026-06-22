@@ -50,11 +50,11 @@ SEEDS_PATH = _REPO_ROOT / "data" / "elicitation_seeds.json"
 
 def definitional_nodes(topology: str) -> set[str]:
     """Nodes left out of elicitation *by default* because their CPT is definitional
-    rather than substantive. 'Scenario' is a definitional *leaf* only in the
-    labelling topology (its CPT maps outcomes → scenario label). In the latent-regime
-    topology (Plan 1) Scenario is the latent regime: P(Scenario | drivers) is a real
-    causal CPT and its emission children are the primary targets — so nothing is
-    definitional there and every node is elicited by default."""
+    rather than substantive. The latent node is a definitional *leaf* only in the
+    labelling topology (its CPT maps outcomes → regime label). In the latent-regime
+    topology the latent node is a real causal CPT P(latent | drivers) and its
+    emission children are the primary targets — so nothing is definitional there and
+    every node is elicited by default."""
     return {LATENT} if topology == "labelling" else set()
 
 
@@ -166,15 +166,15 @@ def render(st, topology: str = "labelling") -> None:
             )
             if definitional:
                 st.caption(
-                    "In the **labelling** topology, ‘Scenario’ is a definitional *terminal* node — "
-                    "its CPT maps outcomes onto the three scenario labels — so it is left out by "
+                    f"In the **labelling** topology, ‘{LATENT}’ is a definitional *terminal* node — "
+                    "its CPT maps outcomes onto the scenario labels — so it is left out by "
                     "default (add it only to redefine them)."
                 )
             else:
                 st.caption(
-                    "In the **latent-regime** topology (Plan 1), ‘Scenario’ is the *latent regime*: "
-                    "its CPT given the drivers, and its emission children (damage, duration, "
-                    "resolution), are substantive targets — so all nodes are elicited by default."
+                    f"In the **latent-regime** topology, ‘{LATENT}’ is the *latent regime*: "
+                    "its CPT given the drivers, and its emission children, are substantive "
+                    "targets — so all nodes are elicited by default."
                 )
             c1, c2 = st.columns(2)
             n_agents = c1.number_input("Agents", 1, 8, 3, help="The LLM picks roles per node.")

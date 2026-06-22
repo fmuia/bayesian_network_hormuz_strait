@@ -216,7 +216,8 @@ def build_roles_prompt(node: str, states: Sequence[str], parents: Sequence[str],
         f"Recruit an expert panel to elicit the conditional probability table for the node '{node}' "
         f"(states {list(states)}, parents {list(parents)}) in a {_tp.domain} Bayesian "
         f"network. Propose {n} DISTINCT, node-appropriate expert roles bringing different disciplinary "
-        f"lenses (e.g. naval analyst, maritime-insurance underwriter, energy economist). Include at "
+        f"lenses relevant to this domain (e.g. a domain specialist, a risk/insurance analyst, an "
+        f"economist). Include at "
         f"least one red-team skeptic{outside}. Output role TITLES ONLY — no descriptions, ≤6 words each.\n"
         'Respond ONLY with JSON: {"roles":["...", "..."]}.'
     )
@@ -401,7 +402,9 @@ class ScriptedClient:
         return columns, f"{self._rationale} (role={role})"
 
     def propose_roles(self, node, states, parents, n):
-        base = [f"{node} analyst", "maritime-risk underwriter", "energy economist", "red-team skeptic"]
+        # Domain-neutral offline roles (the real clients propose pack-specific roles
+        # via the LLM, using the active pack's domain in the prompt).
+        base = [f"{node} domain expert", "risk analyst", "quantitative forecaster", "red-team skeptic"]
         return [base[i % len(base)] for i in range(n)]
 
 
