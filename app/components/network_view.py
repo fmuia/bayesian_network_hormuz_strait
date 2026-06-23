@@ -4,61 +4,106 @@ injected as keyword args.
 """
 from __future__ import annotations
 
+import io
 from typing import Dict
 
-from streamlit_agraph import agraph
+import streamlit as _st
+from PIL import Image
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 # import the function (not the module): the override loop binds a local `state`,
 # which would shadow a `state` module import.
 from state import override_to_observation, record_observation
-from components import edge_rationale, observed_node_panel
+from components import observed_node_panel
 from components.ci_charts import (
     _ci_dataframe, _dumbbell_chart, _robustness_badge_html,
 )
 from src.scenario import LATENT, STATES
-from src.viz import TOPOLOGY_LAYOUT, build_agraph_payload
+from src.viz import TOPOLOGY_LAYOUT, node_at_pixel, render_network_clickable
 from theme import MUTED, ROOT_DRIVER_STYLE
+
+# The diagram is displayed scaled to the page width (~900px, ~2x on retina), so a
+# very high dpi is wasted bytes + render time. 110 stays crisp while roughly
+# halving both the graphviz render and the PNG payload shipped to the browser.
+_DAG_DPI = 110
+
+
+@_st.cache_data(show_spinner=False, max_entries=128)
+def _cached_dag(marginals, observed, observed_day, topology, selected):
+    """Memoised DAG render. A click triggers two reruns (deliver the click, then
+    apply the new selection); caching makes all but the one genuinely-new
+    (state, selection) render a cache hit, so selecting a node is snappy."""
+    edges, _ = TOPOLOGY_LAYOUT[topology]
+    return render_network_clickable(
+        marginals, observed=observed, observed_day=observed_day,
+        edges=edges, selected=selected, dpi=_DAG_DPI,
+    )
+
+
+def _render_clickable_dag(st, *, all_marginals, evidence, observed_day_map,
+                          topology):
+    """Full-width tabular DAG (graphviz) with click-to-select node behaviour.
+
+    Renders the same crisp diagram used in the docs, captures a click on the
+    image, maps it back to a node via the graphviz geometry, and selects it —
+    preserving the old agraph click-to-inspect/override flow on a far nicer
+    image.
+    """
+    root_chip_html = "".join(
+        (
+            f"<span class='root-chip' style='background:{bg};"
+            f"border:1px solid {border}; color:{border};'>"
+            f"{node.replace('_', ' ')}</span>"
+        )
+        for node, (bg, border) in ROOT_DRIVER_STYLE.items()
+    )
+    st.markdown(
+        "<div class='card-title'>Interactive DAG — click a node to inspect "
+        "&amp; override</div>"
+        "<div class='card-sub'>Each node card shows its posterior across states "
+        "after propagating all injected evidence. Root drivers use dedicated "
+        "color families; evidence-set nodes are filled. Click any node to load "
+        "it into the Posterior &amp; Override panels below.</div>"
+        f"<div>{root_chip_html}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+
+    sel = st.session_state.selected_node
+    png, boxes, png_w, _png_h = _cached_dag(
+        all_marginals, evidence, observed_day_map, topology,
+        sel if sel in STATES else None,
+    )
+    # The component needs a PIL image / path / ndarray (not raw bytes).
+    coords = streamlit_image_coordinates(
+        Image.open(io.BytesIO(png)),
+        use_column_width="always", key="dag_click", cursor="pointer",
+    )
+    if coords is not None:
+        # Streamlit replays the component's last value on every rerun; only act
+        # on a genuinely new click (distinct timestamp).
+        last = st.session_state.get("_dag_click_unix")
+        if coords.get("unix_time") != last:
+            st.session_state["_dag_click_unix"] = coords.get("unix_time")
+            disp_w = coords.get("width") or png_w
+            scale = png_w / disp_w  # displayed px → natural PNG px
+            clicked = node_at_pixel(boxes, coords["x"] * scale, coords["y"] * scale)
+            if clicked and clicked != st.session_state.selected_node:
+                st.session_state.selected_node = clicked
+                st.rerun()
 
 
 def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
            observed_day_map, observed_meta, selected_bayes, topology):
-    net_col, detail_col = st.columns([2.35, 1.0], gap="large")
+    # Full-width DAG on top; the Posterior + Override controls sit in a wide
+    # row beneath it (each gets half the page, instead of a cramped sidebar).
+    with st.container(border=True):
+        _render_clickable_dag(
+            st, all_marginals=all_marginals, evidence=evidence,
+            observed_day_map=observed_day_map, topology=topology,
+        )
 
-    with net_col:
-        with st.container(border=True):
-            root_chip_html = "".join(
-                (
-                    f"<span class='root-chip' style='background:{bg};"
-                    f"border:1px solid {border}; color:{border};'>"
-                    f"{node.replace('_', ' ')}</span>"
-                )
-                for node, (bg, border) in ROOT_DRIVER_STYLE.items()
-            )
-            st.markdown(
-                "<div class='card-title'>Interactive DAG — click a node</div>"
-                "<div class='card-sub'>Fixed layout for at-a-glance reading. "
-                "Hover nodes to see full percentages. Root drivers use dedicated "
-                "color families for clearer separation. Node labels show posterior "
-                "output after propagating all injected evidence.</div>"
-                f"<div>{root_chip_html}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown("<div style='height:0.25rem;'></div>", unsafe_allow_html=True)
-            _topo_edges, _topo_levels = TOPOLOGY_LAYOUT[topology]
-            nodes, edges, config = build_agraph_payload(
-                all_marginals,
-                observed=evidence,
-                observed_day=observed_day_map,
-                edges=_topo_edges,
-                node_level=_topo_levels,
-                edge_titles=edge_rationale.edge_title_map(topology),  # hover (P10)
-            )
-            clicked = agraph(nodes=nodes, edges=edges, config=config)
-            st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
-            if clicked and clicked in STATES:
-                if st.session_state.selected_node != clicked:
-                    st.session_state.selected_node = clicked
-                    st.rerun()
+    detail_col, override_col = st.columns(2, gap="large")
 
     with detail_col:
         sel = st.session_state.selected_node
@@ -96,14 +141,15 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                         "(Dirichlet, per-CPT κ — calibrated when an elicitation "
                         "is locked, else 20; m = 200)."
                     )
-                # Streamlit strips the HTML `title` attribute, so the old hover
-                # tooltip never showed — use a real popover instead.
+                # Node name with a native hover ⓘ tooltip (no dropdown/selector
+                # chrome — the popover read as a control it isn't). Use the
+                # `:gray[]` markdown directive, NOT unsafe_allow_html: the raw-HTML
+                # path skips directive parsing and renders `help` as literal
+                # ":help[]" text.
                 st.markdown(
-                    f"<div class='card-sub'><b>{sel.replace('_',' ')}</b></div>",
-                    unsafe_allow_html=True,
+                    f":gray[**{sel.replace('_', ' ')}**]",
+                    help=tip_text,
                 )
-                with st.popover("ⓘ about these intervals"):
-                    st.markdown(tip_text)
                 if sel in evidence:
                     observed_node_panel.render(
                         st, observed_state=evidence[sel],
@@ -132,6 +178,8 @@ def render(st, *, all_marginals, evidence, soft_evidence, node_ci_table,
                     unsafe_allow_html=True,
                 )
 
+    with override_col:
+        sel = st.session_state.selected_node
         with st.container(border=True):
             st.markdown(
                 "<div class='card-title' style='margin-bottom:0.2rem;'>"

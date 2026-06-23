@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import pytest
 
-from src.scenario import STATES
+import itertools
+
+from src.scenario import LATENT, STATES
 from src.viz import (
     _NAVY,
     _ROOT_DRIVER_COLORS,
     _TEAL,
     TOPOLOGY_LAYOUT,
     build_agraph_payload,
+    node_at_pixel,
+    render_network_clickable,
 )
 
 
@@ -51,6 +55,36 @@ def test_scenario_node_is_navy():
     nodes, _, _ = build_agraph_payload(_uniform_marginals())
     by_id = {n.id: n for n in nodes}
     assert by_id["Scenario"].color["background"] == _NAVY
+
+
+# ===== Clickable static DAG — geometry maps clicks back to nodes ===========
+
+
+def test_clickable_dag_boxes_cover_every_node_and_resolve_to_themselves():
+    """Each node's pixel box is in-canvas, non-overlapping, and a click at its
+    centre resolves back to that same node — the contract the UI relies on."""
+    edges, _ = TOPOLOGY_LAYOUT["latent_regime"]
+    png, boxes, w, h = render_network_clickable(
+        _uniform_marginals(), edges=edges, selected=LATENT, dpi=200)
+
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"            # real PNG bytes
+    assert set(boxes) == set(STATES)                  # every node mapped
+
+    for node, (x0, y0, x1, y1) in boxes.items():
+        assert 0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h   # in-canvas, ordered
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        assert node_at_pixel(boxes, cx, cy) == node      # centre → self
+
+    for a, b in itertools.combinations(boxes, 2):        # no ambiguous clicks
+        ax0, ay0, ax1, ay1 = boxes[a]
+        bx0, by0, bx1, by1 = boxes[b]
+        assert not (ax0 < bx1 and bx0 < ax1 and ay0 < by1 and by0 < ay1)
+
+
+def test_clickable_dag_empty_space_resolves_to_no_node():
+    edges, _ = TOPOLOGY_LAYOUT["latent_regime"]
+    _, boxes, _, _ = render_network_clickable(_uniform_marginals(), edges=edges)
+    assert node_at_pixel(boxes, -5, -5) is None
 
 
 # ===== P10 — edge rationale on hover (C11 / V13) ===========================
