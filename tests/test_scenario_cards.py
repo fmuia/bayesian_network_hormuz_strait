@@ -55,7 +55,7 @@ def test_removing_the_observation_clears_the_chips():
 
 
 def test_narratives_off_card_but_reachable_in_expander():
-    from src.network import SCENARIO_NARRATIVES
+    from src.scenario import SCENARIO_NARRATIVES
     snippet = SCENARIO_NARRATIVES["Severe_Closure"][:40]   # distinctive chunk
     at = _app()
     cards = [m.value for m in at.markdown if "class='scenario-grid'" in m.value]

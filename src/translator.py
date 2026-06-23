@@ -17,13 +17,14 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from .network import SCENARIO_NARRATIVES, STATES
+from src.scenario import LATENT, SCENARIO_NARRATIVES, STATES, TRANSLATOR_PROFILE
 
 Provider = Literal["claude-code", "openai", "fake"]
 
@@ -55,12 +56,15 @@ _EPS_TOL = 1e-6
 # Offline dev/test provider: deterministic fixtures, no network. Selected via
 # provider="fake", TRANSLATOR_PROVIDER=fake, or the dashboard dev toggle; kept
 # OUT of available_providers() so it is never auto-selected over a real backend.
-_FAKE_FIXTURES_DIR = Path(
-    os.environ.get(
-        "TRANSLATOR_FAKE_DIR",
-        str(Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "translator"),
-    )
-)
+def _fake_fixtures_dir() -> Optional[Path]:
+    """Resolve the offline fixture dir: ``TRANSLATOR_FAKE_DIR`` env wins, else the
+    active pack's ``fake_fixtures_dir`` (None ⇒ no fixtures, use the keyword
+    fallback). Read at call time so it follows the active pack / reload."""
+    env = os.environ.get("TRANSLATOR_FAKE_DIR")
+    if env:
+        return Path(env)
+    from src.scenario import FAKE_FIXTURES_DIR
+    return Path(FAKE_FIXTURES_DIR) if FAKE_FIXTURES_DIR else None
 
 # Callback type: fn(stage, detail) where stage is a short machine tag and
 # detail is a human-readable sentence. Used by the UI to stream progress.
@@ -205,8 +209,7 @@ def _node_state_enum_schema() -> Dict:
                 "type": "string",
                 "enum": ["yes", "partial", "no"],
                 "description": (
-                    "Is the article relevant to the Strait-of-Hormuz scenario set "
-                    "(US–Iran tension, Gulf shipping/energy)? 'yes' = clearly "
+                    f"Is the article relevant to the {TRANSLATOR_PROFILE.scenario_set_descriptor}? 'yes' = clearly "
                     "relevant; 'partial' = tangential or ambiguous (assignments "
                     "allowed but the analyst should review); 'no' = off-topic, in "
                     "which case 'assignments' MUST be empty."
@@ -230,7 +233,7 @@ def _system_prompt() -> str:
     """Build the system prompt describing the BN schema to the model."""
     lines = [
         "You are the translation layer between geopolitical news and a "
-        "Bayesian network that tracks three Strait-of-Hormuz scenarios:",
+        f"Bayesian network that tracks these {TRANSLATOR_PROFILE.domain} scenarios:",
         "",
     ]
     for scenario, narrative in SCENARIO_NARRATIVES.items():
@@ -243,7 +246,7 @@ def _system_prompt() -> str:
         "",
     ]
     for node, states in STATES.items():
-        if node == "Scenario":
+        if node == LATENT:
             continue
         lines.append(f"  - {node}: {states}")
     lines += [
@@ -267,12 +270,12 @@ def _system_prompt() -> str:
         "    to 1. Include ALL allowed states; for a state the article essentially rules",
         "    out, use a small floor like 0.01 (never 0). E.g. a 3-state node: 1.0, 0.3, 0.05.",
         "  - overall_rationale: one or two sentences summarising your read.",
-        "  - relevance: 'yes' if the article is clearly about the Strait of Hormuz / "
-        "US-Iran tension / Gulf shipping or energy; 'partial' if it is only "
+        f"  - relevance: 'yes' if the article is clearly about {TRANSLATOR_PROFILE.relevance_descriptor}"
+        "; 'partial' if it is only "
         "tangential or ambiguous; 'no' if it is off-topic. When relevance is 'no', "
         "'assignments' MUST be empty (do not force a mapping for unrelated news).",
         "",
-        "Do not set the 'Scenario' node; it is the terminal node to be "
+        f"Do not set the '{LATENT}' node; it is the terminal node to be "
         "inferred, not observed. Prefer the most specific state that is "
         "clearly supported; if a headline is ambiguous on a node, omit it.",
         "Output ONLY the JSON object, with no prose before or after it.",
@@ -369,7 +372,7 @@ def _validate_payload(payload: Dict) -> tuple[List[TranslatorAssignment], str]:
         probs_raw = item.get("state_probs", [])
         if node not in STATES:
             raise TranslatorError(f"Translator returned unknown node: {node!r}")
-        if node == "Scenario":
+        if node == LATENT:
             continue  # drop any Scenario leak
         if state not in STATES[node]:
             raise TranslatorError(
@@ -727,9 +730,10 @@ def _load_fake_fixtures() -> List[Dict]:
     directory yields an empty list (the fake provider then returns an empty result).
     """
     fixtures: List[Dict] = []
-    if not _FAKE_FIXTURES_DIR.is_dir():
+    fixtures_dir = _fake_fixtures_dir()
+    if fixtures_dir is None or not fixtures_dir.is_dir():
         return fixtures
-    for path in sorted(_FAKE_FIXTURES_DIR.glob("*.json")):
+    for path in sorted(fixtures_dir.glob("*.json")):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         data["_name"] = path.stem
@@ -752,24 +756,59 @@ def _select_fixture(fixtures: List[Dict], headline: str) -> Optional[Dict]:
     return default
 
 
+def _keyword_hit(keyword: str, text: str) -> bool:
+    """Keyword present in ``text`` at a word start (so ``port`` does not match
+    inside ``report``), allowing trailing suffixes (``lead time`` ⊂ ``lead times``)."""
+    return re.search(r"(?<![a-z])" + re.escape(keyword.lower()), text) is not None
+
+
+def _fake_keyword_payload(headline: str) -> Dict:
+    """Build a translator payload from the active pack's fallback keyword map —
+    the offline path for any pack without authored fixtures (e.g. Meridian).
+    First keyword hit per node wins; max-pinned single-state likelihood."""
+    from src.scenario import PRESENTATION
+
+    hl = (headline or "").lower()
+    assignments: List[Dict] = []
+    seen: set = set()
+    for keys, node, state in PRESENTATION.fallback_keyword_map:
+        if node in seen:
+            continue
+        if any(_keyword_hit(k, hl) for k in keys):
+            seen.add(node)
+            assignments.append({
+                "node": node, "state": state, "reason": "fake keyword match",
+                "state_probs": [{"state": state, "value": 1.0}],
+            })
+    return {
+        "assignments": assignments,
+        "overall_rationale": "fake keyword match" if assignments else "",
+        "relevance": "yes" if assignments else "no",
+    }
+
+
 def _translate_fake(
     article: Article, *, on_step: Optional[StepCallback] = None
 ) -> TranslatorResult:
-    """Deterministic offline translation from a JSON fixture.
+    """Deterministic offline translation.
 
-    The fixture's ``payload`` is run through the *same* :func:`_validate_payload`
-    path as the real providers, so malformed fixtures surface real
-    ``TranslatorError``s exactly as a bad LLM response would. Fixtures are
-    selected by matching the article headline.
+    A pack with authored JSON fixtures (e.g. Hormuz) selects one by matching the
+    headline; the fixture ``payload`` runs through the *same*
+    :func:`_validate_payload` path as the real providers, so malformed fixtures
+    surface real ``TranslatorError``s. A pack without fixtures (e.g. Meridian)
+    falls back to its keyword map, so the offline demo works for every pack.
     """
     _emit = on_step or (lambda *_: None)
-    _emit("init", "Using fake translator (offline fixtures)…")
+    _emit("init", "Using fake translator (offline)…")
     fixture = _select_fixture(_load_fake_fixtures(), article.headline)
     if fixture is None:
-        _emit("response", "no fixtures found; returning empty translation")
+        payload = _fake_keyword_payload(article.headline)
+        raw = json.dumps(payload)
+        _emit("response", f"keyword fallback ({len(payload['assignments'])} assignment(s))")
+        assignments, rationale, relevance = _finalize_payload(payload)
         return TranslatorResult(
-            headline=article.headline, assignments=[], rationale="",
-            model="fake:empty", provider="fake", raw_response="{}",
+            headline=article.headline, assignments=assignments, rationale=rationale,
+            model="fake:keywords", provider="fake", raw_response=raw, relevance=relevance,
         )
     payload = fixture.get("payload", {})
     raw = json.dumps(payload)

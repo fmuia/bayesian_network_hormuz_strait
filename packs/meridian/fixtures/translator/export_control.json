@@ -1,0 +1,33 @@
+{
+  "match": [
+    "export licensing",
+    "dysprosium",
+    "rare-earth export"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Geo_Exposure",
+        "state": "High",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "Low",
+            "value": 0.05
+          },
+          {
+            "state": "Elevated",
+            "value": 0.05
+          },
+          {
+            "state": "High",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: export-control escalation.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}

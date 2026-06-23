@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 import streamlit as st
 
 from src.evidence import Observation
-from src.network import STATES
+from src.scenario import STATES
 
 ROOT = Path(__file__).resolve().parents[1]
 

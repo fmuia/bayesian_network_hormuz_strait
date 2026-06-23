@@ -5,6 +5,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -288,6 +290,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/40/c6/9ae8e9b0721e9b6eb5f340c3a0ce8cd7cce4f66e03dd81f80d60f111987f/statsmodels-0.14.6-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e4/91/cb6f13a89e376ef179309d74f37a70ea0041d5e4b5ba5c4836dbf6e020ad/streamlit-1.56.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b9/80/8a666e700332a9fe19e458678c95fab4d78340251d2f12da7d2ad915458a/streamlit_agraph-0.0.45-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/1f/0c/29d4ddfde865ce480b8aacbb9a764e872dfd2e141c7e6c15f075436ea807/streamlit_image_coordinates-0.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
@@ -536,6 +539,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a9/4d/df4dd089b406accfc3bb5ee53ba29bb3bdf5ae61643f86f8f604baa57656/statsmodels-0.14.6-cp311-cp311-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e4/91/cb6f13a89e376ef179309d74f37a70ea0041d5e4b5ba5c4836dbf6e020ad/streamlit-1.56.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b9/80/8a666e700332a9fe19e458678c95fab4d78340251d2f12da7d2ad915458a/streamlit_agraph-0.0.45-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/1f/0c/29d4ddfde865ce480b8aacbb9a764e872dfd2e141c7e6c15f075436ea807/streamlit_image_coordinates-0.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
@@ -782,6 +786,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/82/af/ec48daa7f861f993b91a0dcc791d66e1cf56510a235c5cbd2ab991a31d5c/statsmodels-0.14.6-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e4/91/cb6f13a89e376ef179309d74f37a70ea0041d5e4b5ba5c4836dbf6e020ad/streamlit-1.56.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b9/80/8a666e700332a9fe19e458678c95fab4d78340251d2f12da7d2ad915458a/streamlit_agraph-0.0.45-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/1f/0c/29d4ddfde865ce480b8aacbb9a764e872dfd2e141c7e6c15f075436ea807/streamlit_image_coordinates-0.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl
@@ -7053,6 +7058,13 @@ packages:
   - networkx>=2.5
   - rdflib>=6.0.2
   requires_python: '>=3.6'
+- pypi: https://files.pythonhosted.org/packages/1f/0c/29d4ddfde865ce480b8aacbb9a764e872dfd2e141c7e6c15f075436ea807/streamlit_image_coordinates-0.4.0-py3-none-any.whl
+  name: streamlit-image-coordinates
+  version: 0.4.0
+  sha256: 20d482384edf2d5442b43bc738ecc52bd27c081de28b825986802b5dc6789223
+  requires_dist:
+  - streamlit>=1.34
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl
   name: tenacity
   version: 9.1.4

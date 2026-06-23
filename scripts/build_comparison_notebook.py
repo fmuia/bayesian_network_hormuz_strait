@@ -82,7 +82,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pgmpy.inference import VariableElimination
 
-from src.network import build_network, STATES, SCENARIO_SIGNATURES
+from packs.hormuz.network import build_network, STATES, SCENARIO_SIGNATURES
 from src.inference import scenario_bayes_factors, clamped_scenario_likelihoods
 from src.sensitivity import default_concentrations, scenario_credible_intervals
 from scripts.compare_topologies import (

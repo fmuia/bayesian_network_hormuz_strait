@@ -10,7 +10,7 @@ from typing import Dict, List
 import altair as alt
 import pandas as pd
 
-from theme import AMBER, GREEN, MUTED, NAVY, RED, SCENARIO_LABEL
+from theme import MUTED, NAVY, SCENARIO_COLOR, SCENARIO_KEYS, SCENARIO_LABEL
 
 # The evolution chart is the locus of attention, so it gets the reallocated space
 # from the compacted scenario cards (Plan 5 P7 / C1 / V2) — ≥1.5× the old 260px.
@@ -82,7 +82,7 @@ def render_evolution_chart(st, observations, *, engine, cached_ci,
             wide = pd.DataFrame(history_rows)
             long_rows = []
             for _, r in wide.iterrows():
-                for sc in ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]:
+                for sc in list(SCENARIO_KEYS):
                     mean_ci, lo_ci, hi_ci = r["ci"][sc]
                     long_rows.append({
                         "Day": int(r["Day"]),
@@ -102,9 +102,8 @@ def render_evolution_chart(st, observations, *, engine, cached_ci,
             long_df = pd.DataFrame(long_rows)
 
             color_scale = alt.Scale(
-                domain=[SCENARIO_LABEL[s] for s in
-                        ["Stress_Mitigates", "Prolonged_Conflict", "Severe_Closure"]],
-                range=[GREEN, AMBER, RED],
+                domain=[SCENARIO_LABEL[s] for s in list(SCENARIO_KEYS)],
+                range=[SCENARIO_COLOR[s] for s in list(SCENARIO_KEYS)],
             )
 
             base = alt.Chart(long_df).encode(

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from src.inference import BNInferenceEngine
-from src.network import STATES, build_network
+from packs.hormuz.network import STATES, build_network
 from src.sensitivity import scenario_credible_intervals
 
 

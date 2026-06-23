@@ -2,7 +2,7 @@
 
 Usage:
     python -m src.elicitation.export.cli export --db <url> --network-id 1 --out spec.json
-    python -m src.elicitation.export.cli import --db <url> --in spec.json --name hormuz
+    python -m src.elicitation.export.cli import --db <url> --in spec.json --name <pack>
 """
 
 from __future__ import annotations

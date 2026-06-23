@@ -2,7 +2,7 @@
 
 ``cpts_to_network_spec`` builds a spec from a deployment's stored CPTs (with
 their per-CPT kappa); ``network_spec_to_cpts`` imports a spec (e.g. the bootstrap
-Hormuz network) as a refinement starting point. The node structure (states,
+pack network) as a refinement starting point. The node structure (states,
 parents) is stored inside the versioned ``cpt_versions.values`` JSON blob, so no
 schema change is needed and snapshots are self-describing.
 """

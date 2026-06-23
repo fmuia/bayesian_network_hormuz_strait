@@ -15,15 +15,6 @@ import pandas as pd
 from theme import AMBER, GREEN, MUTED, NAVY, RED
 
 
-_NAVY_FULL = NAVY
-_NAVY_MID = "#5B6A7D"
-_NAVY_LIGHT = "#9BA5B0"
-_WIDTH_COLOR_SCALE = alt.Scale(
-    domain=["narrow", "moderate", "fragile"],
-    range=[_NAVY_FULL, _NAVY_MID, _NAVY_LIGHT],
-)
-
-
 def _width_category(half_width_pp: float) -> str:
     if half_width_pp < 8:
         return "narrow"
@@ -72,6 +63,9 @@ def _ci_dataframe(
             "Hi": hi,
             "HalfWidthPP": half_w_pp,
             "WidthCategory": _width_category(half_w_pp),
+            # Per-state robustness colour (same green→amber→red gradient as the
+            # badge), so each interval's hue conveys how fragile that state is.
+            "RColor": robustness_color(half_w_pp),
         })
     return pd.DataFrame(rows)
 
@@ -87,9 +81,14 @@ def _dumbbell_chart(df: pd.DataFrame, sorted_states: List[str]) -> alt.Chart:
     )
     x_scale = alt.Scale(domain=[0, 1])
     x_axis = alt.Axis(format="%", labelColor=NAVY, titleColor=NAVY)
-    color_enc = alt.Color(
-        "WidthCategory:N", scale=_WIDTH_COLOR_SCALE, legend=None,
-    )
+    # Use the literal per-state robustness hex (scale=None passes values through),
+    # so narrow intervals read green and fragile ones red — far more legible than
+    # the old near-identical navy shades.
+    color_enc = alt.Color("RColor:N", scale=None, legend=None)
+    # One curated, formatted tooltip applied to EVERY mark. Without an explicit
+    # tooltip, Vega/Streamlit falls back to a default that dumps all data columns
+    # (incl. the internal RColor hex and raw-precision floats) — so the bars must
+    # carry it too, not just the dot.
     tooltip = [
         alt.Tooltip("State:N"),
         alt.Tooltip("Mean:Q", format=".1%", title="Mean"),
@@ -101,13 +100,13 @@ def _dumbbell_chart(df: pd.DataFrame, sorted_states: List[str]) -> alt.Chart:
     rule = base.mark_rule(strokeWidth=4).encode(
         x=alt.X("Lo:Q", scale=x_scale, axis=x_axis, title="Probability"),
         x2="Hi:Q",
-        color=color_enc,
+        color=color_enc, tooltip=tooltip,
     )
     cap_lo = base.mark_tick(thickness=3, size=18).encode(
-        x="Lo:Q", color=color_enc,
+        x="Lo:Q", color=color_enc, tooltip=tooltip,
     )
     cap_hi = base.mark_tick(thickness=3, size=18).encode(
-        x="Hi:Q", color=color_enc,
+        x="Hi:Q", color=color_enc, tooltip=tooltip,
     )
     mean_pt = base.mark_circle(size=140).encode(
         x="Mean:Q", color=color_enc, tooltip=tooltip,

@@ -17,6 +17,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from packs.registry import DEFAULT_PACK
+
 
 class CredentialSource(str, Enum):
     """Where an LLM provider credential comes from.
@@ -107,7 +109,7 @@ class DeploymentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    network: str = "hormuz"
+    network: str = DEFAULT_PACK
     topology: str = "latent_regime"
     in_scope_cpts: list[str] = Field(default_factory=list)
     branding: dict[str, str] = Field(default_factory=dict)

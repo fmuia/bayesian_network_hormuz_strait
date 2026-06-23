@@ -11,13 +11,24 @@ The renderer returns raw PNG bytes so Streamlit can display them via
 
 from __future__ import annotations
 
+import json
+import struct
 import subprocess
 from html import escape
-from typing import Dict, Iterable, Mapping, Optional
+from typing import Dict, Iterable, Mapping, Optional, Tuple
 
 import graphviz
 
-from .network import EDGES, EDGES_LATENT, STATES
+from src.scenario import (
+    DISPLAY_OVERRIDES,
+    EDGES,
+    EDGES_LATENT,
+    LATENT,
+    LAYOUT as TOPOLOGY_LAYOUT,
+    NODE_TITLE_WRAP,
+    PRESENTATION,
+    STATES,
+)
 
 _PLUGINS_REGISTERED = False
 
@@ -46,11 +57,12 @@ _NAVY = "#1B2A3D"
 _PANEL = "#F5F5F5"
 _BORDER = "#CBD5E1"
 _BAR_BG = "#E5E7EB"
-_SCENARIO_COLORS = {
-    "Stress_Mitigates": "#2E8B57",
-    "Prolonged_Conflict": "#D4A017",
-    "Severe_Closure": "#B22222",
-}
+_SELECT = "#14B8A6"  # selection border — bright teal, reads on white & navy
+_NODE_BORDER = "black"  # default border on every node card
+_SCENARIO_COLORS = PRESENTATION.scenario_color
+# (bg_light, border_dark, observed_fill) per root driver — shared by the static
+# graphviz renderer and the agraph payload below.
+_ROOT_DRIVER_COLORS: Dict[str, tuple] = PRESENTATION.root_driver_colors
 
 
 def _bar(pct: float, fill: str, width: int = 80) -> str:
@@ -84,17 +96,41 @@ def _prob_rows(marginal: Mapping[str, float], fill: str) -> str:
     return "".join(rows)
 
 
+def _table(inner: str, *, bg: str, cellpadding: int, selected: bool) -> str:
+    """Wrap node rows in the outer HTML-label table.
+
+    ``selected`` draws a thick accent border so the clicked node is obvious
+    in the otherwise-static image.
+    """
+    # Every card carries a border: black by default, bright-green and thicker
+    # when the node is selected.
+    border, color = ("4", _SELECT) if selected else ("2", _NODE_BORDER)
+    return (
+        f"<<TABLE BORDER=\"{border}\" COLOR=\"{color}\" CELLBORDER=\"0\" "
+        f"CELLSPACING=\"0\" CELLPADDING=\"{cellpadding}\" BGCOLOR=\"{bg}\">"
+        f"{inner}</TABLE>>"
+    )
+
+
 def _node_label(
     node: str,
     marginal: Mapping[str, float],
     observed_state: Optional[str],
     day: Optional[int],
+    *,
+    root_style: Optional[Tuple[str, str, str]] = None,
+    selected: bool = False,
 ) -> str:
-    """Return a Graphviz HTML-like label for one node."""
+    """Return a Graphviz HTML-like label for one node.
+
+    ``root_style`` is the ``(bg_light, border_dark, observed_fill)`` colour
+    family for a root driver (``None`` for every other node), so the static
+    diagram matches the interactive view's dedicated driver colours.
+    """
     title = escape(node.replace("_", " "))
 
-    if node == "Scenario":
-        # Scenario terminal: show all three probs colour-coded per scenario.
+    if node == LATENT:
+        # Scenario terminal: show all states colour-coded per scenario.
         rows = []
         for state, prob in marginal.items():
             pct = prob * 100
@@ -110,65 +146,59 @@ def _node_label(
             )
         header = (
             f'<TR><TD COLSPAN="3" BGCOLOR="{_NAVY}" ALIGN="CENTER">'
-            f'<FONT POINT-SIZE="11" COLOR="white"><B>SCENARIO</B></FONT>'
+            f'<FONT POINT-SIZE="11" COLOR="white"><B>{title.upper()}</B></FONT>'
             '</TD></TR>'
         )
-        return (
-            f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" '
-            f'CELLPADDING="4" BGCOLOR="{_NAVY}">'
-            f'{header}{"".join(rows)}</TABLE>>'
-        )
+        return _table(header + "".join(rows), bg=_NAVY, cellpadding=4, selected=selected)
 
     if observed_state is not None:
-        # Observed-node card: teal fill, shows the observed state + day.
+        # Observed-node card: filled, shows the observed state + day. Root
+        # drivers keep their own colour family; everything else is teal.
+        fill = root_style[2] if root_style is not None else _TEAL
+        subbar = root_style[1] if root_style is not None else _TEAL_DARK
         day_badge = (
-            f'<TD ALIGN="RIGHT"><FONT POINT-SIZE="8" COLOR="#D5EFEA">'
+            f'<TD ALIGN="RIGHT"><FONT POINT-SIZE="8" COLOR="#E8F0FE">'
             f'Day {day}</FONT></TD>'
         ) if day is not None else '<TD></TD>'
-        return (
-            f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" '
-            f'CELLPADDING="5" BGCOLOR="{_TEAL}">'
+        inner = (
             f'<TR>'
             f'<TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="white"><B>'
             f'{title}</B></FONT></TD>'
             f'{day_badge}'
             f'</TR>'
-            f'<TR><TD COLSPAN="2" BGCOLOR="{_TEAL_DARK}" ALIGN="CENTER">'
+            f'<TR><TD COLSPAN="2" BGCOLOR="{subbar}" ALIGN="CENTER">'
             f'<FONT POINT-SIZE="11" COLOR="white"><B>'
             f'● {escape(observed_state)}</B></FONT></TD></TR>'
-            f'</TABLE>>'
         )
+        return _table(inner, bg=fill, cellpadding=5, selected=selected)
 
-    # Default card: probability distribution.
+    # Default card: probability distribution. Root drivers tint the header and
+    # bars with their colour family; other nodes use the neutral panel + teal.
+    if root_style is not None:
+        bg_light, border_dark, _ = root_style
+        header_bg, title_color, bar_fill = bg_light, border_dark, border_dark
+    else:
+        header_bg, title_color, bar_fill = _PANEL, _NAVY, _TEAL
     header = (
-        f'<TR><TD COLSPAN="3" BGCOLOR="{_PANEL}" ALIGN="LEFT">'
-        f'<FONT POINT-SIZE="10" COLOR="{_NAVY}"><B>{title}</B></FONT>'
+        f'<TR><TD COLSPAN="3" BGCOLOR="{header_bg}" ALIGN="LEFT">'
+        f'<FONT POINT-SIZE="10" COLOR="{title_color}"><B>{title}</B></FONT>'
         '</TD></TR>'
     )
-    rows = _prob_rows(marginal, fill=_TEAL)
-    return (
-        f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" '
-        f'CELLPADDING="4" BGCOLOR="white">'
-        f'{header}{rows}</TABLE>>'
-    )
+    rows = _prob_rows(marginal, fill=bar_fill)
+    return _table(header + rows, bg="white", cellpadding=4, selected=selected)
 
 
-def render_network_png(
+def _build_digraph(
     marginals: Mapping[str, Mapping[str, float]],
     *,
-    observed: Mapping[str, str] = {},
-    observed_day: Mapping[str, int] = {},
-    edges: Optional[Iterable[tuple]] = None,
-    dpi: int = 220,
-) -> bytes:
-    """Render the BN as PNG bytes for display in Streamlit.
-
-    ``marginals`` must contain every node; ``observed`` maps evidence
-    nodes to their set state; ``observed_day`` maps those same nodes
-    to the day-of-session they were first set. ``edges`` selects the
-    topology to draw (defaults to the labelling ``EDGES``).
-    """
-    edges = list(EDGES if edges is None else edges)
+    observed: Mapping[str, str],
+    observed_day: Mapping[str, int],
+    edges: Iterable[tuple],
+    selected: Optional[str],
+    dpi: int,
+) -> graphviz.Digraph:
+    """Assemble the tabular BN ``Digraph`` shared by the PNG and clickable
+    renderers, so the image and its click-map come from one identical graph."""
     _ensure_plugins_registered()
     dot = graphviz.Digraph(
         "bayesian_network",
@@ -199,19 +229,120 @@ def render_network_png(
             marginal=marginals[node],
             observed_state=observed.get(node),
             day=observed_day.get(node),
+            root_style=_ROOT_DRIVER_COLORS.get(node),
+            selected=(node == selected),
         )
-        # When a node is observed, draw a subtle border around it too.
-        node_attrs = {"label": label}
-        dot.node(node, **node_attrs)
+        dot.node(node, label=label)
 
     for src, dst in edges:
-        style = "solid"
-        color = "#94A3B8"
-        if src in observed:
-            color = _TEAL
-        dot.edge(src, dst, style=style, color=color)
+        color = _TEAL if src in observed else "#94A3B8"
+        dot.edge(src, dst, style="solid", color=color)
 
+    return dot
+
+
+def render_network_png(
+    marginals: Mapping[str, Mapping[str, float]],
+    *,
+    observed: Mapping[str, str] = {},
+    observed_day: Mapping[str, int] = {},
+    edges: Optional[Iterable[tuple]] = None,
+    selected: Optional[str] = None,
+    dpi: int = 220,
+) -> bytes:
+    """Render the BN as PNG bytes for display in Streamlit.
+
+    ``marginals`` must contain every node; ``observed`` maps evidence
+    nodes to their set state; ``observed_day`` maps those same nodes
+    to the day-of-session they were first set. ``edges`` selects the
+    topology to draw (defaults to the labelling ``EDGES``); ``selected``
+    draws an accent border on one node.
+    """
+    edges = list(EDGES if edges is None else edges)
+    dot = _build_digraph(
+        marginals, observed=observed, observed_day=observed_day,
+        edges=edges, selected=selected, dpi=dpi,
+    )
     return dot.pipe(format="png")
+
+
+def _png_dimensions(png: bytes) -> Tuple[int, int]:
+    """(width, height) in pixels from a PNG's IHDR chunk."""
+    if png[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    width, height = struct.unpack(">II", png[16:24])
+    return width, height
+
+
+def _node_pixel_boxes(
+    graph_json: str, png_w: int, png_h: int, dpi: int
+) -> Dict[str, Tuple[float, float, float, float]]:
+    """Map each node to its ``(x0, y0, x1, y1)`` box in PNG pixel space.
+
+    Graphviz JSON reports node centres in points (origin bottom-left) and
+    sizes in inches. The PNG adds a uniform pad around the layout ``bb``; we
+    recover that pad from the actual PNG size so the mapping is exact
+    regardless of graphviz's default margin, then flip y (PNG is top-down).
+    """
+    j = json.loads(graph_json)
+    bb = [float(v) for v in j["bb"].split(",")]  # x0,y0,x1,y1 in points
+    bb_w_pt, bb_h_pt = bb[2] - bb[0], bb[3] - bb[1]
+    scale = dpi / 72.0
+    # png_*_pt is the full canvas in points incl. pad; (png_pt - bb)/2 is the pad.
+    pad_x = (png_w / scale - bb_w_pt) / 2.0
+    pad_y = (png_h / scale - bb_h_pt) / 2.0
+    png_h_pt = png_h / scale
+
+    boxes: Dict[str, Tuple[float, float, float, float]] = {}
+    for obj in j.get("objects", []):
+        name, pos = obj.get("name"), obj.get("pos")
+        if name not in STATES or pos is None or "width" not in obj:
+            continue
+        px, py = (float(v) for v in pos.split(","))
+        w_px = float(obj["width"]) * dpi  # inches → px
+        h_px = float(obj["height"]) * dpi
+        cx = ((px - bb[0]) + pad_x) * scale
+        cy = (png_h_pt - ((py - bb[1]) + pad_y)) * scale  # flip y
+        boxes[name] = (cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2)
+    return boxes
+
+
+def render_network_clickable(
+    marginals: Mapping[str, Mapping[str, float]],
+    *,
+    observed: Mapping[str, str] = {},
+    observed_day: Mapping[str, int] = {},
+    edges: Optional[Iterable[tuple]] = None,
+    selected: Optional[str] = None,
+    dpi: int = 200,
+) -> Tuple[bytes, Dict[str, Tuple[float, float, float, float]], int, int]:
+    """Render the BN once and return ``(png, node_boxes, width, height)``.
+
+    ``node_boxes`` are pixel bounding boxes in the returned PNG's own
+    coordinate space; a caller scales a click by ``width / displayed_width``
+    and tests containment to resolve the clicked node. The PNG and the JSON
+    geometry come from the *same* ``Digraph`` so the boxes line up exactly.
+    """
+    edges = list(EDGES if edges is None else edges)
+    dot = _build_digraph(
+        marginals, observed=observed, observed_day=observed_day,
+        edges=edges, selected=selected, dpi=dpi,
+    )
+    png = dot.pipe(format="png")
+    graph_json = dot.pipe(format="json").decode()
+    png_w, png_h = _png_dimensions(png)
+    boxes = _node_pixel_boxes(graph_json, png_w, png_h, dpi)
+    return png, boxes, png_w, png_h
+
+
+def node_at_pixel(
+    boxes: Mapping[str, Tuple[float, float, float, float]], x: float, y: float
+) -> Optional[str]:
+    """Return the node whose box contains ``(x, y)`` in PNG pixels, else None."""
+    for node, (x0, y0, x1, y1) in boxes.items():
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return node
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -221,69 +352,21 @@ def render_network_png(
 # Hierarchical "levels" for the vis.js hierarchical layout — roots on the
 # left, scenario on the right. Chosen manually for a stable left-to-right
 # DAG layout that does not jitter between reruns.
-_ROOT_DRIVER_COLORS: Dict[str, tuple] = {
-    # (background, border, observed_fill) — distinct hues per root driver.
-    "US_Iran_Negotiations": ("#DBEAFE", "#1D4ED8", "#1E40AF"),  # blue
-    "Iranian_Regime_Stability": ("#FCE7F3", "#BE185D", "#9D174D"),  # rose
-    "Third_Party_Mediation": ("#FEF3C7", "#B45309", "#92400E"),  # amber
-    "Sanctions_Trajectory": ("#EDE9FE", "#6D28D9", "#5B21B6"),  # violet
-}
+# (_ROOT_DRIVER_COLORS is defined near the palette above — shared by both
+# renderers.)
 
-_NODE_LEVEL: Dict[str, int] = {
-    "US_Iran_Negotiations": 0,
-    "Iranian_Regime_Stability": 0,
-    "Third_Party_Mediation": 0,
-    "Sanctions_Trajectory": 0,
-    "Iran_Aligned_Militia_Attacks": 1,
-    "Tanker_Incidents": 1,
-    "US_Military_Response": 2,
-    "Strait_Operationally_Closed": 2,
-    "Energy_Infrastructure_Damage": 3,
-    "Conflict_Duration": 3,
-    "Diplomatic_Resolution_Path": 3,
-    "Oil_Price_Regime": 3,
-    "Scenario": 4,
-}
-
-# Latent-regime layout: Scenario sits between its parents {M, C} (level 2) and its
-# emissions {D, T, P} (level 4); Oil_Price is a child of D so it drops to level 5.
-_NODE_LEVEL_LATENT: Dict[str, int] = {
-    **_NODE_LEVEL,
-    "Scenario": 3,
-    "Energy_Infrastructure_Damage": 4,
-    "Conflict_Duration": 4,
-    "Diplomatic_Resolution_Path": 4,
-    "Oil_Price_Regime": 5,
-}
-
-# Map a topology name to (edges, node-level) so callers can pass a single string.
-TOPOLOGY_LAYOUT = {
-    "labelling": (EDGES, _NODE_LEVEL),
-    "latent_regime": (EDGES_LATENT, _NODE_LEVEL_LATENT),
-}
+# Layout (TOPOLOGY_LAYOUT) and the display-name overrides / title-wrap maps are
+# scenario-specific and come from the active pack via the src.scenario seam.
 
 
 def _display_name(raw: str) -> str:
-    return raw.replace("Iran_Aligned", "Iran-Aligned").replace("_", " ")
+    """Pack display override if any, else the generic underscore→space form."""
+    return DISPLAY_OVERRIDES.get(raw) or raw.replace("_", " ")
 
 
 def _wrap_node_title(name: str) -> str:
-    """Wrap long node titles across two lines for readability."""
-    replacements = {
-        "US Iran Negotiations": "US Iran\nNegotiations",
-        "Iranian Regime Stability": "Iranian Regime\nStability",
-        "Third Party Mediation": "Third Party\nMediation",
-        "Sanctions Trajectory": "Sanctions\nTrajectory",
-        "Iran-Aligned Militia Attacks": "Iran-Aligned Militia\nAttacks",
-        "Tanker Incidents": "Tanker\nIncidents",
-        "US Military Response": "US Military\nResponse",
-        "Strait Operationally Closed": "Strait Operationally\nClosed",
-        "Energy Infrastructure Damage": "Energy Infrastructure\nDamage",
-        "Conflict Duration": "Conflict\nDuration",
-        "Diplomatic Resolution Path": "Diplomatic Resolution\nPath",
-        "Oil Price Regime": "Oil Price\nRegime",
-    }
-    return replacements.get(name, name)
+    """Two-line wrap for long node titles (pack-provided); identity otherwise."""
+    return NODE_TITLE_WRAP.get(name, name)
 
 
 def _format_label_text(
@@ -293,7 +376,7 @@ def _format_label_text(
     day: Optional[int],
 ) -> str:
     """Build a monospace 'mini-table' label: title, rule, rows."""
-    if node == "Scenario":
+    if node == LATENT:
         title_lines = ["SCENARIO"]
     else:
         title_lines = _wrap_node_title(_display_name(node)).split("\n")
@@ -352,7 +435,7 @@ def build_agraph_payload(
     from streamlit_agraph import Config, Edge, Node
 
     edge_list = list(EDGES if edges is None else edges)
-    levels = _NODE_LEVEL if node_level is None else node_level
+    levels = TOPOLOGY_LAYOUT["labelling"][1] if node_level is None else node_level
 
     nodes = []
     for node in STATES.keys():
@@ -361,7 +444,7 @@ def build_agraph_payload(
         day = observed_day.get(node)
         is_root_driver = node in _ROOT_DRIVER_COLORS
 
-        if node == "Scenario":
+        if node == LATENT:
             label = _format_label_text(node, marginal, obs_state, day)
             color = _NAVY
             font_color = "white"
@@ -474,4 +557,10 @@ def render_network(observed_nodes: Iterable[str] = ()):  # pragma: no cover
     )
 
 
-__all__ = ["render_network_png", "build_agraph_payload", "TOPOLOGY_LAYOUT"]
+__all__ = [
+    "render_network_png",
+    "render_network_clickable",
+    "node_at_pixel",
+    "build_agraph_payload",
+    "TOPOLOGY_LAYOUT",
+]

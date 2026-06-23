@@ -20,9 +20,9 @@ from pgmpy.inference import VariableElimination
 from pgmpy.models import DiscreteBayesianNetwork
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import src.network as N  # noqa: E402
+import packs.hormuz.network as N  # noqa: E402
 from src.inference import clamped_scenario_likelihoods, scenario_bayes_factors  # noqa: E402
-from src.network import STATES, _cpd, build_network  # noqa: E402
+from packs.hormuz.network import STATES, _cpd, build_network  # noqa: E402
 from src.sensitivity import default_concentrations, scenario_credible_intervals  # noqa: E402
 
 S = "Scenario"

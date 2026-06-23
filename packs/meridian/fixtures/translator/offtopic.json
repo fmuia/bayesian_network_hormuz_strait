@@ -1,0 +1,10 @@
+{
+  "match": ["__offtopic_sentinel_never_matches__"],
+  "note": "Inert: a non-empty match means this is NOT the empty-match default, so an unmatched headline returns None from _select_fixture and falls through to the pack keyword fallback (which yields relevance 'no' when nothing maps).",
+  "payload": {
+    "assignments": [],
+    "overall_rationale": "",
+    "relevance": "no"
+  },
+  "kind": "wellformed"
+}

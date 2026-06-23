@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from src.inference import BNInferenceEngine
-from src.network import STATES
+from src.scenario import STATES
 from src.sensitivity import (
     node_credible_intervals,
     scenario_credible_intervals,

@@ -1,4 +1,4 @@
-"""Inference wrapper for the Strait of Hormuz Bayesian network."""
+"""Inference wrapper for the active scenario pack's Bayesian network."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pgmpy.factors.discrete import TabularCPD
 from pgmpy.inference import VariableElimination
 from pgmpy.models import DiscreteBayesianNetwork
 
-from .network import STATES, build_network
+from src.scenario import LATENT, STATES, build_network
 
-SCENARIO = "Scenario"
+SCENARIO = LATENT  # the latent regime node of the active pack
 
 
 def _require_latent_regime(network: DiscreteBayesianNetwork) -> None:
@@ -191,8 +191,8 @@ class BNInferenceEngine:
 
     def get_prior_probabilities(self) -> Dict[str, float]:
         """Scenario marginal with no evidence applied."""
-        result = self._engine.query(["Scenario"], evidence={}, show_progress=False)
-        return self._distribution(result, "Scenario")
+        result = self._engine.query([SCENARIO], evidence={}, show_progress=False)
+        return self._distribution(result, SCENARIO)
 
     def get_scenario_probabilities(self) -> Dict[str, float]:
         """Scenario marginal under the current accumulated evidence.
@@ -201,14 +201,14 @@ class BNInferenceEngine:
         — mirroring :meth:`get_node_marginal` — rather than letting pgmpy reject
         the query.
         """
-        ev = {k: v for k, v in self._evidence.items() if k != "Scenario"}
+        ev = {k: v for k, v in self._evidence.items() if k != SCENARIO}
         result = self._engine.query(
-            ["Scenario"],
+            [SCENARIO],
             evidence=ev,
             virtual_evidence=self._virtual_evidence_cpds(),
             show_progress=False,
         )
-        return self._distribution(result, "Scenario")
+        return self._distribution(result, SCENARIO)
 
     def get_node_marginal(self, node: str) -> Dict[str, float]:
         """Marginal distribution of any node under current evidence.

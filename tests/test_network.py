@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.evidence import EXAMPLE_HEADLINES
+from packs.hormuz.headlines import EXAMPLE_HEADLINES
 from src.inference import BNInferenceEngine
-from src.network import EDGES, STATES, build_network
+from packs.hormuz.network import EDGES, STATES, build_network
 from src.translator import (
     TranslatorError,
     _node_state_enum_schema,

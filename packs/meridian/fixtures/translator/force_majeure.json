@@ -1,0 +1,52 @@
+{
+  "match": [
+    "force majeure",
+    "port closure",
+    "declare force"
+  ],
+  "payload": {
+    "assignments": [
+      {
+        "node": "Force_Majeure_Notices",
+        "state": "Multiple",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "None",
+            "value": 0.05
+          },
+          {
+            "state": "Isolated",
+            "value": 0.05
+          },
+          {
+            "state": "Multiple",
+            "value": 1.0
+          }
+        ]
+      },
+      {
+        "node": "Route_Status",
+        "state": "Disrupted",
+        "reason": "fake fixture",
+        "state_probs": [
+          {
+            "state": "Open",
+            "value": 0.05
+          },
+          {
+            "state": "Congested",
+            "value": 0.05
+          },
+          {
+            "state": "Disrupted",
+            "value": 1.0
+          }
+        ]
+      }
+    ],
+    "overall_rationale": "Fake: clustered force-majeure.",
+    "relevance": "yes"
+  },
+  "kind": "wellformed"
+}

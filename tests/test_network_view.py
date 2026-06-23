@@ -60,12 +60,15 @@ def test_override_autonormalizes_non_100_sum():
     assert abs(sum(soft.values()) - 1.0) < 1e-9
 
 
-def test_posterior_panel_uses_popover_not_html_title():
-    """Fix 4: the ⓘ is a real popover now; the stripped HTML-title tooltip is gone."""
+def test_posterior_panel_interval_help_is_a_tooltip_not_a_selector():
+    """The interval explanation is a native hover ⓘ tooltip (markdown `help=`),
+    not a popover/dropdown (which read as a control) nor a stripped HTML title."""
     at = _app_with_node("Tanker_Incidents")
-    assert len(at.get("popover")) >= 1
+    assert len(at.get("popover")) == 0          # no selector-looking chrome
+    helps = [getattr(m, "help", "") or "" for m in at.markdown]
+    assert any("resampling" in h for h in helps)  # tip text carried as a tooltip
     md = " ".join(m.value for m in at.markdown)
-    assert "cursor:help" not in md          # the old title-bearing ⓘ span is gone
+    assert "cursor:help" not in md              # the old title-bearing ⓘ span is gone
 
 
 def test_scenario_node_has_no_override():

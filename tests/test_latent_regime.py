@@ -14,13 +14,13 @@ import pytest
 from pgmpy.inference import VariableElimination
 from pgmpy.models import DiscreteBayesianNetwork
 
-from src.cpt_data import LATENT_CPTS
+from packs.hormuz.cpt_data import LATENT_CPTS
 from src.inference import (
     BNInferenceEngine,
     clamped_scenario_likelihoods,
     scenario_bayes_factors,
 )
-from src.network import (
+from packs.hormuz.network import (
     EDGES_LATENT,
     SCENARIO_SIGNATURES,
     STATES,
@@ -56,7 +56,7 @@ def _dist(ve, evidence):
 
 def _build_hard_labelling():
     """Labelling net with P(S|D,T,P) collapsed to a one-hot argmax partition."""
-    import src.network as N
+    import packs.hormuz.network as N
 
     vals = np.asarray(N.CPD_SCENARIO.get_values())
     hard = np.zeros_like(vals)
@@ -255,8 +255,8 @@ def test_angle5_degeneracy_contrast(lat):
 
 
 def test_angle5_independent_prior_knob():
-    from src.cpt_data import LATENT_CPTS as base
-    import src.network as N
+    from packs.hormuz.cpt_data import LATENT_CPTS as base
+    import packs.hormuz.network as N
     # force P(Severe|M,C)=0.05 in every regime column
     reg = {k: [v[0] * 0.95 / (v[0] + v[1]), v[1] * 0.95 / (v[0] + v[1]), 0.05]
            for k, v in base[S].items()}
