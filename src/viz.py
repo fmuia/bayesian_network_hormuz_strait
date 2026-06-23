@@ -58,6 +58,7 @@ _PANEL = "#F5F5F5"
 _BORDER = "#CBD5E1"
 _BAR_BG = "#E5E7EB"
 _SELECT = "#14B8A6"  # selection border — bright teal, reads on white & navy
+_NODE_BORDER = "black"  # default border on every node card
 _SCENARIO_COLORS = PRESENTATION.scenario_color
 # (bg_light, border_dark, observed_fill) per root driver — shared by the static
 # graphviz renderer and the agraph payload below.
@@ -101,11 +102,13 @@ def _table(inner: str, *, bg: str, cellpadding: int, selected: bool) -> str:
     ``selected`` draws a thick accent border so the clicked node is obvious
     in the otherwise-static image.
     """
-    border = "4" if selected else "0"
-    color = f' COLOR="{_SELECT}"' if selected else ""
+    # Every card carries a border: black by default, bright-green and thicker
+    # when the node is selected.
+    border, color = ("4", _SELECT) if selected else ("2", _NODE_BORDER)
     return (
-        f"<<TABLE BORDER=\"{border}\"{color} CELLBORDER=\"0\" CELLSPACING=\"0\" "
-        f"CELLPADDING=\"{cellpadding}\" BGCOLOR=\"{bg}\">{inner}</TABLE>>"
+        f"<<TABLE BORDER=\"{border}\" COLOR=\"{color}\" CELLBORDER=\"0\" "
+        f"CELLSPACING=\"0\" CELLPADDING=\"{cellpadding}\" BGCOLOR=\"{bg}\">"
+        f"{inner}</TABLE>>"
     )
 
 
