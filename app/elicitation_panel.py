@@ -42,10 +42,15 @@ from src.elicitation.integration import (
 from src.elicitation.integration.framework import ModelSpec
 from src.elicitation.protocols.base import SeedQuestion
 from src.scenario import LATENT, build_network
+from packs.registry import active_pack_id
 from src.network_spec import NetworkSpec
 
 RUNS_DIR = _REPO_ROOT / "data" / "elicitation_runs"
-SEEDS_PATH = _REPO_ROOT / "data" / "elicitation_seeds.json"
+# Saved seeds are pack-scoped: each scenario's calibration questions are domain-
+# matched (methodology §8.3), so a set saved for one pack must not leak into
+# another. The unsuffixed legacy path is kept as a read fallback for hormuz only.
+SEEDS_PATH = _REPO_ROOT / "data" / f"elicitation_seeds_{active_pack_id()}.json"
+_LEGACY_SEEDS_PATH = _REPO_ROOT / "data" / "elicitation_seeds.json"
 
 
 def definitional_nodes(topology: str) -> set[str]:
@@ -61,9 +66,13 @@ def definitional_nodes(topology: str) -> set[str]:
 def current_seeds() -> list[SeedQuestion]:
     """The analyst's saved seed set once they have saved one — even an *empty* set,
     which means 'run equal-weighted, no calibration'. A saved set fully *replaces*
-    the illustrative defaults; the defaults are used only when nothing is saved yet."""
+    the illustrative defaults; the defaults are used only when nothing is saved yet.
+    The path is pack-scoped, so one pack's saved seeds never surface under another."""
     if SEEDS_PATH.exists():
         return load_seeds(SEEDS_PATH)
+    # One-time migration: the original (unsuffixed) file held hormuz seeds.
+    if active_pack_id() == "hormuz" and _LEGACY_SEEDS_PATH.exists():
+        return load_seeds(_LEGACY_SEEDS_PATH)
     return default_seeds()
 
 

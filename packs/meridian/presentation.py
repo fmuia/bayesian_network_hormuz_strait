@@ -32,9 +32,12 @@ ROOT_DRIVER_COLORS = {
 }
 
 # --- audit-view intermediate-node ordering (non-root, non-latent) ----------
+# mechanisms → indicator → emissions → impacts, top-to-bottom of the DAG.
 INTERMEDIATE_NODES = [
-    "Policy_Headlines", "Lead_Time_Slippage", "Force_Majeure_Notices",
-    "Input_Price_Spike", "Expedite_Spend",
+    "Magnet_Supply", "Power_Semi_Supply",
+    "Policy_Headlines",
+    "Lead_Time_Slippage", "Force_Majeure_Notices", "Input_Price_Spike", "Expedite_Spend",
+    "Production_Output", "On_Time_Delivery", "Gross_Margin_Hit",
 ]
 
 # --- deterministic offline (fake) translator keyword map -------------------
@@ -51,15 +54,28 @@ FALLBACK_KEYWORD_MAP = [
 
 # --- edge rationale / omission tables (single topology) --------------------
 _EDGE_RATIONALE = [
-    ("Geo_Exposure", "Disruption_Regime",
-     "Export controls, tariffs and sanctions on critical inputs (e.g. rare-earth "
-     "magnets) raise the prior on a disruption regime before any operational signal."),
-    ("Supplier_Health", "Disruption_Regime",
-     "A financially distressed critical supplier is the single largest driver of "
-     "a supplier-side disruption — weighted highest in the latent CPT."),
-    ("Route_Status", "Disruption_Regime",
-     "Congested or blocked inbound lanes/ports transmit disruption to the network "
-     "even when suppliers are healthy."),
+    # drivers → mechanisms (the two critical-input bottlenecks)
+    ("Geo_Exposure", "Magnet_Supply",
+     "Export controls, tariffs and sanctions on rare-earth elements are the "
+     "dominant driver of magnet availability — weighted highest in the magnet "
+     "mechanism CPT."),
+    ("Supplier_Health", "Magnet_Supply",
+     "A financially distressed magnet supplier tightens magnet availability "
+     "independently of geopolitics."),
+    ("Route_Status", "Power_Semi_Supply",
+     "Congested or blocked inbound lanes are the dominant driver of power-"
+     "semiconductor availability (long Asia/Europe fab-to-plant routes)."),
+    ("Supplier_Health", "Power_Semi_Supply",
+     "A distressed power-semi supplier tightens availability independently of "
+     "logistics — so Supplier_Health couples both bottlenecks."),
+    # mechanisms → regime
+    ("Magnet_Supply", "Disruption_Regime",
+     "Critical magnet supply is the single largest contributor to a disruption "
+     "regime for an EV-motor maker."),
+    ("Power_Semi_Supply", "Disruption_Regime",
+     "Critical power-semiconductor supply pushes the regime toward multi-node "
+     "and severe states."),
+    # regime → emissions
     ("Disruption_Regime", "Lead_Time_Slippage",
      "Emission: the regime drives delivery performance — slippage appears early, "
      "blown lead times concentrate in the Severe regime."),
@@ -67,19 +83,40 @@ _EDGE_RATIONALE = [
      "Emission: clustered force-majeure declarations are characteristic of the "
      "Multi-node and Severe regimes."),
     ("Disruption_Regime", "Input_Price_Spike",
-     "Emission: broad input-price spikes lag but accompany multi-node and severe "
+     "Emission: broad input-price spikes accompany multi-node and severe "
      "disruption."),
+    ("Geo_Exposure", "Input_Price_Spike",
+     "Explaining-away: input prices also move with macro rare-earth pricing, so a "
+     "price spike under high geopolitical exposure is partly explained by geo and "
+     "implicates the regime less."),
     ("Disruption_Regime", "Expedite_Spend",
      "Emission: premium/air-freight spend to recover schedule surges late, in the "
      "Multi-node and Severe regimes."),
+    # regime → impacts → downstream impacts (the P&L story)
+    ("Disruption_Regime", "Production_Output",
+     "Impact: a disrupted regime starves the line of magnets/power-semis, cutting "
+     "buildable units — Halted concentrates in the Severe regime."),
+    ("Production_Output", "On_Time_Delivery",
+     "Impact: lost production flows straight to missed OEM deliveries (and the "
+     "contractual penalties that follow)."),
+    ("Disruption_Regime", "Gross_Margin_Hit",
+     "Impact: the regime hits margin directly via expedite premiums and input-"
+     "price spikes."),
+    ("Production_Output", "Gross_Margin_Hit",
+     "Impact: lost volume compounds the margin hit through fixed-cost under-"
+     "absorption."),
+    # driver indicator
     ("Geo_Exposure", "Policy_Headlines",
      "Indicator: higher geopolitical exposure generates more escalating policy "
      "headlines — the cause-side signal the translator reads."),
 ]
 _EDGE_OMISSIONS = [
-    ("Route_Status", "Input_Price_Spike",
-     "Mediated by the disruption regime: route status reaches prices through the "
-     "overall regime, not directly."),
+    ("Supplier_Health", "Disruption_Regime",
+     "Mediated by the two mechanism nodes: supplier health reaches the regime "
+     "through magnet and power-semi availability, not directly."),
+    ("Disruption_Regime", "On_Time_Delivery",
+     "Mediated by Production_Output: the regime affects deliveries only through "
+     "the volume it removes from the line."),
 ]
 
 EDGE_RATIONALES = {"labelling": _EDGE_RATIONALE, "latent_regime": _EDGE_RATIONALE}
@@ -90,10 +127,30 @@ def _overview_html() -> str:
     return (
         "<div class='explain'>"
         "<p>The Bayesian network tracks a latent <b>Disruption Regime</b> for "
-        "Meridian's EV-motor supply chain, inferred from observable signals given "
-        "three <b>drivers</b> (geopolitical exposure, supplier financial health, "
-        "logistics-route status).</p>"
-        "<h4>Two layers</h4>"
+        "Meridian's EV-motor supply chain. It is a four-layer DAG, not a flat "
+        "classifier — that structure is the point.</p>"
+        "<h4>Four layers</h4>"
+        "<p><b>Drivers</b> (geopolitical exposure, supplier financial health, "
+        "logistics-route status) feed two <b>mechanism</b> nodes — the critical-"
+        "input bottlenecks <code>Magnet_Supply</code> and "
+        "<code>Power_Semi_Supply</code> — which in turn set the <b>regime</b>. The "
+        "regime generates observable <b>emissions</b> (the signals an analyst "
+        "feeds in) and propagates to a downstream <b>impact</b> layer "
+        "(<code>Production_Output → On_Time_Delivery</code>, "
+        "<code>Gross_Margin_Hit</code>) — so a headline updates a P&amp;L-relevant "
+        "node, not just an abstract regime.</p>"
+        "<h4>What the structure buys</h4>"
+        "<ul>"
+        "<li><b>Mechanism</b> — drivers reach the regime through two named "
+        "bottlenecks; <code>Supplier_Health</code> couples both.</li>"
+        "<li><b>Explaining-away</b> — <code>Input_Price_Spike</code> has both the "
+        "regime and <code>Geo_Exposure</code> as parents, so a spike under high "
+        "geopolitical exposure is partly explained by macro rare-earth pricing and "
+        "implicates the regime less.</li>"
+        "<li><b>Diagnostic + predictive flow</b> — feed signals to infer the "
+        "regime, and read the impact layer to price the consequences.</li>"
+        "</ul>"
+        "<h4>Translator</h4>"
         "<p>A free-text headline is passed through an LLM translator that extracts "
         "BN-relevant assignments (e.g. <i>\"magnet lead times stretch to 14 weeks\"</i> "
         "gives high probability to <code>Lead_Time_Slippage = Blown</code>). Those "

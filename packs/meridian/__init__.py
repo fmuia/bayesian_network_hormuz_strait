@@ -25,19 +25,30 @@ from packs.meridian.seeds import ELICITATION_SEEDS
 _LATENT = "Disruption_Regime"
 
 
+# The four read-surface emissions (the only nodes the translator sets evidence
+# on); everything else downstream of the latent is an inferred impact.
+_EMISSION_NODES = {
+    "Lead_Time_Slippage", "Force_Majeure_Notices", "Input_Price_Spike", "Expedite_Spend",
+}
+
+
 def _derive_node_meta(latent, edges_latent, states):
-    parents = {a for a, b in edges_latent if b == latent}
-    children = {b for a, b in edges_latent if a == latent}
+    """Structural roles (display-only). Root drivers have no parents; the two
+    mechanism nodes and the impact chain are intermediates (OTHER); the four
+    observable signals are emissions; Policy_Headlines is a driver indicator."""
+    has_parent = {b for _, b in edges_latent}
     meta = {}
     for node in states:
         if node == latent:
             role = Role.LATENT
-        elif node in parents:
-            role = Role.DRIVER
-        elif node in children:
+        elif node == "Policy_Headlines":
+            role = Role.INDICATOR
+        elif node in _EMISSION_NODES:
             role = Role.EMISSION
+        elif node not in has_parent:
+            role = Role.DRIVER
         else:
-            role = Role.INDICATOR if node == "Policy_Headlines" else Role.OTHER
+            role = Role.OTHER  # mechanism + impact nodes
         meta[node] = NodeMeta(label=DISPLAY_OVERRIDES.get(node, node.replace("_", " ")), role=role)
     return meta
 
